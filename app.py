@@ -18,15 +18,15 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS DİZAYN (MOBİL KOMPAKT) ---
+# --- CSS DİZAYN (MOBİL TAM OPTİMİZASİYA) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* Mobil üçün yuxarı boşluğu ləğv etmək (Scroll etməmək üçün) */
+    /* Mobil üçün yuxarı boşluğu ləğv etmək */
     .block-container {
         padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
+        padding-bottom: 2rem !important;
     }
     
     .stApp { background-color: #ffffff; }
@@ -35,13 +35,19 @@ st.markdown("""
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
     p, div { font-family: 'Oswald', sans-serif; }
 
+    /* Logo Mərkəzləşdirmə */
+    [data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
+    }
+
     /* Kofe Grid Sistemi */
     .coffee-grid {
         display: flex;
         justify-content: center;
         gap: 8px;
         margin-bottom: 5px;
-        margin-top: 10px;
+        margin-top: 5px;
     }
     
     .coffee-item {
@@ -61,22 +67,26 @@ st.markdown("""
         text-align: center;
         margin-top: 15px;
         box-shadow: 0 4px 8px rgba(46, 125, 50, 0.25);
+        border: 1px solid #1b5e20;
     }
     
-    /* Qalan Sayğac Mətni */
+    /* Qalan Sayğac Mətni (Qırmızı) */
     .counter-text {
         text-align: center;
-        font-size: 18px;
+        font-size: 19px;
         font-weight: 500;
-        color: #d32f2f; /* Diqqət çəkən qırmızı ton */
-        margin-top: 5px;
+        color: #d32f2f;
+        margin-top: 8px;
     }
+    
+    /* Input Sahəsi (Barista) */
+    .stTextInput input { text-align: center; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- FUNKSİYALAR ---
+
 def get_motivational_msg(stars):
-    # Emosional cümlələr
     if stars == 0: return "YENİ BİR BAŞLANĞIC!"
     if stars < 3: return "KOFE ƏTRİ SƏNİ ÇAĞIRIR..."
     if stars < 5: return "NUŞ OLSUN, DAVAM ET!"
@@ -85,17 +95,16 @@ def get_motivational_msg(stars):
     return "BU GÜNÜN QƏHRƏMANI SƏNSƏN!"
 
 def get_remaining_text(stars):
-    # Ağıllı Sayğac Məntiqi
     left = 10 - stars
     if left > 0:
-        return f"🎁 Hədiyyə üçün daha <b>{left}</b> kofe dadmalısan"
+        return f"🎁 <b>{left}</b> kofedən sonra qonağımızsan"
     else:
-        return "🎉 TƏBRİKLƏR! 10-cu KOFE BİZDƏN!"
+        return "🎉 TƏBRİKLƏR! BU KOFE BİZDƏN!"
 
-# --- STƏKANLARI ÇƏKMƏK ---
+# --- STƏKANLARI ÇƏKMƏK (HTML/CSS) ---
 def render_coffee_grid(stars):
-    active_img = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
-    inactive_img = "https://cdn-icons-png.flaticon.com/512/1174/1174444.png" 
+    active_img = "https://cdn-icons-png.flaticon.com/512/751/751621.png" # Rəngli
+    inactive_img = "https://cdn-icons-png.flaticon.com/512/1174/1174444.png" # Boz
 
     html_content = ""
     for row in range(2):
@@ -107,51 +116,61 @@ def render_coffee_grid(stars):
             else:
                 html_content += f'<img src="{inactive_img}" class="coffee-item" style="opacity: 0.25;">'
         html_content += '</div>'
+    
     st.markdown(html_content, unsafe_allow_html=True)
 
-# --- LOGO (KİÇİLDİLMİŞ) ---
+# --- LOGO ---
 def show_logo(location="main"):
     try:
         if location == "sidebar":
             st.sidebar.image("emalatxana.png", use_container_width=True)
         else:
-            # Mobil üçün mərkəzləşmiş və kiçik logo (width=160 idealdır)
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image("emalatxana.png", width=160) 
+            # Mobil üçün ideal ölçü: 180px
+            st.image("emalatxana.png", width=180) 
     except: pass
 
-# --- SCAN (BARISTA) ---
+# --- SCAN PROSESİ (BARISTA) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
+    
     if scan_code and supabase:
+        # 1. Müştərini tap
         res = supabase.table("customers").select("*").eq("card_id", scan_code).execute()
         current_stars = res.data[0]['stars'] if res.data else 0
         
+        # 2. Hesabla
         new_stars = current_stars + 1
         is_free = False
         msg_type = "success"
         
         if new_stars >= 10:
-            new_stars = 0
+            new_stars = 0 
             is_free = True
             msg = "🎁 PULSUZ KOFE!"
             msg_type = "error"
         else:
             msg = f"✅ Əlavə olundu. (Cəmi: {new_stars})"
             
+        # 3. Bazaya yaz
         data = {"card_id": scan_code, "stars": new_stars, "last_visit": datetime.now().isoformat()}
         supabase.table("customers").upsert(data).execute()
-        st.session_state['last_result'] = {"msg": msg, "type": msg_type, "card": scan_code, "time": datetime.now().strftime("%H:%M:%S")}
+        
+        # 4. Mesajı yadda saxla
+        st.session_state['last_result'] = {
+            "msg": msg, "type": msg_type, "card": scan_code, 
+            "time": datetime.now().strftime("%H:%M:%S")
+        }
+        
     st.session_state.scanner_input = ""
 
 # --- ƏSAS PROQRAM ---
 query_params = st.query_params
 card_id = query_params.get("id", None)
 
+# ================================
 # === MÜŞTƏRİ PORTALI (MOBİL) ===
+# ================================
 if card_id:
-    # 1. Logo (Kiçik)
     show_logo("main")
     
     if supabase:
@@ -159,17 +178,13 @@ if card_id:
         user_data = response.data[0] if response.data else None
         stars = user_data['stars'] if user_data else 0
         
-        # 2. Başlıq
         st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #333;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
         
-        # 3. Grid (Stəkanlar)
         render_coffee_grid(stars)
         
-        # 4. Sayğac (Qırmızı yazı)
         remaining_msg = get_remaining_text(stars)
         st.markdown(f"<div class='counter-text'>{remaining_msg}</div>", unsafe_allow_html=True)
 
-        # 5. Emosional Mesaj (Yaşıl Qutu)
         emotional_note = get_motivational_msg(stars)
         st.markdown(f"""
             <div class="promo-box">
@@ -179,9 +194,12 @@ if card_id:
             </div>
         """, unsafe_allow_html=True)
         
-        if stars == 0 and user_data: st.balloons()
+        if stars == 0 and user_data: 
+            st.balloons()
 
+# ==============================
 # === BARISTA PANELİ (PC) ===
+# ==============================
 else:
     show_logo("sidebar")
     st.sidebar.header("🔐 Giriş")
@@ -195,6 +213,7 @@ else:
             st.rerun()
     else:
         st.title("☕ Terminal")
+        
         st.text_input("Barkod:", key="scanner_input", on_change=process_scan)
         
         if 'last_result' in st.session_state:
@@ -206,5 +225,7 @@ else:
                 st.success(res['msg'])
             
         st.divider()
-        recent = supabase.table("customers").select("*").order("last_visit", desc=True).limit(5).execute()
-        st.dataframe(recent.data)
+        st.caption("Son aktivliklər:")
+        if supabase:
+            recent = supabase.table("customers").select("*").order("last_visit", desc=True).limit(5).execute()
+            st.dataframe(recent.data)
