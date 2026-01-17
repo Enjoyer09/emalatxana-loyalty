@@ -18,14 +18,15 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS DİZAYN (MOBİL TAM OPTİMİZASİYA) ---
+# --- CSS DİZAYN (MOBİL TAM OPTİMİZASİYA - DÜZƏLDİLMİŞ) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* Mobil üçün yuxarı boşluğu ləğv etmək */
+    /* Mobil üçün yuxarı boşluğu tənzimləmək */
+    /* DÜZƏLİŞ: Padding-top artırıldı ki, loqo kəsilməsin */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 3.5rem !important; 
         padding-bottom: 2rem !important;
     }
     
@@ -129,7 +130,7 @@ def show_logo(location="main"):
             st.image("emalatxana.png", width=180) 
     except: pass
 
-# --- SCAN PROSESİ (BARISTA) ---
+# --- SCAN PROSESİ (BARİSTA) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
     
@@ -198,7 +199,7 @@ if card_id:
             st.balloons()
 
 # ==============================
-# === BARISTA PANELİ (PC) ===
+# === BARİSTA PANELİ (PC) ===
 # ==============================
 else:
     show_logo("sidebar")
