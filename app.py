@@ -18,16 +18,23 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS DİZAYN (MOBİL TAM OPTİMİZASİYA - DÜZƏLDİLMİŞ) ---
+# --- CSS DİZAYN (APP GÖRÜNÜŞÜ) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* Mobil üçün yuxarı boşluğu tənzimləmək */
-    /* DÜZƏLİŞ: Padding-top artırıldı ki, loqo kəsilməsin */
+    /* 1. Yuxarıdakı Menyu və Fork düyməsini gizlətmək */
+    header { visibility: hidden !important; height: 0px !important; }
+    .stApp > header { display: none !important; }
+
+    /* 2. Aşağıdakı Streamlit yazısını gizlətmək */
+    footer { visibility: hidden !important; height: 0px !important; }
+    #MainMenu { visibility: hidden !important; }
+    
+    /* 3. Ekran boşluqlarını tənzimləmək (Header yoxdur deyə azaldırıq) */
     .block-container {
-        padding-top: 3.5rem !important; 
-        padding-bottom: 2rem !important;
+        padding-top: 1.5rem !important; 
+        padding-bottom: 1rem !important;
     }
     
     .stApp { background-color: #ffffff; }
@@ -37,10 +44,7 @@ st.markdown("""
     p, div { font-family: 'Oswald', sans-serif; }
 
     /* Logo Mərkəzləşdirmə */
-    [data-testid="stImage"] {
-        display: flex;
-        justify-content: center;
-    }
+    [data-testid="stImage"] { display: flex; justify-content: center; }
 
     /* Kofe Grid Sistemi */
     .coffee-grid {
@@ -48,7 +52,7 @@ st.markdown("""
         justify-content: center;
         gap: 8px;
         margin-bottom: 5px;
-        margin-top: 5px;
+        margin-top: 10px;
     }
     
     .coffee-item {
@@ -66,7 +70,7 @@ st.markdown("""
         padding: 15px;
         border-radius: 12px;
         text-align: center;
-        margin-top: 15px;
+        margin-top: 20px;
         box-shadow: 0 4px 8px rgba(46, 125, 50, 0.25);
         border: 1px solid #1b5e20;
     }
@@ -126,11 +130,11 @@ def show_logo(location="main"):
         if location == "sidebar":
             st.sidebar.image("emalatxana.png", use_container_width=True)
         else:
-            # Mobil üçün ideal ölçü: 180px
-            st.image("emalatxana.png", width=180) 
+            # Mobil üçün ideal ölçü: 160px
+            st.image("emalatxana.png", width=160) 
     except: pass
 
-# --- SCAN PROSESİ (BARİSTA) ---
+# --- SCAN PROSESİ (BARISTA) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
     
@@ -199,7 +203,7 @@ if card_id:
             st.balloons()
 
 # ==============================
-# === BARİSTA PANELİ (PC) ===
+# === BARISTA PANELİ (PC) ===
 # ==============================
 else:
     show_logo("sidebar")
