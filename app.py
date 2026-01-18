@@ -18,112 +18,65 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS DİZAYN (TAM GİZLİLİK VƏ APP GÖRÜNÜŞÜ) ---
+# --- CSS DİZAYN (TAM GİZLİLİK - PROBLEM HƏLLİ İLƏ) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* === GİZLƏTMƏ KODLARI (Sistem Düymələri) === */
-    
-    /* Yuxarıdakı Header (Fork, Menu, GitHub) */
-    header[data-testid="stHeader"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* Yuxarı sağdakı rəngli xətt */
-    div[data-testid="stDecoration"] {
-        display: none !important;
-    }
-
-    /* Aşağıdakı Footer (Made with Streamlit) */
-    footer {
-        display: none !important;
-        visibility: hidden !important;
-    }
-
-    /* Aşağı Sağdakı Toolbar (Qırmızı Tac, Deploy, Running Man) */
-    div[data-testid="stToolbar"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    div[class*="stAppDeployButton"] {
-        display: none !important;
-    }
-    div[data-testid="stStatusWidget"] {
-        display: none !important;
-    }
-    
+    /* === GİZLƏTMƏ KODLARI === */
+    header[data-testid="stHeader"], 
+    div[data-testid="stDecoration"],
+    footer, 
+    div[data-testid="stToolbar"],
+    div[class*="stAppDeployButton"],
+    div[data-testid="stStatusWidget"],
     #MainMenu {
-        visibility: hidden !important;
         display: none !important;
+        visibility: hidden !important;
     }
 
-    /* === DİZAYN TƏNZİMLƏMƏLƏRİ === */
-
-    /* Mobil üçün boşluqlar (Header gizləndiyi üçün yuxarını tənzimləyirik) */
+    /* === DİZAYN === */
     .block-container {
-        padding-top: 1.5rem !important; 
-        padding-bottom: 1rem !important;
+        padding-top: 2rem !important; 
+        padding-bottom: 2rem !important;
     }
     
     .stApp { background-color: #ffffff; }
 
-    /* Fontlar */
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
     p, div { font-family: 'Oswald', sans-serif; }
 
-    /* Logo Mərkəzləşdirmə */
-    [data-testid="stImage"] {
-        display: flex;
-        justify-content: center;
-    }
+    /* Mərkəzləşdirmə */
+    [data-testid="stImage"] { display: flex; justify-content: center; }
+    
+    /* Login Ekranı üçün */
+    .login-header { text-align: center; margin-bottom: 20px; }
 
-    /* Kofe Grid Sistemi */
+    /* Kofe Grid */
     .coffee-grid {
-        display: flex;
-        justify-content: center;
-        gap: 8px;
-        margin-bottom: 5px;
-        margin-top: 5px;
+        display: flex; justify-content: center; gap: 8px;
+        margin-bottom: 5px; margin-top: 5px;
     }
-    
-    .coffee-item {
-        width: 17%; 
-        max-width: 50px;
-        transition: transform 0.2s ease;
-    }
-    
+    .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
     .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
 
-    /* Yaşıl Mesaj Qutusu */
+    /* Promo Box */
     .promo-box {
-        background-color: #2e7d32;
-        color: white;
-        padding: 15px;
-        border-radius: 12px;
-        text-align: center;
-        margin-top: 15px;
-        box-shadow: 0 4px 8px rgba(46, 125, 50, 0.25);
-        border: 1px solid #1b5e20;
+        background-color: #2e7d32; color: white; padding: 15px;
+        border-radius: 12px; text-align: center; margin-top: 15px;
+        box-shadow: 0 4px 8px rgba(46, 125, 50, 0.25); border: 1px solid #1b5e20;
     }
     
-    /* Qalan Sayğac Mətni (Qırmızı) */
     .counter-text {
-        text-align: center;
-        font-size: 19px;
-        font-weight: 500;
-        color: #d32f2f;
-        margin-top: 8px;
+        text-align: center; font-size: 19px; font-weight: 500;
+        color: #d32f2f; margin-top: 8px;
     }
     
-    /* Input Sahəsi (Barista) */
     .stTextInput input { text-align: center; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- FUNKSİYALAR ---
-
 def get_motivational_msg(stars):
     if stars == 0: return "YENİ BİR BAŞLANĞIC!"
     if stars < 3: return "KOFE ƏTRİ SƏNİ ÇAĞIRIR..."
@@ -134,95 +87,63 @@ def get_motivational_msg(stars):
 
 def get_remaining_text(stars):
     left = 10 - stars
-    if left > 0:
-        return f"🎁 <b>{left}</b> kofedən sonra qonağımızsan"
-    else:
-        return "🎉 TƏBRİKLƏR! BU KOFE BİZDƏN!"
+    if left > 0: return f"🎁 <b>{left}</b> kofedən sonra qonağımızsan"
+    else: return "🎉 TƏBRİKLƏR! BU KOFE BİZDƏN!"
 
-# --- STƏKANLARI ÇƏKMƏK (HTML/CSS) ---
 def render_coffee_grid(stars):
-    active_img = "https://cdn-icons-png.flaticon.com/512/751/751621.png" # Rəngli
-    inactive_img = "https://cdn-icons-png.flaticon.com/512/1174/1174444.png" # Boz
-
+    active_img = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+    inactive_img = "https://cdn-icons-png.flaticon.com/512/1174/1174444.png"
     html_content = ""
     for row in range(2):
         html_content += '<div class="coffee-grid">'
         for col in range(5):
             idx = (row * 5) + col + 1 
-            if idx <= stars:
-                html_content += f'<img src="{active_img}" class="coffee-item active">'
-            else:
-                html_content += f'<img src="{inactive_img}" class="coffee-item" style="opacity: 0.25;">'
+            if idx <= stars: html_content += f'<img src="{active_img}" class="coffee-item active">'
+            else: html_content += f'<img src="{inactive_img}" class="coffee-item" style="opacity: 0.25;">'
         html_content += '</div>'
-    
     st.markdown(html_content, unsafe_allow_html=True)
 
-# --- LOGO ---
-def show_logo(location="main"):
-    try:
-        if location == "sidebar":
-            st.sidebar.image("emalatxana.png", use_container_width=True)
-        else:
-            # Mobil üçün ideal ölçü
-            st.image("emalatxana.png", width=180) 
+def show_logo():
+    try: st.image("emalatxana.png", width=180) 
     except: pass
 
-# --- SCAN PROSESİ (BARİSTA) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
-    
     if scan_code and supabase:
-        # 1. Müştərini tap
         res = supabase.table("customers").select("*").eq("card_id", scan_code).execute()
         current_stars = res.data[0]['stars'] if res.data else 0
         
-        # 2. Hesabla
         new_stars = current_stars + 1
         is_free = False
         msg_type = "success"
         
         if new_stars >= 10:
-            new_stars = 0 
-            is_free = True
-            msg = "🎁 PULSUZ KOFE!"
-            msg_type = "error"
+            new_stars = 0; is_free = True; msg = "🎁 PULSUZ KOFE!"; msg_type = "error"
         else:
             msg = f"✅ Əlavə olundu. (Cəmi: {new_stars})"
             
-        # 3. Bazaya yaz
         data = {"card_id": scan_code, "stars": new_stars, "last_visit": datetime.now().isoformat()}
         supabase.table("customers").upsert(data).execute()
         
-        # 4. Mesajı yadda saxla
-        st.session_state['last_result'] = {
-            "msg": msg, "type": msg_type, "card": scan_code, 
-            "time": datetime.now().strftime("%H:%M:%S")
-        }
-        
+        st.session_state['last_result'] = {"msg": msg, "type": msg_type, "card": scan_code, "time": datetime.now().strftime("%H:%M:%S")}
     st.session_state.scanner_input = ""
 
 # --- ƏSAS PROQRAM ---
 query_params = st.query_params
 card_id = query_params.get("id", None)
 
-# ================================
-# === MÜŞTƏRİ PORTALI (MOBİL) ===
-# ================================
+# === MÜŞTƏRİ PANELİ ===
 if card_id:
-    show_logo("main")
-    
+    show_logo()
     if supabase:
         response = supabase.table("customers").select("*").eq("card_id", card_id).execute()
         user_data = response.data[0] if response.data else None
         stars = user_data['stars'] if user_data else 0
         
         st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #333;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
-        
         render_coffee_grid(stars)
+        st.markdown(f"<div class='counter-text'>{get_remaining_text(stars)}</div>", unsafe_allow_html=True)
         
-        remaining_msg = get_remaining_text(stars)
-        st.markdown(f"<div class='counter-text'>{remaining_msg}</div>", unsafe_allow_html=True)
-
         emotional_note = get_motivational_msg(stars)
         st.markdown(f"""
             <div class="promo-box">
@@ -231,29 +152,34 @@ if card_id:
                 <div style="font-size: 16px; opacity: 0.9;">Sən kofeni sevirsən, biz isə səni!</div>
             </div>
         """, unsafe_allow_html=True)
-        
-        if stars == 0 and user_data: 
-            st.balloons()
+        if stars == 0 and user_data: st.balloons()
 
-# ==============================
-# === BARİSTA PANELİ (PC) ===
-# ==============================
+# === BARISTA PANELİ (DÜZƏLDİLMİŞ) ===
 else:
-    show_logo("sidebar")
-    st.sidebar.header("🔐 Giriş")
-    
-    if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+    # Login yoxlaması
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
 
     if not st.session_state.logged_in:
-        pwd = st.sidebar.text_input("Şifrə", type="password")
+        # --- LOGİN EKRANI (Sidebar yox, Əsas Ekran) ---
+        show_logo()
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<h3 class='login-header'>PERSONAL GİRİŞİ</h3>", unsafe_allow_html=True)
+        
+        pwd = st.text_input("Şifrəni daxil edin", type="password", label_visibility="collapsed")
+        
         if pwd == "1234":
             st.session_state.logged_in = True
             st.rerun()
+            
     else:
-        st.title("☕ Terminal")
+        # --- TERMİNAL EKRANI ---
+        show_logo()
+        st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
         
-        st.text_input("Barkod:", key="scanner_input", on_change=process_scan)
-        
+        st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
+        st.caption("Skaneri aktivləşdirib barkodu oxudun")
+
         if 'last_result' in st.session_state:
             res = st.session_state['last_result']
             if res['type'] == 'error':
@@ -261,9 +187,8 @@ else:
                 st.balloons()
             else:
                 st.success(res['msg'])
-            
+        
         st.divider()
-        st.caption("Son aktivliklər:")
         if supabase:
             recent = supabase.table("customers").select("*").order("last_visit", desc=True).limit(5).execute()
-            st.dataframe(recent.data)
+            st.dataframe(recent.data, use_container_width=True)
