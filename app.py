@@ -22,39 +22,40 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CSS DİZAYN (APP GÖRÜNÜŞÜ) ---
+# --- CSS DİZAYN (APP GÖRÜNÜŞÜ & TAM GİZLİLİK) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* GİZLƏTMƏ KODLARI */
+    /* GİZLƏTMƏ KODLARI (Header, Footer, Toolbar) */
     header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
     div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
     div[data-testid="stStatusWidget"], #MainMenu {
         display: none !important; visibility: hidden !important;
     }
 
-    /* DİZAYN */
+    /* DİZAYN TƏNZİMLƏMƏLƏRİ */
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
     .stApp { background-color: #ffffff; }
-    h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
-    p, div, button, input { font-family: 'Oswald', sans-serif; }
     
+    /* Fontlar */
+    h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
+    p, div, button, input, li { font-family: 'Oswald', sans-serif; }
+    
+    /* Logo Mərkəzləşdirmə */
     [data-testid="stImage"] { display: flex; justify-content: center; }
     .login-header { text-align: center; margin-bottom: 20px; }
 
-    /* Kofe Grid */
+    /* Kofe Grid Sistemi */
     .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
     .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
     .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
 
-    /* Admin Paneli üçün Stillər */
-    .admin-box { border: 1px solid #ddd; padding: 15px; border-radius: 10px; background-color: #f9f9f9; margin-bottom: 10px; }
-
-    /* Mesajlar */
+    /* Mesaj Qutuları */
     .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
     
+    /* Form Elementleri */
     .stTextInput input { text-align: center; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
@@ -112,6 +113,7 @@ def process_scan():
         if new_stars >= 10:
             new_stars = 0; is_free = True; msg = "🎁 PULSUZ KOFE VERİLDİ!"; type = "error"; action = "Free Coffee"
             
+        # Bazaları Yenilə
         supabase.table("customers").upsert({"card_id": scan_code, "stars": new_stars, "last_visit": datetime.now().isoformat()}).execute()
         supabase.table("logs").insert({"staff_name": user, "card_id": scan_code, "action_type": action}).execute()
         
@@ -121,7 +123,9 @@ def process_scan():
 # --- ƏSAS PROQRAM ---
 query_params = st.query_params
 
-# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ ===
+# ================================
+# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ (MOBİL) ===
+# ================================
 if "id" in query_params:
     card_id = query_params["id"]
     show_logo()
@@ -130,10 +134,12 @@ if "id" in query_params:
         user_data = response.data[0] if response.data else None
         stars = user_data['stars'] if user_data else 0
         
+        # Başlıq və Grid
         st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #333;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
         render_coffee_grid(stars)
         st.markdown(f"<div class='counter-text'>{get_remaining_text(stars)}</div>", unsafe_allow_html=True)
         
+        # Emosional Mesaj
         st.markdown(f"""
             <div class="promo-box">
                 <div style="font-size: 24px;">🌿</div>
@@ -141,27 +147,58 @@ if "id" in query_params:
                 <div style="font-size: 16px; opacity: 0.9;">Sən kofeni sevirsən, biz isə səni!</div>
             </div>
         """, unsafe_allow_html=True)
+
+        # Kartı Yükləmə Düyməsi
+        st.markdown("<br>", unsafe_allow_html=True)
+        card_link = f"https://emalatxana-loyalty.streamlit.app/?id={card_id}"
+        qr_bytes = generate_qr_image(card_link)
+        
+        st.download_button(
+            label="📥 Kartı Şəkil Kimi Yüklə",
+            data=qr_bytes,
+            file_name=f"emalatxana_{card_id}.png",
+            mime="image/png",
+            use_container_width=True
+        )
+
+        # App kimi quraşdırma təlimatı
+        with st.expander("📲 Kartı tətbiq kimi əlavə et"):
+            st.markdown("""
+            <div style="font-size: 14px; line-height: 1.6;">
+            <b>🍏 iPhone (iOS):</b><br>
+            1. Aşağıdakı <b>Paylaş (Share)</b> düyməsinə basın.<br>
+            2. <b>"Add to Home Screen"</b> seçin.<br>
+            3. <b>"Add"</b> vurun.<br><br>
+            <b>🤖 Android:</b><br>
+            1. Yuxarıdakı <b>3 Nöqtə</b> düyməsinə basın.<br>
+            2. <b>"Install App"</b> və ya <b>"Add to Home Screen"</b> seçin.
+            </div>
+            """, unsafe_allow_html=True)
+        
         if stars == 0 and user_data: st.balloons()
 
-# === 2. SISTEM GÖRÜNÜŞÜ ===
+# ================================
+# === 2. SİSTEM GÖRÜNÜŞÜ (ADMIN/STAFF) ===
+# ================================
 else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
-    # A. ADMİN YOXLAMASI
+    # A. ADMİN YOXLAMASI (İLK DƏFƏ)
     admin_check = supabase.table("users").select("*").eq("role", "admin").execute()
     
     if not admin_check.data:
         show_logo()
-        st.warning("⚠️ Sistemdə Admin yoxdur. Zəhmət olmasa yaradın.")
+        st.warning("⚠️ Admin yoxdur. Zəhmət olmasa yaradın.")
         with st.form("create_admin"):
-            new_admin_user = st.text_input("Admin İstifadəçi Adı", value="Admin")
-            new_admin_pass = st.text_input("Admin Şifrəsi", type="password")
-            if st.form_submit_button("Admin Yarat"):
+            new_admin_user = st.text_input("Admin Adı", value="Admin")
+            new_admin_pass = st.text_input("Şifrə", type="password")
+            if st.form_submit_button("Yarat"):
                 supabase.table("users").insert({"username": new_admin_user, "password": new_admin_pass, "role": "admin"}).execute()
-                st.success("Admin yaradıldı! İndi giriş edin.")
+                st.success("Admin yaradıldı! Giriş edin.")
+                time.sleep(1)
                 st.rerun()
                 
-    # B. LOGİN EKRANI (ENTER AKTİV EDİLDİ)
+    # B. LOGİN EKRANI
     elif not st.session_state.logged_in:
         show_logo()
         st.markdown("<br><h3 class='login-header'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
@@ -169,12 +206,9 @@ else:
         users_res = supabase.table("users").select("username").execute()
         user_list = [u['username'] for u in users_res.data]
         
-        # FORM BAŞLAYIR (Bu hissə Enter-i aktiv edir)
         with st.form("login_form"):
             selected_user = st.selectbox("İstifadəçi:", user_list)
             pwd = st.text_input("Şifrə:", type="password")
-            
-            # Bu düymə form submit edir
             submit_login = st.form_submit_button("DAXİL OL", use_container_width=True)
         
         if submit_login:
@@ -200,10 +234,11 @@ else:
             
         show_logo()
 
+        # === ADMİN PANELİ ===
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Log", "🖨️ QR Generator"])
+            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza", "🖨️ QR Generator"])
             
-            with tabs[0]:
+            with tabs[0]: # Terminal
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
                 st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
                 if 'last_result' in st.session_state:
@@ -211,7 +246,7 @@ else:
                     if res['type'] == 'error': st.error(res['msg']); st.balloons()
                     else: st.success(res['msg'])
 
-            with tabs[1]:
+            with tabs[1]: # İdarəetmə
                 st.markdown("### 🔐 Şifrə Dəyişimi")
                 users_res = supabase.table("users").select("username").neq("role", "admin").execute()
                 staff_list = [u['username'] for u in users_res.data]
@@ -221,7 +256,7 @@ else:
                 
                 if st.button("Şifrəni Yenilə"):
                     supabase.table("users").update({"password": new_pass}).eq("username", target_user).execute()
-                    st.success(f"{target_user} üçün şifrə yeniləndi!")
+                    st.success(f"{target_user} şifrəsi yeniləndi!")
                     
                 st.divider()
                 st.markdown("### ➕ Yeni İşçi")
@@ -233,34 +268,34 @@ else:
                         st.success("İşçi əlavə olundu!")
                         time.sleep(1)
                         st.rerun()
-                    except:
-                        st.error("Xəta: Bu ad artıq var ola bilər.")
+                    except: st.error("Xəta: Bu ad artıq mövcuddur.")
 
-            with tabs[2]:
-                st.markdown("### 📋 Əməliyyat Tarixçəsi (Logs)")
+            with tabs[2]: # Baza & Log
+                st.markdown("### 📋 Log Tarixçəsi")
                 logs = supabase.table("logs").select("*").order("created_at", desc=True).limit(50).execute()
                 st.dataframe(pd.DataFrame(logs.data), use_container_width=True)
                 
                 st.divider()
-                st.markdown("### 👥 Müştəri Bazası")
+                st.markdown("### 👥 Müştərilər")
                 custs = supabase.table("customers").select("*").order("last_visit", desc=True).execute()
                 st.dataframe(pd.DataFrame(custs.data), use_container_width=True)
 
-            with tabs[3]:
-                st.markdown("### 🖨️ QR Kart Yarat")
-                count = st.number_input("Neçə ədəd kart lazımdır?", min_value=1, max_value=20, value=1)
-                if st.button("Kartları Yarat"):
+            with tabs[3]: # QR Generator
+                st.markdown("### 🖨️ Kart Yarat")
+                count = st.number_input("Say:", min_value=1, max_value=20, value=1)
+                if st.button("Yarat"):
                     for i in range(count):
-                        random_id = str(random.randint(10000000, 99999999))
-                        link = f"https://emalatxana-loyalty.streamlit.app/?id={random_id}"
+                        r_id = str(random.randint(10000000, 99999999))
+                        link = f"https://emalatxana-loyalty.streamlit.app/?id={r_id}"
                         qr_bytes = generate_qr_image(link)
                         st.divider()
-                        col_qr, col_info = st.columns([1, 2])
-                        with col_qr: st.image(qr_bytes, width=150)
-                        with col_info:
-                            st.markdown(f"**ID:** `{random_id}`")
-                            st.download_button("⬇️ Yüklə", data=qr_bytes, file_name=f"{random_id}.png", mime="image/png")
+                        c1, c2 = st.columns([1, 2])
+                        with c1: st.image(qr_bytes, width=150)
+                        with c2:
+                            st.markdown(f"**ID:** `{r_id}`")
+                            st.download_button("⬇️ Yüklə", data=qr_bytes, file_name=f"{r_id}.png", mime="image/png")
 
+        # === STAFF PANELİ ===
         else:
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
             st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
