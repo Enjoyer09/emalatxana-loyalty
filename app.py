@@ -3,6 +3,9 @@ from supabase import create_client, Client
 from datetime import datetime
 import time
 import pandas as pd
+import random
+import qrcode
+from io import BytesIO
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
@@ -84,6 +87,16 @@ def render_coffee_grid(stars):
         html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
+# QR Kod Yaratmaq Funksiyası
+def generate_qr_image(data):
+    qr = qrcode.QRCode(box_size=10, border=2)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
 # --- SCAN PROSESİ ---
 def process_scan():
     scan_code = st.session_state.scanner_input
@@ -155,7 +168,6 @@ else:
         show_logo()
         st.markdown("<br><h3 class='login-header'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
         
-        # İstifadəçiləri çək
         users_res = supabase.table("users").select("username").execute()
         user_list = [u['username'] for u in users_res.data]
         
@@ -163,7 +175,6 @@ else:
         pwd = st.text_input("Şifrə:", type="password")
         
         if st.button("DAXİL OL", use_container_width=True):
-            # Şifrəni yoxla
             check = supabase.table("users").select("*").eq("username", selected_user).eq("password", pwd).execute()
             if check.data:
                 st.session_state.logged_in = True
@@ -178,7 +189,6 @@ else:
         role = st.session_state.role
         user = st.session_state.current_user
         
-        # ÜST PANEL
         col1, col2 = st.columns([3,1])
         col1.write(f"👤 **{user}** ({role.upper()})")
         if col2.button("Çıxış"):
@@ -187,9 +197,9 @@ else:
             
         show_logo()
 
-        # === MENYULAR (ADMİN VS STAFF) ===
+        # === MENYULAR ===
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Log"])
+            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Log", "🖨️ QR Generator"])
             
             # TAB 1: TERMİNAL
             with tabs[0]:
@@ -238,6 +248,32 @@ else:
                 custs = supabase.table("customers").select("*").order("last_visit", desc=True).execute()
                 df_cust = pd.DataFrame(custs.data)
                 st.dataframe(df_cust, use_container_width=True)
+
+            # TAB 4: QR GENERATOR (YENİ)
+            with tabs[3]:
+                st.markdown("### 🖨️ QR Kart Yarat")
+                st.caption("Avtomatik olaraq təsadüfi (random) müştəri kodu və QR yaradacaq.")
+                
+                count = st.number_input("Neçə ədəd kart lazımdır?", min_value=1, max_value=20, value=1)
+                
+                if st.button("Kartları Yarat"):
+                    for i in range(count):
+                        # 8 rəqəmli random kod
+                        random_id = str(random.randint(10000000, 99999999))
+                        link = f"https://emalatxana-loyalty.streamlit.app/?id={random_id}"
+                        
+                        # QR Yarat
+                        qr_bytes = generate_qr_image(link)
+                        
+                        # Ekrana bas
+                        st.divider()
+                        col_qr, col_info = st.columns([1, 2])
+                        with col_qr:
+                            st.image(qr_bytes, width=150)
+                        with col_info:
+                            st.markdown(f"**ID:** `{random_id}`")
+                            st.caption(f"Link: {link}")
+                            st.download_button(label="⬇️ Şəkli Yüklə", data=qr_bytes, file_name=f"{random_id}.png", mime="image/png")
 
         # === STAFF GÖRÜNÜŞÜ (SADƏ) ===
         else:
