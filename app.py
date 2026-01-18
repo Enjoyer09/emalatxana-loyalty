@@ -87,7 +87,6 @@ def render_coffee_grid(stars):
         html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
-# QR Kod Yaratmaq Funksiyası
 def generate_qr_image(data):
     qr = qrcode.QRCode(box_size=10, border=2)
     qr.add_data(data)
@@ -113,7 +112,6 @@ def process_scan():
         if new_stars >= 10:
             new_stars = 0; is_free = True; msg = "🎁 PULSUZ KOFE VERİLDİ!"; type = "error"; action = "Free Coffee"
             
-        # Bazaları Yenilə
         supabase.table("customers").upsert({"card_id": scan_code, "stars": new_stars, "last_visit": datetime.now().isoformat()}).execute()
         supabase.table("logs").insert({"staff_name": user, "card_id": scan_code, "action_type": action}).execute()
         
@@ -149,7 +147,7 @@ if "id" in query_params:
 else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
-    # A. ADMİN YOXLAMASI (İLK GİRİŞ)
+    # A. ADMİN YOXLAMASI
     admin_check = supabase.table("users").select("*").eq("role", "admin").execute()
     
     if not admin_check.data:
@@ -163,7 +161,7 @@ else:
                 st.success("Admin yaradıldı! İndi giriş edin.")
                 st.rerun()
                 
-    # B. LOGİN EKRANI
+    # B. LOGİN EKRANI (ENTER AKTİV EDİLDİ)
     elif not st.session_state.logged_in:
         show_logo()
         st.markdown("<br><h3 class='login-header'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
@@ -171,10 +169,15 @@ else:
         users_res = supabase.table("users").select("username").execute()
         user_list = [u['username'] for u in users_res.data]
         
-        selected_user = st.selectbox("İstifadəçi:", user_list)
-        pwd = st.text_input("Şifrə:", type="password")
+        # FORM BAŞLAYIR (Bu hissə Enter-i aktiv edir)
+        with st.form("login_form"):
+            selected_user = st.selectbox("İstifadəçi:", user_list)
+            pwd = st.text_input("Şifrə:", type="password")
+            
+            # Bu düymə form submit edir
+            submit_login = st.form_submit_button("DAXİL OL", use_container_width=True)
         
-        if st.button("DAXİL OL", use_container_width=True):
+        if submit_login:
             check = supabase.table("users").select("*").eq("username", selected_user).eq("password", pwd).execute()
             if check.data:
                 st.session_state.logged_in = True
@@ -197,11 +200,9 @@ else:
             
         show_logo()
 
-        # === MENYULAR ===
         if role == 'admin':
             tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Log", "🖨️ QR Generator"])
             
-            # TAB 1: TERMİNAL
             with tabs[0]:
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
                 st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
@@ -210,7 +211,6 @@ else:
                     if res['type'] == 'error': st.error(res['msg']); st.balloons()
                     else: st.success(res['msg'])
 
-            # TAB 2: USER İDARƏETMƏSİ
             with tabs[1]:
                 st.markdown("### 🔐 Şifrə Dəyişimi")
                 users_res = supabase.table("users").select("username").neq("role", "admin").execute()
@@ -236,46 +236,31 @@ else:
                     except:
                         st.error("Xəta: Bu ad artıq var ola bilər.")
 
-            # TAB 3: BAZA VƏ LOG
             with tabs[2]:
                 st.markdown("### 📋 Əməliyyat Tarixçəsi (Logs)")
                 logs = supabase.table("logs").select("*").order("created_at", desc=True).limit(50).execute()
-                df_logs = pd.DataFrame(logs.data)
-                st.dataframe(df_logs, use_container_width=True)
+                st.dataframe(pd.DataFrame(logs.data), use_container_width=True)
                 
                 st.divider()
                 st.markdown("### 👥 Müştəri Bazası")
                 custs = supabase.table("customers").select("*").order("last_visit", desc=True).execute()
-                df_cust = pd.DataFrame(custs.data)
-                st.dataframe(df_cust, use_container_width=True)
+                st.dataframe(pd.DataFrame(custs.data), use_container_width=True)
 
-            # TAB 4: QR GENERATOR (YENİ)
             with tabs[3]:
                 st.markdown("### 🖨️ QR Kart Yarat")
-                st.caption("Avtomatik olaraq təsadüfi (random) müştəri kodu və QR yaradacaq.")
-                
                 count = st.number_input("Neçə ədəd kart lazımdır?", min_value=1, max_value=20, value=1)
-                
                 if st.button("Kartları Yarat"):
                     for i in range(count):
-                        # 8 rəqəmli random kod
                         random_id = str(random.randint(10000000, 99999999))
                         link = f"https://emalatxana-loyalty.streamlit.app/?id={random_id}"
-                        
-                        # QR Yarat
                         qr_bytes = generate_qr_image(link)
-                        
-                        # Ekrana bas
                         st.divider()
                         col_qr, col_info = st.columns([1, 2])
-                        with col_qr:
-                            st.image(qr_bytes, width=150)
+                        with col_qr: st.image(qr_bytes, width=150)
                         with col_info:
                             st.markdown(f"**ID:** `{random_id}`")
-                            st.caption(f"Link: {link}")
-                            st.download_button(label="⬇️ Şəkli Yüklə", data=qr_bytes, file_name=f"{random_id}.png", mime="image/png")
+                            st.download_button("⬇️ Yüklə", data=qr_bytes, file_name=f"{random_id}.png", mime="image/png")
 
-        # === STAFF GÖRÜNÜŞÜ (SADƏ) ===
         else:
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
             st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
