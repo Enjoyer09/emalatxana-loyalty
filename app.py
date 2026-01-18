@@ -27,7 +27,7 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
 
-    /* GİZLƏTMƏ KODLARI (Header, Footer, Toolbar) */
+    /* GİZLƏTMƏ KODLARI */
     header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
     div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
     div[data-testid="stStatusWidget"], #MainMenu {
@@ -160,20 +160,6 @@ if "id" in query_params:
             mime="image/png",
             use_container_width=True
         )
-
-        # App kimi quraşdırma təlimatı
-        with st.expander("📲 Kartı tətbiq kimi əlavə et"):
-            st.markdown("""
-            <div style="font-size: 14px; line-height: 1.6;">
-            <b>🍏 iPhone (iOS):</b><br>
-            1. Aşağıdakı <b>Paylaş (Share)</b> düyməsinə basın.<br>
-            2. <b>"Add to Home Screen"</b> seçin.<br>
-            3. <b>"Add"</b> vurun.<br><br>
-            <b>🤖 Android:</b><br>
-            1. Yuxarıdakı <b>3 Nöqtə</b> düyməsinə basın.<br>
-            2. <b>"Install App"</b> və ya <b>"Add to Home Screen"</b> seçin.
-            </div>
-            """, unsafe_allow_html=True)
         
         if stars == 0 and user_data: st.balloons()
 
