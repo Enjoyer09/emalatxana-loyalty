@@ -2,3 +2,5 @@ streamlit
 supabase
 pandas
 qrcode
+Plaintext
+Pillow
