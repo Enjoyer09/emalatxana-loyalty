@@ -258,8 +258,20 @@ else:
 
             with tabs[2]: # Baza & Silmə
                 st.markdown("### 📋 Log Tarixçəsi")
+                
+                # --- LOG RƏNGLƏNDİRMƏ LOGİKASI ---
                 logs = supabase.table("logs").select("*").order("created_at", desc=True).limit(50).execute()
-                st.dataframe(pd.DataFrame(logs.data), use_container_width=True)
+                df_logs = pd.DataFrame(logs.data)
+                
+                # Sətirləri rəngləndirən funksiya
+                def highlight_free(row):
+                    if "Free Coffee" in str(row.get('action_type', '')):
+                        return ['color: #d32f2f; font-weight: bold'] * len(row) # Qırmızı və Qalın
+                    else:
+                        return [''] * len(row)
+                
+                # Styler tətbiqi
+                st.dataframe(df_logs.style.apply(highlight_free, axis=1), use_container_width=True)
                 
                 st.divider()
                 st.markdown("### 👥 Müştərilər")
