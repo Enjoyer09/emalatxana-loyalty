@@ -222,7 +222,7 @@ else:
 
         # === ADMİN PANELİ ===
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza", "🖨️ QR Generator"])
+            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Təmizlik", "🖨️ QR Kod"])
             
             with tabs[0]: # Terminal
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
@@ -256,7 +256,7 @@ else:
                         st.rerun()
                     except: st.error("Xəta: Bu ad artıq mövcuddur.")
 
-            with tabs[2]: # Baza & Log
+            with tabs[2]: # Baza & Silmə
                 st.markdown("### 📋 Log Tarixçəsi")
                 logs = supabase.table("logs").select("*").order("created_at", desc=True).limit(50).execute()
                 st.dataframe(pd.DataFrame(logs.data), use_container_width=True)
@@ -265,8 +265,33 @@ else:
                 st.markdown("### 👥 Müştərilər")
                 custs = supabase.table("customers").select("*").order("last_visit", desc=True).execute()
                 st.dataframe(pd.DataFrame(custs.data), use_container_width=True)
+                
+                st.divider()
+                st.markdown("### 🗑️ Təmizlik Paneli")
+                with st.expander("🔴 Silmə Zonası (Ehtiyatlı olun)"):
+                    st.warning("Silinən məlumatlar geri qaytarılmır!")
+                    col_del1, col_del2 = st.columns(2)
+                    
+                    with col_del1:
+                        st.subheader("Müştəri Sil")
+                        del_card_id = st.text_input("Kart ID:", placeholder="12345678")
+                        if st.button("Müştərini Sil"):
+                            if del_card_id:
+                                res = supabase.table("customers").delete().eq("card_id", del_card_id).execute()
+                                if res.data: st.success("Silindi!"); time.sleep(1); st.rerun()
+                                else: st.error("Tapılmadı.")
+                            else: st.error("ID yazın.")
 
-            with tabs[3]: # QR Generator (KÖHNƏ SADƏ FORMADA)
+                    with col_del2:
+                        st.subheader("Log Sil")
+                        del_log_id = st.number_input("Log ID:", min_value=0, step=1, value=0)
+                        if st.button("Logu Sil"):
+                            if del_log_id > 0:
+                                res = supabase.table("logs").delete().eq("id", del_log_id).execute()
+                                if res.data: st.success("Silindi!"); time.sleep(1); st.rerun()
+                                else: st.error("Tapılmadı.")
+
+            with tabs[3]: # QR Generator
                 st.markdown("### 🖨️ QR Kod Yarat")
                 count = st.number_input("Say:", min_value=1, max_value=20, value=1)
                 if st.button("Yarat"):
