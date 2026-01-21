@@ -1,57 +1,90 @@
 import streamlit as st
 import pandas as pd
-import os, time, random
-import bcrypt
-import stripe
+import random
 import qrcode
 from io import BytesIO
-from sqlalchemy import text
+import zipfile
 from PIL import Image, ImageDraw, ImageFont
+import time
+from sqlalchemy import text
+import os
+import bcrypt
 
 # =====================================================
-# CONFIG
+# PAGE CONFIG
 # =====================================================
-st.set_page_config("Emalatxana", "☕", layout="centered")
+st.set_page_config(
+    page_title="Emalatxana",
+    page_icon="☕",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-DB_URL = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
-STRIPE_KEY = os.environ.get("STRIPE_SECRET")
+# =====================================================
+# DATABASE CONNECTION
+# =====================================================
+db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
+if not db_url:
+    st.error("Database URL tapılmadı")
+    st.stop()
 
-stripe.api_key = STRIPE_KEY
-conn = st.connection("neon", type="sql", url=DB_URL)
+db_url = db_url.strip().strip('"').strip("'")
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+conn = st.connection("neon", type="sql", url=db_url)
+
+# =====================================================
+# SCHEMA (SAFE)
+# =====================================================
+def ensure_schema():
+    with conn.session as s:
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                card_id TEXT,
+                message TEXT,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        s.commit()
+
+ensure_schema()
 
 # =====================================================
 # SECURITY
 # =====================================================
-def hash_password(p: str) -> str:
+def hash_password(p):
     return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 
-def verify_password(p: str, h: str) -> bool:
+def verify_password(p, h):
     if h.startswith("$2"):
         return bcrypt.checkpw(p.encode(), h.encode())
     return p == h
 
-ROLE_PERMS = {
-    "admin": {"scan", "analytics", "users", "export", "qr", "sync"},
-    "staff": {"scan"},
-    "manager": {"scan", "analytics", "export"}
-}
-
-def can(role, perm):
-    return perm in ROLE_PERMS.get(role, set())
-
 # =====================================================
 # DB HELPERS
 # =====================================================
-def q(sql, params=None):
-    return conn.query(sql, params=params, ttl=0)
+def run_query(sql, params=None):
+    try:
+        return conn.query(sql, params=params, ttl=0)
+    except:
+        return pd.DataFrame()
 
-def exec(sql, params=None):
-    with conn.session as s:
-        s.execute(text(sql), params or {})
-        s.commit()
+def run_action(sql, params=None):
+    try:
+        with conn.session as s:
+            s.execute(text(sql), params or {})
+            s.commit()
+        return True
+    except:
+        return False
 
 # =====================================================
-# QR GENERATOR (CACHED)
+# QR (CACHED / OFFLINE)
 # =====================================================
 @st.cache_data(show_spinner=False)
 def generate_qr(card_id):
@@ -60,14 +93,16 @@ def generate_qr(card_id):
     qr.add_data(link)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    d = ImageDraw.Draw(img)
-    w, h = img.size
+
+    draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
-    box = d.textbbox((0, 0), card_id, font=font)
-    bw, bh = box[2]-box[0]+20, box[3]-box[1]+10
-    x0, y0 = (w-bw)//2, (h-bh)//2
-    d.rectangle([x0, y0, x0+bw, y0+bh], fill="white")
-    d.text((x0+10, y0+5), card_id, fill="black", font=font)
+    w, h = img.size
+    box = draw.textbbox((0, 0), card_id, font=font)
+    bw, bh = box[2] - box[0] + 20, box[3] - box[1] + 10
+    x0, y0 = (w - bw) // 2, (h - bh) // 2
+    draw.rectangle([x0, y0, x0 + bw, y0 + bh], fill="white")
+    draw.text((x0 + 10, y0 + 5), card_id, fill="black", font=font)
+
     buf = BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
@@ -75,163 +110,178 @@ def generate_qr(card_id):
 # =====================================================
 # SCAN LOGIC (ATOMIC)
 # =====================================================
-def process_scan(card_id, staff):
-    with conn.session.begin():
-        row = conn.session.execute(
-            text("SELECT * FROM customers WHERE card_id=:c FOR UPDATE"),
-            {"c": card_id}
-        ).mappings().fetchone()
+def process_scan():
+    card_id = st.session_state.scanner_input
+    staff = st.session_state.get("current_user", "staff")
 
-        if not row:
-            raise Exception("Kart tapılmadı")
+    if not card_id:
+        return
 
-        stars = row["stars"] + 1
-        action = "Star Added"
-        msg = f"⭐ {stars}/10"
+    try:
+        with conn.session.begin():
+            row = conn.session.execute(
+                text("SELECT * FROM customers WHERE card_id=:c FOR UPDATE"),
+                {"c": card_id}
+            ).mappings().fetchone()
 
-        if stars >= 10:
-            stars = 0
-            action = "Free Coffee"
-            msg = "🎁 PULSUZ KOFE!"
+            if not row:
+                st.error("Kart tapılmadı")
+                return
 
-        conn.session.execute(
-            text("""
-                UPDATE customers
-                SET stars=:s, last_visit=NOW()
-                WHERE card_id=:c
-            """),
-            {"s": stars, "c": card_id}
-        )
+            stars = row["stars"] + 1
+            action = "Star Added"
+            msg = f"⭐ {stars}/10"
 
-        conn.session.execute(
-            text("""
-                INSERT INTO logs (staff_name, card_id, action_type)
-                VALUES (:u, :c, :a)
-            """),
-            {"u": staff, "c": card_id, "a": action}
-        )
-    return msg
+            if stars >= 10:
+                stars = 0
+                action = "Free Coffee"
+                msg = "🎁 PULSUZ KOFE!"
 
-# =====================================================
-# OFFLINE MODE
-# =====================================================
-def save_offline(card_id, staff):
-    exec("""
-        INSERT INTO offline_scans (card_id, staff_name)
-        VALUES (:c, :s)
-    """, {"c": card_id, "s": staff})
+            conn.session.execute(
+                text("""
+                    UPDATE customers
+                    SET stars=:s, last_visit=NOW()
+                    WHERE card_id=:c
+                """),
+                {"s": stars, "c": card_id}
+            )
 
-def sync_offline():
-    df = q("SELECT * FROM offline_scans WHERE synced=FALSE")
-    for _, r in df.iterrows():
-        try:
-            process_scan(r["card_id"], r["staff_name"])
-            exec("UPDATE offline_scans SET synced=TRUE WHERE id=:i", {"i": r["id"]})
-        except:
-            pass
+            conn.session.execute(
+                text("""
+                    INSERT INTO logs (staff_name, card_id, action_type)
+                    VALUES (:u, :c, :a)
+                """),
+                {"u": staff, "c": card_id, "a": action}
+            )
+
+        st.session_state["last_result"] = {"msg": msg}
+
+    except Exception as e:
+        st.error(f"Sistem xətası: {e}")
+
+    st.session_state.scanner_input = ""
 
 # =====================================================
-# PAYMENTS
+# ROUTING
 # =====================================================
-def create_payment(card_id, amount):
-    intent = stripe.PaymentIntent.create(
-        amount=int(amount * 100),
-        currency="usd",
-        metadata={"card_id": card_id}
+query = st.query_params
+
+# =====================================================
+# CUSTOMER VIEW
+# =====================================================
+if "id" in query:
+    cid = query["id"]
+
+    st.image("emalatxana.png", width=150)
+
+    notes = run_query("""
+        SELECT * FROM notifications
+        WHERE card_id=:c AND is_read=FALSE
+        ORDER BY created_at DESC
+    """, {"c": cid})
+
+    for _, n in notes.iterrows():
+        st.info(n["message"])
+        run_action("UPDATE notifications SET is_read=TRUE WHERE id=:i", {"i": n["id"]})
+
+    df = run_query("SELECT * FROM customers WHERE card_id=:c", {"c": cid})
+    if df.empty:
+        st.error("Kart tapılmadı")
+        st.stop()
+
+    stars = int(df.iloc[0]["stars"])
+
+    st.markdown(f"### ⭐ {stars}/10")
+    st.progress(stars / 10)
+
+    st.download_button(
+        "📥 Kartı Yüklə",
+        generate_qr(cid),
+        f"{cid}.png",
+        "image/png",
+        use_container_width=True
     )
-    exec("""
-        INSERT INTO payments (card_id, amount, currency, status, provider)
-        VALUES (:c,:a,'usd','pending','stripe')
-    """, {"c": card_id, "a": amount})
-    return intent.client_secret
+
+    st.stop()
 
 # =====================================================
-# AUTH UI
+# LOGIN
 # =====================================================
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
 if not st.session_state.logged:
-    st.title("🔐 Giriş")
+    st.image("emalatxana.png", width=150)
     u = st.text_input("İstifadəçi")
     p = st.text_input("Şifrə", type="password")
+
     if st.button("Daxil ol"):
-        df = q("SELECT * FROM users WHERE username=:u", {"u": u})
+        df = run_query("SELECT * FROM users WHERE username=:u", {"u": u})
         if not df.empty and verify_password(p, df.iloc[0]["password"]):
             st.session_state.logged = True
-            st.session_state.user = u
+            st.session_state.current_user = u
             st.session_state.role = df.iloc[0]["role"]
             st.rerun()
         else:
             st.error("Yanlış məlumat")
+
     st.stop()
 
 # =====================================================
-# MAIN APP
+# ADMIN / STAFF PANEL
 # =====================================================
-role = st.session_state.role
-user = st.session_state.user
-
-st.sidebar.write(f"👤 {user} ({role})")
+st.sidebar.write(f"👤 {st.session_state.current_user}")
 if st.sidebar.button("Çıxış"):
     st.session_state.logged = False
     st.rerun()
 
-tabs = st.tabs(["📠 Scan", "📊 Analitika", "🧾 Export", "🖨️ QR", "⚙️ Sistem"])
+tabs = st.tabs(["📠 Terminal", "📊 Analitika", "📋 Menyu", "🔔 Bildiriş", "🖨️ QR"])
 
-# -----------------------------------------------------
-# SCAN
-# -----------------------------------------------------
+# ---------------- TERMINAL ----------------
 with tabs[0]:
-    if can(role, "scan"):
-        card = st.text_input("Kart ID")
-        if st.button("Scan"):
-            try:
-                msg = process_scan(card, user)
-                st.success(msg)
-            except:
-                save_offline(card, user)
-                st.warning("📴 Offline qeyd edildi")
-    else:
-        st.warning("İcazə yoxdur")
+    st.text_input("Barkod", key="scanner_input", on_change=process_scan)
+    if "last_result" in st.session_state:
+        st.success(st.session_state["last_result"]["msg"])
 
-# -----------------------------------------------------
-# ANALYTICS
-# -----------------------------------------------------
+# ---------------- ANALYTICS ----------------
 with tabs[1]:
-    if can(role, "analytics"):
-        df = q("SELECT action_type, COUNT(*) c FROM logs GROUP BY action_type")
+    df = run_query("""
+        SELECT action_type, COUNT(*) c
+        FROM logs GROUP BY action_type
+    """)
+    if not df.empty:
         st.bar_chart(df.set_index("action_type"))
-    else:
-        st.stop()
 
-# -----------------------------------------------------
-# EXPORT
-# -----------------------------------------------------
+# ---------------- MENU ----------------
 with tabs[2]:
-    if can(role, "export"):
-        df = q("SELECT * FROM logs ORDER BY created_at DESC")
-        csv = df.to_csv(index=False).encode()
-        st.download_button("CSV", csv, "logs.csv", "text/csv")
+    with st.form("menu"):
+        n = st.text_input("Ad")
+        p = st.text_input("Qiymət")
+        if st.form_submit_button("Əlavə et"):
+            run_action(
+                "INSERT INTO menu (item_name, price) VALUES (:n,:p)",
+                {"n": n, "p": p}
+            )
+            st.rerun()
 
-# -----------------------------------------------------
-# QR
-# -----------------------------------------------------
+# ---------------- NOTIFICATION ----------------
 with tabs[3]:
-    if can(role, "qr"):
-        cid = st.text_input("Yeni kart ID")
-        if st.button("Yarat"):
-            exec("""
-                INSERT INTO customers (card_id, stars)
-                VALUES (:c,0)
-            """, {"c": cid})
-            st.image(generate_qr(cid), width=250)
+    with st.form("notify"):
+        cid = st.text_input("Kart ID")
+        msg = st.text_area("Mesaj")
+        if st.form_submit_button("Göndər"):
+            run_action(
+                "INSERT INTO notifications (card_id, message) VALUES (:c,:m)",
+                {"c": cid, "m": msg}
+            )
+            st.success("Göndərildi")
 
-# -----------------------------------------------------
-# SYSTEM
-# -----------------------------------------------------
+# ---------------- QR ----------------
 with tabs[4]:
-    if can(role, "sync"):
-        if st.button("📴 Offline Sync"):
-            sync_offline()
-            st.success("Hazır")
+    if st.button("Yeni Kart"):
+        cid = str(random.randint(10000000, 99999999))
+        run_action(
+            "INSERT INTO customers (card_id, stars) VALUES (:c,0)",
+            {"c": cid}
+        )
+        st.image(generate_qr(cid), width=250)
