@@ -9,6 +9,7 @@ import time
 from sqlalchemy import text
 import os
 import bcrypt
+import datetime
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(
@@ -18,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- META TAGS (PWA & MOBILE ZOOM FIX) ---
+# --- META TAGS (PWA & MOBILE OPTIMIZATION) ---
 st.markdown("""
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <meta name="theme-color" content="#ffffff">
@@ -30,7 +31,7 @@ st.markdown("""
 try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     if not db_url:
-        st.error("⚠️ URL tapılmadı!")
+        st.error("⚠️ URL tapılmadı! Railway Variables yoxlayın.")
         st.stop()
     
     db_url = db_url.strip().strip('"').strip("'")
@@ -44,6 +45,31 @@ try:
 except Exception as e:
     st.error(f"Bağlantı xətası: {e}")
     st.stop()
+
+# --- SCHEMA MIGRATION (AVTOMATİK BAZA YENİLƏNMƏSİ) ---
+def ensure_schema():
+    """Yeni funksiyalar üçün lazım olan sütunları və cədvəlləri yaradır"""
+    try:
+        with conn.session as s:
+            # 1. Balans sütunu (Customers)
+            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS balance DECIMAL(10,2) DEFAULT 0.00;"))
+            
+            # 2. Bildirişlər Cədvəli
+            s.execute(text("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id SERIAL PRIMARY KEY,
+                    card_id TEXT,
+                    message TEXT,
+                    is_read BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            s.commit()
+    except Exception as e:
+        st.error(f"Schema Update Error: {e}")
+
+# Proqram açılan kimi bazanı yoxlayır
+ensure_schema()
 
 # --- HELPER FUNCTIONS ---
 def hash_password(password):
@@ -66,7 +92,7 @@ def run_action(query, params=None):
         return True
     except: return False
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, persist="disk") # OFFLINE MODE ÜÇÜN PERSIST AKTIV OLDU
 def generate_custom_qr(data, center_text):
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=2)
     qr.add_data(data)
@@ -132,6 +158,7 @@ def render_coffee_grid(stars):
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
+# --- SCAN PROSESİ ---
 def process_scan():
     scan_code = st.session_state.scanner_input
     user = st.session_state.get('current_user', 'Unknown')
@@ -189,13 +216,24 @@ st.markdown("""
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; letter-spacing: 1px; text-transform: uppercase; }
     p, div, button, input, li, span { font-family: 'Oswald', sans-serif; }
     
-    /* DIGITAL CARD */
+    /* DIGITAL CARD & WALLET */
     .digital-card {
         background: linear-gradient(145deg, #ffffff, #f9f9f9);
         border-radius: 20px; padding: 20px 10px;
         box-shadow: 0 10px 25px rgba(0,0,0,0.08);
-        margin-bottom: 25px; border: 1px solid #fff;
+        margin-bottom: 15px; border: 1px solid #fff;
     }
+    
+    .wallet-card {
+        background: linear-gradient(135deg, #2e7d32, #1b5e20);
+        color: white !important;
+        border-radius: 15px; padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3);
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .wallet-title { font-size: 14px; opacity: 0.9; }
+    .wallet-balance { font-size: 28px; font-weight: bold; font-family: 'Oswald', sans-serif; }
     
     .coffee-grid { display: flex; justify-content: center; gap: 12px; margin: 15px 0; flex-wrap: wrap; }
     .coffee-item { width: 16%; max-width: 50px; transition: all 0.3s; }
@@ -205,18 +243,22 @@ st.markdown("""
     .counter-text { text-align: center; font-size: 18px; font-weight: 500; color: #d32f2f; margin-top: 5px; }
     .menu-item { background: white; border-bottom: 1px solid #eee; padding: 12px; margin-bottom: 5px; border-radius: 8px; }
     
-    /* === ULDUZLARIN DİZAYNI === */
+    /* NOTIFICATIONS */
+    .notification-box {
+        background-color: #e3f2fd; border-left: 5px solid #2196f3;
+        padding: 10px; margin-bottom: 10px; border-radius: 5px;
+        font-size: 14px; color: #0d47a1;
+    }
+    
+    /* ULDUZLAR */
     div[data-testid="stFeedback"] {
-        width: 100% !important;
-        display: flex !important;
-        flex-direction: row !important;
-        justify-content: space-between !important;
-        padding: 10px 15px !important;
+        width: 100% !important; display: flex !important; justify-content: space-between !important; padding: 10px 15px !important;
     }
     div[data-testid="stFeedback"] > div { display: flex !important; justify-content: space-between !important; width: 100% !important; }
     div[data-testid="stFeedback"] button { flex: 1 !important; transform: scale(2.2); margin: 0 5px !important; }
     div[data-testid="stFeedback"] svg { fill: #FF9800 !important; color: #FF9800 !important; stroke: #FF9800 !important; }
     
+    /* BUTTONS */
     div.stDownloadButton > button, button[kind="primary"] {
         width: 100%; border-radius: 12px; height: 50px; font-size: 18px !important;
         background-color: #2e7d32 !important; color: white !important; border: none;
@@ -235,17 +277,66 @@ st.markdown("""
 # --- MAIN LOGIC ---
 query_params = st.query_params
 
+# ================================================
+# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ (WALLET & NOTIFY) ===
+# ================================================
 if "id" in query_params:
     card_id = query_params["id"]
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2: show_logo()
     
+    # --- HEADER & NOTIFICATION BELL ---
+    head1, head2, head3 = st.columns([1,3,1])
+    with head2: show_logo()
+    
+    # Bildirişləri yoxla
+    notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE ORDER BY created_at DESC", {"id": card_id})
+    with head3:
+        if not notifs.empty:
+            st.markdown(f"<div style='text-align:right; font-size:24px;'>🔔<span style='color:red; font-size:14px; vertical-align:top;'>{len(notifs)}</span></div>", unsafe_allow_html=True)
+    
+    # Əgər oxunmamış mesaj varsa göstər və oxundu et
+    if not notifs.empty:
+        for i, row in notifs.iterrows():
+            st.markdown(f"<div class='notification-box'>📩 <b>YENİ MESAJ:</b> {row['message']}</div>", unsafe_allow_html=True)
+            # Oxundu kimi işarələ
+            run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
+
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user_data = df.iloc[0]
         stars = int(user_data['stars'])
+        balance = float(user_data['balance']) if user_data['balance'] else 0.00
         cust_type = user_data['type']
 
+        # --- WALLET CARD (YENİ) ---
+        st.markdown(f"""
+        <div class="wallet-card">
+            <div>
+                <div class="wallet-title">Müştəri Balansı</div>
+                <div class="wallet-balance">{balance:.2f} ₼</div>
+            </div>
+            <div style="font-size:30px;">💳</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.expander("➕ Balansı Artır (Top Up)"):
+            with st.form("topup_form"):
+                amount = st.number_input("Məbləğ (AZN)", min_value=1.0, max_value=100.0, step=1.0)
+                cc_num = st.text_input("Kart Nömrəsi", placeholder="0000 0000 0000 0000")
+                col_exp, col_cvv = st.columns(2)
+                col_exp.text_input("Ay/İl", placeholder="MM/YY")
+                col_cvv.text_input("CVV", type="password", placeholder="123")
+                
+                if st.form_submit_button("ÖDƏNİŞ ET"):
+                    if len(cc_num) > 10: # Sadə validasiya (Simulyasiya)
+                        run_action("UPDATE customers SET balance = balance + :amt WHERE card_id = :id", {"amt": amount, "id": card_id})
+                        run_action("INSERT INTO logs (staff_name, card_id, action_type) VALUES ('System', :id, :act)", {"id": card_id, "act": f"TopUp: {amount} AZN"})
+                        st.success(f"✅ {amount} AZN balansa əlavə edildi!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Kart məlumatları yanlışdır.")
+
+        # --- LOYALTY CARD ---
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         if cust_type == 'thermos': st.info("⭐ VIP TERMOS KLUBU")
         
@@ -281,12 +372,14 @@ if "id" in query_params:
                 else: st.toast("⚠️ Zəhmət olmasa ulduz seçin!")
 
         st.markdown("---")
+        # OFFLINE MODE ÜÇÜN LOCAL CACHE + DOWNLOAD
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
-        st.download_button("📥 KARTI YÜKLƏ", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
+        st.download_button("📥 KARTI YÜKLƏ (Offline Mode)", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
+        
     else: st.error("Kart tapılmadı.")
 
 else:
-    # --- LOGIN ---
+    # --- ADMIN LOGIN ---
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if not st.session_state.logged_in:
@@ -297,12 +390,11 @@ else:
             u = st.text_input("İstifadəçi")
             p = st.text_input("Şifrə", type="password")
             if st.form_submit_button("DAXİL OL", use_container_width=True):
-                # DÜZƏLİŞ: Case-insensitive login (Admin = admin = ADMIN)
                 udf = run_query("SELECT * FROM users WHERE LOWER(username) = LOWER(:u)", {"u": u})
                 if not udf.empty:
                     if verify_password(p, udf.iloc[0]['password']):
                         st.session_state.logged_in = True
-                        st.session_state.current_user = u # Original case qalsın
+                        st.session_state.current_user = u
                         st.session_state.role = udf.iloc[0]['role']
                         st.rerun()
                     else: st.error("Yanlış şifrə")
@@ -368,14 +460,28 @@ else:
                     st.rerun()
                 c2.write(f"Manual Giriş: **{'AÇIQ ✅' if cs else 'BAĞLI ⛔'}**")
                 
-                # Öz Şifrəsi
+                # --- PUSH NOTIFICATION SENDER (YENİ) ---
+                with st.expander("🔔 Bildiriş Göndər (Push Notification)"):
+                    with st.form("notify_form"):
+                        target_id = st.text_input("Kart ID (Boş burax = Hamısı)")
+                        notif_msg = st.text_area("Mesaj")
+                        if st.form_submit_button("Göndər"):
+                            if target_id:
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": target_id, "msg": notif_msg})
+                                st.success("Mesaj göndərildi!")
+                            else:
+                                # Hamıya göndər (Bütün aktiv müştərilərə)
+                                all_users = run_query("SELECT card_id FROM customers")
+                                for _, au in all_users.iterrows():
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": au['card_id'], "msg": notif_msg})
+                                st.success(f"{len(all_users)} nəfərə mesaj göndərildi!")
+
                 with st.expander("🔑 Şifrəmi Dəyiş"):
                     np = st.text_input("Yeni Şifrə", type="password")
                     if st.button("Yenilə", key="upd_own"):
                         run_action("UPDATE users SET password = :p WHERE username = :u", {"p": hash_password(np), "u": user})
                         st.success("OK!")
                 
-                # YENİ: İşçi Şifrəsini Yenilə (Reset Staff Password)
                 with st.expander("👥 İşçi Şifrəsini Yenilə"):
                     staff_users = run_query("SELECT username FROM users WHERE role != 'admin'")
                     if not staff_users.empty:
@@ -386,7 +492,6 @@ else:
                             st.success(f"{target_user} şifrəsi yeniləndi!")
                     else: st.info("İşçi yoxdur.")
 
-                # Yeni İşçi
                 with st.expander("➕ Yeni İşçi"):
                     nn, npp = st.text_input("Ad"), st.text_input("Şifrə", type="password", key="newst")
                     if st.button("Yarat"):
