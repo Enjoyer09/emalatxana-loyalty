@@ -75,15 +75,12 @@ def generate_custom_qr(data, center_text):
     draw = ImageDraw.Draw(img)
     width, height = img.size
     
-    # Font
     font = ImageFont.load_default()
     try:
         font_size = int(height * 0.06)
-        # Serverdə varsa daha yaxşı font
         font = ImageFont.truetype("arial.ttf", font_size)
     except: pass
 
-    # Text Box Logic
     try:
         bbox = draw.textbbox((0, 0), center_text, font=font)
         text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -181,7 +178,7 @@ def process_scan():
         else: st.error("Kart tapılmadı!")
     st.session_state.scanner_input = ""
 
-# --- CSS STYLING (MOBILE OPTIMIZED & STAR FIX) ---
+# --- CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;700&display=swap');
@@ -200,63 +197,37 @@ st.markdown("""
         margin-bottom: 25px; border: 1px solid #fff;
     }
     
-    /* COFFEE GRID */
     .coffee-grid { display: flex; justify-content: center; gap: 12px; margin: 15px 0; flex-wrap: wrap; }
     .coffee-item { width: 16%; max-width: 50px; transition: all 0.3s; }
     .coffee-item.pulse { animation: pulse 2s infinite; transform: scale(1.1); }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
     
-    /* TEXTS */
     .counter-text { text-align: center; font-size: 18px; font-weight: 500; color: #d32f2f; margin-top: 5px; }
     .menu-item { background: white; border-bottom: 1px solid #eee; padding: 12px; margin-bottom: 5px; border-radius: 8px; }
     
-    /* === ULDUZLARIN DİZAYNI (FIXED) === */
-    
-    /* 1. Konteyneri tam ekran yay */
+    /* === ULDUZLARIN DİZAYNI === */
     div[data-testid="stFeedback"] {
         width: 100% !important;
         display: flex !important;
         flex-direction: row !important;
-        justify-content: space-between !important; /* Araları aç */
+        justify-content: space-between !important;
         padding: 10px 15px !important;
     }
+    div[data-testid="stFeedback"] > div { display: flex !important; justify-content: space-between !important; width: 100% !important; }
+    div[data-testid="stFeedback"] button { flex: 1 !important; transform: scale(2.2); margin: 0 5px !important; }
+    div[data-testid="stFeedback"] svg { fill: #FF9800 !important; color: #FF9800 !important; stroke: #FF9800 !important; }
     
-    /* 2. Ulduz Düymələri */
-    div[data-testid="stFeedback"] > div {
-        display: flex !important;
-        justify-content: space-between !important;
-        width: 100% !important;
-    }
-    
-    div[data-testid="stFeedback"] button {
-        flex: 1 !important; /* Hər biri bərabər yer tutsun */
-        transform: scale(2.2); /* Böyüt */
-        margin: 0 5px !important;
-    }
-    
-    /* 3. Ulduzun RƏNGİ (Narıncı) */
-    /* Streamlit SVG-nin rəngini override edirik */
-    div[data-testid="stFeedback"] svg {
-        fill: #FF9800 !important; /* Dolu rəng */
-        color: #FF9800 !important;
-        stroke: #FF9800 !important; /* Kənar rəng */
-    }
-    
-    /* BUTTONS */
     div.stDownloadButton > button, button[kind="primary"] {
         width: 100%; border-radius: 12px; height: 50px; font-size: 18px !important;
         background-color: #2e7d32 !important; color: white !important; border: none;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
-    /* DASHBOARD */
     .metric-card {
         background-color: #fff; border: 1px solid #eee; padding: 15px; border-radius: 12px; text-align: center;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
     .metric-value { font-size: 24px; font-weight: bold; color: #2e7d32; }
-    
-    /* Selected QR */
     .selected-qr-box { border: 2px solid #2e7d32; padding: 15px; border-radius: 10px; background-color: #f1f8e9; text-align: center; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
@@ -294,7 +265,6 @@ if "id" in query_params:
         st.markdown("### ⭐ BİZİ QİYMƏTLƏNDİR")
         if 'submitted_reviews' not in st.session_state: st.session_state['submitted_reviews'] = []
         
-        # --- RƏY LOGİKASI ---
         if card_id in st.session_state['submitted_reviews']:
             st.success("✅ Rəyiniz qeydə alındı!")
             st.feedback("stars", disabled=True, key="ds")
@@ -302,7 +272,6 @@ if "id" in query_params:
         else:
             stars_val = st.feedback("stars")
             msg_val = st.text_area("Fikirləriniz:", placeholder="Xidmətimizi necə qiymətləndirirsiniz?")
-            
             if st.button("Rəyi Göndər", type="primary"):
                 if stars_val is not None:
                     run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", 
@@ -314,11 +283,10 @@ if "id" in query_params:
         st.markdown("---")
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
-        
     else: st.error("Kart tapılmadı.")
 
 else:
-    # --- ADMIN LOGIN ---
+    # --- LOGIN ---
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if not st.session_state.logged_in:
@@ -329,11 +297,12 @@ else:
             u = st.text_input("İstifadəçi")
             p = st.text_input("Şifrə", type="password")
             if st.form_submit_button("DAXİL OL", use_container_width=True):
-                udf = run_query("SELECT * FROM users WHERE username = :u", {"u": u})
+                # DÜZƏLİŞ: Case-insensitive login (Admin = admin = ADMIN)
+                udf = run_query("SELECT * FROM users WHERE LOWER(username) = LOWER(:u)", {"u": u})
                 if not udf.empty:
                     if verify_password(p, udf.iloc[0]['password']):
                         st.session_state.logged_in = True
-                        st.session_state.current_user = u
+                        st.session_state.current_user = u # Original case qalsın
                         st.session_state.role = udf.iloc[0]['role']
                         st.rerun()
                     else: st.error("Yanlış şifrə")
@@ -399,11 +368,25 @@ else:
                     st.rerun()
                 c2.write(f"Manual Giriş: **{'AÇIQ ✅' if cs else 'BAĞLI ⛔'}**")
                 
+                # Öz Şifrəsi
                 with st.expander("🔑 Şifrəmi Dəyiş"):
                     np = st.text_input("Yeni Şifrə", type="password")
-                    if st.button("Yenilə"):
+                    if st.button("Yenilə", key="upd_own"):
                         run_action("UPDATE users SET password = :p WHERE username = :u", {"p": hash_password(np), "u": user})
                         st.success("OK!")
+                
+                # YENİ: İşçi Şifrəsini Yenilə (Reset Staff Password)
+                with st.expander("👥 İşçi Şifrəsini Yenilə"):
+                    staff_users = run_query("SELECT username FROM users WHERE role != 'admin'")
+                    if not staff_users.empty:
+                        target_user = st.selectbox("İşçi Seç", staff_users['username'].tolist())
+                        new_staff_pass = st.text_input("Yeni Şifrə", type="password", key="staff_pass_reset")
+                        if st.button("Yenilə", key="upd_staff"):
+                            run_action("UPDATE users SET password = :p WHERE username = :u", {"p": hash_password(new_staff_pass), "u": target_user})
+                            st.success(f"{target_user} şifrəsi yeniləndi!")
+                    else: st.info("İşçi yoxdur.")
+
+                # Yeni İşçi
                 with st.expander("➕ Yeni İşçi"):
                     nn, npp = st.text_input("Ad"), st.text_input("Şifrə", type="password", key="newst")
                     if st.button("Yarat"):
