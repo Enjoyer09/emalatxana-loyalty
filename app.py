@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import random
 import qrcode
-from qrcode.image.styledpil import StyledPilImage
-from qrcode.image.styles.moduledrawers import RoundedModuleDrawer
 from io import BytesIO
 import zipfile
 from PIL import Image, ImageDraw, ImageFont
@@ -51,12 +49,12 @@ def run_action(query, params=None):
         st.error(f"Əməliyyat xətası: {e}")
         return False
 
-# --- QR GENERASIYA (YAZILI VƏ DİZAYNLI) ---
+# --- QR GENERASIYA (YENİ SƏLİQƏLİ DİZAYN) ---
 def generate_custom_qr(data, center_text):
-    # 1. QR Kodun Özü (H-level correction)
+    # 1. QR Kod
     qr = qrcode.QRCode(
         version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        error_correction=qrcode.constants.ERROR_CORRECT_H, # Yüksək dözümlülük
         box_size=10,
         border=2,
     )
@@ -66,79 +64,57 @@ def generate_custom_qr(data, center_text):
     draw = ImageDraw.Draw(img)
     width, height = img.size
 
-    # 2. Şrift Tapmaq (Daha qəşəng şrift axtarışı)
-    font = None
+    # 2. Şrift (Font)
+    font = ImageFont.load_default()
+    # Serverdə varsa daha yaxşı font yoxlayırıq
     try:
-        # Cəhd edirik: Qalın bir sans-serif şrifti tapmaq (Linux/Railway üçün)
-        # Bir neçə ümumi yolu yoxlayırıq
-        potential_fonts = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            "arialbd.ttf", # Windows local test üçün
-            "arial.ttf"
-        ]
-        
-        font_path = None
-        for path in potential_fonts:
-            if os.path.exists(path):
-                font_path = path
+        possible_fonts = ["arial.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"]
+        for f in possible_fonts:
+            try:
+                # Fontu QR ölçüsünə görə dinamik seçirik
+                font_size = int(height * 0.06) 
+                font = ImageFont.truetype(f, font_size)
                 break
-        
-        if font_path:
-            # Şrift ölçüsü QR-ın hündürlüyünün təxminən 5%-i
-            font_size = int(height * 0.05)
-            font = ImageFont.truetype(font_path, size=font_size)
-        else:
-            # Heç biri tapılmasa, default fonta fallback edirik
-            font = ImageFont.load_default()
+            except:
+                continue
     except:
-        font = ImageFont.load_default()
+        pass
 
-    # 3. Mətnin Ölçüsünü Tapmaq (Dəqiq Mərkəzləmə Üçün)
-    if font:
-        try:
-            # Pillow >= 9.2.0 üçün
-            text_bbox = draw.textbbox((0, 0), center_text, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-        except AttributeError:
-             # Köhnə Pillow versiyaları üçün fallback
-            text_width, text_height = draw.textsize(center_text, font=font)
-    else:
-        # Default font üçün təxmini hesablama
-        text_width = len(center_text) * 6
-        text_height = 10
+    # 3. Mətnin ölçüləri
+    try:
+        bbox = draw.textbbox((0, 0), center_text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+    except:
+        text_w, text_h = draw.textsize(center_text, font=font)
 
-    # 4. Ağ Qutunun Dizaynı (Mətnə görə dinamik + padding)
-    padding_x = int(height * 0.03) # Kənarlardan boşluq
-    padding_y = int(height * 0.015) # Yuxarı/aşağı boşluq
+    # 4. Ağ Qutu (Daha yığcam və səliqəli)
+    # Mətndən bir az böyük olsun (padding)
+    pad_x = 10
+    pad_y = 5
     
-    box_w = text_width + (padding_x * 2)
-    box_h = text_height + (padding_y * 2)
-
-    # Qutunun mərkəzi koordinatları
-    box_x0 = (width - box_w) // 2
-    box_y0 = (height - box_h) // 2
-    box_x1 = box_x0 + box_w
-    box_y1 = box_y0 + box_h
-
-    # Qutunu çəkirik (Qara çərçivəli ağ qutu - təmiz və səliqəli)
-    # outline_width=2 daha kəskin görünüş verir
-    draw.rectangle([box_x0, box_y0, box_x1, box_y1], fill="white", outline="black", width=2)
-
-    # 5. Mətni Tam Ortaya Yazmaq (Pixel-perfect center)
-    # Qutunun mərkəzini tapırıq
-    box_center_x = box_x0 + box_w / 2
-    box_center_y = box_y0 + box_h / 2
+    box_w = text_w + (pad_x * 2)
+    box_h = text_h + (pad_y * 2)
     
-    # Mətnin çəkiləcək sol-üst küncünü tapırıq ki, mərkəzi qutunun mərkəzinə düşsün
-    text_x = box_center_x - text_width / 2
-    # Fontun baseline problemini kompensasiya etmək üçün yüngül yuxarı çəkirik (text_height-in yarısı qədər)
-    text_y = box_center_y - text_height / 1.5 
-    
-    draw.text((text_x, text_y), center_text, fill="black", font=font)
+    # Qutunun mərkəzi
+    x0 = (width - box_w) // 2
+    y0 = (height - box_h) // 2
+    x1 = x0 + box_w
+    y1 = y0 + box_h
 
-    # Bytes-a çeviririk
+    # Qutunu çəkirik (Qalın çərçivə yox, sadə ağ fon)
+    draw.rectangle([x0, y0, x1, y1], fill="white", outline="white")
+    
+    # İncə qara çərçivə (estetik üçün)
+    draw.rectangle([x0, y0, x1, y1], outline="black", width=1)
+
+    # 5. Mətni yerləşdiririk
+    # Mətni qutunun ortasına qoyuruq
+    txt_x = x0 + pad_x
+    txt_y = y0 + pad_y - 2 # Kiçik düzəliş
+    
+    draw.text((txt_x, txt_y), center_text, fill="black", font=font)
+
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -232,7 +208,7 @@ def process_scan():
             
     st.session_state.scanner_input = ""
 
-# --- CSS DİZAYN ---
+# --- CSS DİZAYN (YENİLƏNMİŞ) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
@@ -259,15 +235,35 @@ st.markdown("""
     .stTextInput input { text-align: center; font-size: 18px; }
     .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
     
-    /* ULDUZLARIN HƏCİMLİ BÖYÜDÜLMƏSİ (3x) */
+    /* === YENİ ULDUZ DİZAYNI (Full Width & Orange) === */
+    
+    /* Konteyneri ekran boyu açırıq */
     div[data-testid="stFeedback"] {
-        display: flex;
-        justify-content: center;
+        width: 100%;
+        padding: 10px 0;
     }
+    
+    /* Ulduzların öz konteynerini flex edirik ki, yayılsınlar */
     div[data-testid="stFeedback"] > div {
-        transform: scale(2.5); /* 2.5 qat böyütmə */
-        margin-top: 10px;
-        margin-bottom: 30px;
+        display: flex !important;
+        justify-content: space-between !important; /* Ekran boyu yayıl */
+        width: 100% !important;
+        flex-wrap: nowrap !important;
+    }
+    
+    /* Hər bir ulduz düyməsi */
+    div[data-testid="stFeedback"] button {
+        flex-grow: 1; /* Hər ulduz bərabər yer tutsun */
+        transform: scale(2.2); /* Ölçünü böyüt */
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    /* Ulduzun RƏNGİ - Narıncı (#FF9800) */
+    /* Streamlit SVG-lərinə təsir etmək üçün */
+    div[data-testid="stFeedback"] svg {
+        fill: #FF9800 !important; /* Dolu rəng */
+        color: #FF9800 !important;
     }
     
     /* SEÇİLMİŞ QR QUTUSU */
@@ -321,7 +317,7 @@ if "id" in query_params:
 
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
         
-        # ULDUZLAR İNDİ DAHA BÖYÜKDÜR
+        # ULDUZLAR (FULL WIDTH & ORANGE CSS İLƏ)
         selected_stars = st.feedback("stars")
         review_msg = st.text_area("Rəyiniz:")
         
@@ -336,7 +332,7 @@ if "id" in query_params:
 
         st.markdown("<br>", unsafe_allow_html=True)
         card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
-        # ID NÖMRƏSİ OLAN GÖZƏL QR KOD YARADILIR
+        # ID NÖMRƏSİ OLAN SƏLİQƏLİ QR
         st.download_button("📥 Kartı Yüklə", data=generate_custom_qr(card_link, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         if stars == 0: st.balloons()
     else:
@@ -483,7 +479,6 @@ else:
             with tabs[5]:
                 st.markdown("### 🖨️ QR Kod")
                 
-                # Form-dan məlumatları alırıq
                 with st.form("qr_create_form"):
                     c_qr1, c_qr2 = st.columns(2)
                     cnt = c_qr1.number_input("Say:", 1, 20, 1)
@@ -492,7 +487,6 @@ else:
                     submitted = st.form_submit_button("Yarat")
                     
                     if submitted:
-                        # 1. Kartları yaradırıq
                         new_ids = []
                         typ = "thermos" if is_th else "standard"
                         ff = True if is_th else False
@@ -502,41 +496,35 @@ else:
                             run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
                             new_ids.append(r_id)
                         
-                        # 2. Sessiyada yadda saxlayırıq ki, form bitəndən sonra aşağıda göstərək
                         st.session_state['new_created_qrs'] = new_ids
                         st.session_state['last_qr_type'] = typ
                         st.success(f"{cnt} ədəd yeni kart yaradıldı!")
                         time.sleep(0.5)
-                        st.rerun() # Səhifəni yeniləyirik ki, aşağıdakı blok işə düşsün
+                        st.rerun() 
 
-                # --- YENİ YARADILMIŞ KARTLARI GÖSTƏRMƏK (FORMDAN KƏNAR) ---
+                # --- YENİ YARADILMIŞ KARTLARI GÖSTƏRMƏK ---
                 if 'new_created_qrs' in st.session_state and st.session_state['new_created_qrs']:
                     st.divider()
                     st.markdown("### 🎉 Yeni Kartlarınız Hazırdır!")
                     
                     new_qrs = st.session_state['new_created_qrs']
-                    qr_type = st.session_state.get('last_qr_type', 'standard')
                     
-                    # Əgər 1 ədəddirsə - Tək göstər
+                    # 1 ƏDƏDDİRSƏ
                     if len(new_qrs) == 1:
                         single_id = new_qrs[0]
                         st.write(f"🆔 **{single_id}**")
                         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={single_id}"
-                        # Ortasına ID yazılmış GÖZƏL QR
                         qr_bytes = generate_custom_qr(lnk, center_text=single_id) 
                         st.image(BytesIO(qr_bytes), width=250)
                         st.download_button("⬇️ Bu Kartı Yüklə", data=qr_bytes, file_name=f"{single_id}.png", mime="image/png", type="primary")
                     
-                    # Əgər çoxdursa - ZIP yarat
+                    # ÇOXDURSA (ZIP)
                     else:
                         st.info(f"Cəmi {len(new_qrs)} ədəd kart var. Hamısını bir paketdə yükləyin.")
-                        
-                        # ZIP faylı yaddaşda yaradırıq
                         zip_buffer = BytesIO()
                         with zipfile.ZipFile(zip_buffer, "w") as zf:
                             for q_id in new_qrs:
                                 lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={q_id}"
-                                # Ortasına ID yazılmış GÖZƏL QR-lar
                                 q_bytes = generate_custom_qr(lnk, center_text=q_id)
                                 zf.writestr(f"{q_id}.png", q_bytes)
                         
@@ -554,18 +542,13 @@ else:
 
                 st.divider()
                 
-                # --- YENİ "BAX" SİSTEMİ (STABİL) ---
+                # --- ARXİV BAXIŞI ---
                 if 'view_qr_id' in st.session_state and st.session_state['view_qr_id']:
                     v_id = st.session_state['view_qr_id']
                     
-                    st.markdown(f"""
-                        <div class="selected-qr-box">
-                            <h3>SEÇİLMİŞ KART: {v_id}</h3>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="selected-qr-box"><h3>SEÇİLMİŞ KART: {v_id}</h3></div>""", unsafe_allow_html=True)
                     
                     lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={v_id}"
-                    # Burda da ortasında ID yazılmış GÖZƏL QR
                     qr_bytes = generate_custom_qr(lnk, center_text=v_id)
                     st.image(BytesIO(qr_bytes), width=300)
                     
@@ -583,7 +566,6 @@ else:
                     )
                     st.markdown("---")
 
-                # 2. Axtarış və Siyahı
                 with st.expander("📂 Bütün Kartlar (Arxiv) - Axtarış"):
                     search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
                     base_sql = "SELECT * FROM customers"
@@ -603,7 +585,6 @@ else:
                                 if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
                                     st.session_state['view_qr_id'] = row['card_id']
                                     st.rerun()
-                                    
                             st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
                     else:
                         st.info("Kart tapılmadı.")
