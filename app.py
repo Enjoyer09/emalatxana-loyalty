@@ -51,9 +51,9 @@ def run_action(query, params=None):
         st.error(f"Əməliyyat xətası: {e}")
         return False
 
-# --- QR GENERASIYA (YAZILI VƏ LOGOLU) ---
-def generate_custom_qr(data, center_text="EMALAT"):
-    # H (High) səviyyəli qoruma seçirik ki, ortasına yazı yazanda kod xarab olmasın
+# --- QR GENERASIYA (YAZILI VƏ DİZAYNLI) ---
+def generate_custom_qr(data, center_text):
+    # 1. QR Kodun Özü (H-level correction)
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -62,38 +62,79 @@ def generate_custom_qr(data, center_text="EMALAT"):
     )
     qr.add_data(data)
     qr.make(fit=True)
-
-    # Şəkli yaradırıq (RGB formatında)
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-    
-    # Ortasına yazı yazmaq üçün
     draw = ImageDraw.Draw(img)
     width, height = img.size
-    
-    # Oradakı qutunun ölçüsü (təxminən QR-ın 25%-i)
-    box_w = width // 3.5
-    box_h = height // 6
-    
-    # Mərkəzi tapırıq
-    x0 = (width - box_w) // 2
-    y0 = (height - box_h) // 2
-    x1 = x0 + box_w
-    y1 = y0 + box_h
-    
-    # Ağ düzbucaqlı çəkirik (Yazı oxunsun deyə)
-    draw.rectangle([x0, y0, x1, y1], fill="white", outline="black", width=2)
-    
-    # Yazını yazırıq (Default fontla)
-    try:
-        # Şrifti ölçüyə görə tənzimləməyə çalışırıq (sadə yanaşma)
-        font = ImageFont.load_default()
-    except:
-        font = None
 
-    # Mətni qutunun ortasına yerləşdiririk (təxmini)
-    # Pillow default fontu ilə dəqiq mərkəzləmə çətindir, sadə hesablama edirik
-    text_x = x0 + (box_w * 0.1)
-    text_y = y0 + (box_h * 0.3)
+    # 2. Şrift Tapmaq (Daha qəşəng şrift axtarışı)
+    font = None
+    try:
+        # Cəhd edirik: Qalın bir sans-serif şrifti tapmaq (Linux/Railway üçün)
+        # Bir neçə ümumi yolu yoxlayırıq
+        potential_fonts = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "arialbd.ttf", # Windows local test üçün
+            "arial.ttf"
+        ]
+        
+        font_path = None
+        for path in potential_fonts:
+            if os.path.exists(path):
+                font_path = path
+                break
+        
+        if font_path:
+            # Şrift ölçüsü QR-ın hündürlüyünün təxminən 5%-i
+            font_size = int(height * 0.05)
+            font = ImageFont.truetype(font_path, size=font_size)
+        else:
+            # Heç biri tapılmasa, default fonta fallback edirik
+            font = ImageFont.load_default()
+    except:
+        font = ImageFont.load_default()
+
+    # 3. Mətnin Ölçüsünü Tapmaq (Dəqiq Mərkəzləmə Üçün)
+    if font:
+        try:
+            # Pillow >= 9.2.0 üçün
+            text_bbox = draw.textbbox((0, 0), center_text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+        except AttributeError:
+             # Köhnə Pillow versiyaları üçün fallback
+            text_width, text_height = draw.textsize(center_text, font=font)
+    else:
+        # Default font üçün təxmini hesablama
+        text_width = len(center_text) * 6
+        text_height = 10
+
+    # 4. Ağ Qutunun Dizaynı (Mətnə görə dinamik + padding)
+    padding_x = int(height * 0.03) # Kənarlardan boşluq
+    padding_y = int(height * 0.015) # Yuxarı/aşağı boşluq
+    
+    box_w = text_width + (padding_x * 2)
+    box_h = text_height + (padding_y * 2)
+
+    # Qutunun mərkəzi koordinatları
+    box_x0 = (width - box_w) // 2
+    box_y0 = (height - box_h) // 2
+    box_x1 = box_x0 + box_w
+    box_y1 = box_y0 + box_h
+
+    # Qutunu çəkirik (Qara çərçivəli ağ qutu - təmiz və səliqəli)
+    # outline_width=2 daha kəskin görünüş verir
+    draw.rectangle([box_x0, box_y0, box_x1, box_y1], fill="white", outline="black", width=2)
+
+    # 5. Mətni Tam Ortaya Yazmaq (Pixel-perfect center)
+    # Qutunun mərkəzini tapırıq
+    box_center_x = box_x0 + box_w / 2
+    box_center_y = box_y0 + box_h / 2
+    
+    # Mətnin çəkiləcək sol-üst küncünü tapırıq ki, mərkəzi qutunun mərkəzinə düşsün
+    text_x = box_center_x - text_width / 2
+    # Fontun baseline problemini kompensasiya etmək üçün yüngül yuxarı çəkirik (text_height-in yarısı qədər)
+    text_y = box_center_y - text_height / 1.5 
     
     draw.text((text_x, text_y), center_text, fill="black", font=font)
 
@@ -295,6 +336,7 @@ if "id" in query_params:
 
         st.markdown("<br>", unsafe_allow_html=True)
         card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
+        # ID NÖMRƏSİ OLAN GÖZƏL QR KOD YARADILIR
         st.download_button("📥 Kartı Yüklə", data=generate_custom_qr(card_link, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         if stars == 0: st.balloons()
     else:
@@ -480,8 +522,8 @@ else:
                         single_id = new_qrs[0]
                         st.write(f"🆔 **{single_id}**")
                         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={single_id}"
-                        # Ortasına "EMALATXANA" yazılmış QR
-                        qr_bytes = generate_custom_qr(lnk, center_text="EMALAT") 
+                        # Ortasına ID yazılmış GÖZƏL QR
+                        qr_bytes = generate_custom_qr(lnk, center_text=single_id) 
                         st.image(BytesIO(qr_bytes), width=250)
                         st.download_button("⬇️ Bu Kartı Yüklə", data=qr_bytes, file_name=f"{single_id}.png", mime="image/png", type="primary")
                     
@@ -494,7 +536,8 @@ else:
                         with zipfile.ZipFile(zip_buffer, "w") as zf:
                             for q_id in new_qrs:
                                 lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={q_id}"
-                                q_bytes = generate_custom_qr(lnk, center_text="EMALAT")
+                                # Ortasına ID yazılmış GÖZƏL QR-lar
+                                q_bytes = generate_custom_qr(lnk, center_text=q_id)
                                 zf.writestr(f"{q_id}.png", q_bytes)
                         
                         st.download_button(
@@ -522,8 +565,8 @@ else:
                     """, unsafe_allow_html=True)
                     
                     lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={v_id}"
-                    # Burda da ortasında yazı olan QR
-                    qr_bytes = generate_custom_qr(lnk, center_text="EMALAT")
+                    # Burda da ortasında ID yazılmış GÖZƏL QR
+                    qr_bytes = generate_custom_qr(lnk, center_text=v_id)
                     st.image(BytesIO(qr_bytes), width=300)
                     
                     col_close, col_dl = st.columns(2)
