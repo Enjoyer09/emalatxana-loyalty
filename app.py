@@ -15,6 +15,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # --- EMAIL AYARLARI ---
+# QEYD: Əgər Railway-də "Variables" bölməsində bu adları (MY_EMAIL, MY_PASSWORD) yazmısınızsa, kod avtomatik oradan götürəcək.
+# Yazmamısınızsa, dırnaq içində birbaşa yaza bilərsiniz.
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("MY_EMAIL") or "emalatkhanacoffee@gmail.com"
@@ -62,7 +64,6 @@ def ensure_schema():
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
-            
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS notifications (
                     id SERIAL PRIMARY KEY,
@@ -75,8 +76,7 @@ def ensure_schema():
             s.commit()
     except exc.OperationalError:
         st.warning("⚠️ Baza ilə əlaqə yenilənir...")
-    except Exception:
-        pass
+    except Exception: pass
 
 ensure_schema()
 
@@ -99,23 +99,6 @@ def run_action(query, params=None):
             s.commit()
         return True
     except: return False
-
-def send_email(to_email, subject, body):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-        server.quit()
-        return True
-    except:
-        return False
 
 @st.cache_data(show_spinner=False, persist="disk")
 def generate_custom_qr(data, center_text):
@@ -284,11 +267,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
-    /* REFRESH BUTTON STYLE */
-    .refresh-btn {
-        margin-top: 10px;
-    }
-    
     .metric-card {
         background-color: #fff; border: 1px solid #eee; padding: 15px; border-radius: 12px; text-align: center;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -307,11 +285,9 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     
-    # --- HEADER ---
     head1, head2, head3 = st.columns([1,3,1])
     with head2: show_logo()
     
-    # Bildirişləri yoxla (Əgər aktivdirsə)
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     
     if not df.empty:
@@ -412,7 +388,6 @@ else:
         with c2: show_logo()
         st.markdown("<h3 style='text-align:center'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
         
-        # Giriş səhifəsində də yenilə düyməsi
         if st.button("🔄 Yenilə", key="refresh_login"): st.rerun()
         
         with st.form("login"):
@@ -431,14 +406,13 @@ else:
     else:
         role = st.session_state.role
         user = st.session_state.current_user
-        c1, c2, c3 = st.columns([2,3,1]) # Logo və Refresh üçün yer ayırırıq
+        c1, c2, c3 = st.columns([2,3,1]) 
         
         with c1:
             st.write(f"👤 **{user}**")
             if st.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
         with c2: show_logo()
         with c3:
-            # --- ADMIN REFRESH BUTTON ---
             if st.button("🔄", key="admin_refresh", help="Sistemi Yenilə"): st.rerun()
 
         if role == 'admin':
@@ -471,19 +445,47 @@ else:
                     )
                     
                     if st.button("🚀 SEÇİLƏNLƏRƏ GÖNDƏR", type="primary"):
-                        c50, cb = 0, 0
-                        prog = st.progress(0)
-                        for i, row in edited_df.iterrows():
-                            if row['50% Endirim']:
-                                if send_email(row['email'], "🎉 Emalatxana: 50% ENDİRİM!", f"Kart ID: {row['card_id']}\nSizə özəl 50% endirim!"):
+                        status = st.status("Serverə qoşulur...", expanded=True)
+                        try:
+                            # 1. Tək qoşulma (Single Connection)
+                            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+                            server.starttls()
+                            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+                            status.write("✅ Serverə qoşuldu. Göndərilir...")
+                            
+                            c50, cb = 0, 0
+                            
+                            for i, row in edited_df.iterrows():
+                                if row['50% Endirim']:
+                                    msg = MIMEMultipart()
+                                    msg['From'] = SENDER_EMAIL
+                                    msg['To'] = row['email']
+                                    msg['Subject'] = "🎉 Emalatxana: 50% ENDİRİM!"
+                                    msg.attach(MIMEText(f"Kart ID: {row['card_id']}\nSizə özəl 50% endirim!", 'plain'))
+                                    server.sendmail(SENDER_EMAIL, row['email'], msg.as_string())
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "50% Endirim kuponu göndərildi!"})
                                     c50 += 1
-                            if row['Ad Günü Hədiyyəsi']:
-                                if send_email(row['email'], "🎂 Ad Gününüz Mübarək!", f"Kart ID: {row['card_id']}\nBir kofe bizdən hədiyyə!"):
+                                    status.write(f"📤 {row['email']} (Endirim)")
+                                
+                                if row['Ad Günü Hədiyyəsi']:
+                                    msg = MIMEMultipart()
+                                    msg['From'] = SENDER_EMAIL
+                                    msg['To'] = row['email']
+                                    msg['Subject'] = "🎂 Ad Gününüz Mübarək!"
+                                    msg.attach(MIMEText(f"Kart ID: {row['card_id']}\nBir kofe bizdən hədiyyə!", 'plain'))
+                                    server.sendmail(SENDER_EMAIL, row['email'], msg.as_string())
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "Ad günü hədiyyəsi göndərildi!"})
                                     cb += 1
-                            prog.progress((i + 1) / len(edited_df))
-                        st.success(f"Nəticə: {c50} Endirim, {cb} Ad Günü mesajı göndərildi!")
+                                    status.write(f"📤 {row['email']} (Ad Günü)")
+                            
+                            server.quit()
+                            status.update(label="✅ Uğurla göndərildi!", state="complete", expanded=False)
+                            st.success(f"Nəticə: {c50} Endirim, {cb} Ad Günü mesajı göndərildi!")
+                        
+                        except Exception as e:
+                            status.update(label="❌ Xəta baş verdi", state="error")
+                            st.error(f"Xəta: {e}")
+
                 else: st.warning("Aktiv müştəri yoxdur.")
 
                 st.divider()
