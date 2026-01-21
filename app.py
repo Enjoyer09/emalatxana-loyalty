@@ -22,7 +22,7 @@ SENDER_NAME = "Emalatxana Loyalty"
 st.set_page_config(
     page_title="Emalatxana POS", 
     page_icon="☕", 
-    layout="wide", # POS üçün geniş ekran
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
@@ -39,30 +39,39 @@ try:
     conn = st.connection("neon", type="sql", url=db_url)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
-# --- SCHEMA & SEED (MENYU BAZASI) ---
+# --- SCHEMA & SEED (DÜZƏLDİLMİŞ) ---
 def ensure_schema_and_seed():
     with conn.session as s:
-        # Tables
+        # 1. Sales Cədvəli
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
         
-        # Menu Table Update
+        # 2. Customers Update
+        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
+        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
+        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
+        
+        # 3. Menu Cədvəli
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS menu (
                 id SERIAL PRIMARY KEY,
                 item_name TEXT,
                 price DECIMAL(10,2),
                 category TEXT,
-                is_coffee BOOLEAN DEFAULT FALSE,
                 is_active BOOLEAN DEFAULT TRUE
             );
         """))
+        
+        # --- DÜZƏLİŞ: is_coffee sütununu məcburi əlavə edirik ---
+        try:
+            s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS is_coffee BOOLEAN DEFAULT FALSE;"))
+        except:
+            pass # Sütun varsa keç
+            
         s.commit()
         
-        # MENYUNU DOLDURMAQ (Əgər boşdursa)
+        # 4. Menyu Doldurma (Seed)
         check = s.execute(text("SELECT count(*) FROM menu")).scalar()
         if check == 0:
-            # Sizin verdiyiniz menyu
             menu_items = [
                 # Alkaqolsuz
                 ("Su", 2, "İçkilər", False), ("Çay (şirniyyat)", 3, "İçkilər", False), 
@@ -70,7 +79,7 @@ def ensure_schema_and_seed():
                 ("Portağal şirəsi", 6, "İçkilər", False), ("Meyvə şirəsi", 4, "İçkilər", False),
                 ("Limonad", 6, "İçkilər", False), ("Kola", 4, "İçkilər", False),
                 ("Tonik", 5, "İçkilər", False), ("Energetik", 6, "İçkilər", False),
-                # Qəhvə (S, M, L) - Hamısı Coffee True
+                # Qəhvə (S, M, L)
                 ("Americano S", 3.9, "Qəhvə", True), ("Americano M", 4.9, "Qəhvə", True), ("Americano L", 5.9, "Qəhvə", True),
                 ("Ice Americano S", 4.5, "Qəhvə", True), ("Ice Americano M", 5.5, "Qəhvə", True), ("Ice Americano L", 6.5, "Qəhvə", True),
                 ("Cappuccino S", 4.5, "Qəhvə", True), ("Cappuccino M", 5.5, "Qəhvə", True), ("Cappuccino L", 6.5, "Qəhvə", True),
@@ -214,6 +223,9 @@ if "id" in query_params:
         st.divider()
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(lnk, card_id), f"{card_id}.png", "image/png", use_container_width=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Səhifəni Yenilə", type="secondary", use_container_width=True): st.rerun()
     else: st.error("Kart tapılmadı")
 
 # ========================
@@ -227,6 +239,7 @@ else:
         with c2: 
             st.image("emalatxana.png", width=150)
             st.markdown("<h3 style='text-align:center'>POS GİRİŞ</h3>", unsafe_allow_html=True)
+            if st.button("🔄 Yenilə"): st.rerun()
             with st.form("login"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
@@ -237,7 +250,6 @@ else:
                         st.rerun()
                     else: st.error("Səhvdir")
     else:
-        # --- POS HEADER ---
         h1, h2, h3 = st.columns([2,6,1])
         with h1: 
             if st.button("🔴 Çıxış"): st.session_state.logged_in = False; st.rerun()
@@ -246,10 +258,9 @@ else:
 
         role = st.session_state.role
         
-        # --- POS INTERFACE ---
         if role == 'staff' or role == 'admin':
             
-            # Layout: Sol (Menyu) - Sağ (Çek)
+            # Layout
             left_col, right_col = st.columns([2, 1])
             
             with left_col:
@@ -264,30 +275,26 @@ else:
                             c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":scan_val})
                             if not c_df.empty:
                                 st.session_state.current_customer = c_df.iloc[0].to_dict()
-                                st.success(f"Müştəri: {scan_val} | ⭐ {c_df.iloc[0]['stars']}")
+                                st.success(f"Müştəri: {scan_val}")
                             else: st.error("Tapılmadı")
                         else: st.session_state.current_customer = None
                 
                 with c_info:
                     curr = st.session_state.current_customer
                     if curr:
-                        st.info(f"👤 Müştəri: {curr['card_id']}\n\n⭐ Ulduz: {curr['stars']}\n\n🏷️ Tip: {curr['type'].upper()}")
-                        if curr['type'] == 'thermos': st.markdown("✅ **20% Termos Endirimi**")
-                        if curr['stars'] >= 10: st.markdown("🎁 **1 PULSUZ KOFE VAR!**")
+                        st.info(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
+                        if curr['type'] == 'thermos': st.caption("✅ 20% Endirim")
+                        if curr['stars'] >= 10: st.caption("🎁 Pulsuz Kofe")
                         if st.button("❌ Ləğv et"): st.session_state.current_customer = None; st.rerun()
                 
-                # Kateqoriyalar
+                # Menyu
                 cats = ["Qəhvə", "İçkilər", "Desert"]
                 selected_cat = st.radio("Kateqoriya:", cats, horizontal=True)
                 
-                # Məhsullar (Grid)
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c ORDER BY id", {"c": selected_cat})
-                
-                # 3 sütunlu grid
                 cols = st.columns(3)
                 for i, row in menu_df.iterrows():
                     with cols[i % 3]:
-                        # Düymə kimi görünən container
                         if st.button(f"{row['item_name']}\n{row['price']} ₼", key=f"btn_{row['id']}", use_container_width=True):
                             st.session_state.cart.append(row.to_dict())
                             st.rerun()
@@ -296,103 +303,65 @@ else:
                 st.markdown("### 🧾 ÇEK")
                 
                 if st.session_state.cart:
-                    total = 0
-                    coffee_count = 0
-                    
-                    # Çek Siyahısı
+                    total, coffee_count = 0, 0
                     for i, item in enumerate(st.session_state.cart):
                         col_name, col_price, col_del = st.columns([3, 1, 1])
                         col_name.write(item['item_name'])
-                        col_price.write(f"{item['price']} ₼")
-                        if col_del.button("🗑️", key=f"del_{i}"):
-                            st.session_state.cart.pop(i)
-                            st.rerun()
-                        
+                        col_price.write(f"{item['price']}")
+                        if col_del.button("🗑️", key=f"del_{i}"): st.session_state.cart.pop(i); st.rerun()
                         total += float(item['price'])
                         if item['is_coffee']: coffee_count += 1
                     
                     st.divider()
                     
-                    # Endirim Hesablaması
-                    discount = 0
-                    final_total = total
+                    # Endirim
+                    discount, msg = 0, []
                     customer = st.session_state.current_customer
                     
-                    msg = []
-                    
                     if customer:
-                        # 1. Termos Endirimi (Coffee items only)
                         if customer['type'] == 'thermos':
                             coffee_total = sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']])
-                            disc_amount = coffee_total * 0.20
-                            if disc_amount > 0:
-                                discount += disc_amount
-                                msg.append(f"Termos (-{disc_amount:.2f} ₼)")
+                            d = coffee_total * 0.20
+                            if d > 0: discount += d; msg.append(f"Termos (-{d:.2f})")
                         
-                        # 2. Pulsuz Kofe (10 Ulduz)
                         if customer['stars'] >= 10:
-                            # Səbətdə kofe varsa, ən ucuzunu pulsuz et
                             coffees = [x for x in st.session_state.cart if x['is_coffee']]
                             if coffees:
-                                free_item = min(coffees, key=lambda x: float(x['price']))
-                                discount += float(free_item['price'])
-                                msg.append(f"Hədiyyə Kofe (-{free_item['price']} ₼)")
+                                free = min(coffees, key=lambda x: float(x['price']))
+                                discount += float(free['price'])
+                                msg.append(f"Hədiyyə (-{free['price']})")
                     
                     final_total = max(0, total - discount)
+                    st.markdown(f"<div class='basket-total'>CƏM: {total:.2f}</div>", unsafe_allow_html=True)
+                    if discount > 0: st.markdown(f"<div style='text-align:right;color:red'>-{discount:.2f}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='basket-total' style='font-size:32px;border-top:1px solid #ddd'>YEKUN: {final_total:.2f}</div>", unsafe_allow_html=True)
                     
-                    st.markdown(f"<div class='basket-total'>CƏM: {total:.2f} ₼</div>", unsafe_allow_html=True)
-                    if discount > 0:
-                        st.markdown(f"<div style='text-align:right;color:red'>Endirim: -{discount:.2f} ₼</div>", unsafe_allow_html=True)
-                        for m in msg: st.caption(f"ℹ️ {m}")
-                    
-                    st.markdown(f"<div class='basket-total' style='font-size:32px; border-top:1px solid #ddd'>YEKUN: {final_total:.2f} ₼</div>", unsafe_allow_html=True)
-                    
-                    # Ödəniş
                     pay_method = st.radio("Ödəniş:", ["Nəğd", "Kart"], horizontal=True)
-                    
-                    if st.button("✅ ÖDƏNİŞİ TƏSDİQLƏ", type="primary", use_container_width=True):
-                        # 1. Bazaya Yazmaq
+                    if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True):
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
                         run_action("INSERT INTO sales (items, total, payment_method) VALUES (:i, :t, :p)", 
                                   {"i": items_str, "t": final_total, "p": pay_method})
                         
-                        # 2. Müştəri Yeniləməsi
                         if customer:
                             new_stars = customer['stars']
-                            
-                            # Ulduz artımı (Hər kofe üçün +1 ulduz? Yoxsa visit başına?)
-                            # Qayda: Adətən hər çek üçün 1 ulduz və ya hər kofe üçün.
-                            # Gəlin hələlik 1 kofe varsa +1 ulduz verək.
                             if coffee_count > 0:
-                                # Əgər pulsuz kofe istifadə edibsə, ulduzları silirik
                                 if customer['stars'] >= 10 and any(x['is_coffee'] for x in st.session_state.cart):
-                                    new_stars = 0 # Sıfırla
-                                    run_action("INSERT INTO logs (card_id, staff_name, action_type) VALUES (:id, :s, 'Free Coffee Used')", {"id":customer['card_id'], "s":st.session_state.user})
+                                    new_stars = 0
+                                    run_action("INSERT INTO logs (card_id, staff_name, action_type) VALUES (:id, :s, 'Free Coffee')", {"id":customer['card_id'], "s":st.session_state.user})
                                 else:
-                                    # Kofe alıbsa ulduz artır
-                                    new_stars += 1 # Və ya coffee_count qədər
+                                    new_stars += 1
                                     run_action("INSERT INTO logs (card_id, staff_name, action_type) VALUES (:id, :s, 'Purchase')", {"id":customer['card_id'], "s":st.session_state.user})
-                            
-                            run_action("UPDATE customers SET stars = :s, last_visit = NOW() WHERE card_id = :id", 
-                                      {"s": new_stars, "id": customer['card_id']})
+                            run_action("UPDATE customers SET stars = :s, last_visit = NOW() WHERE card_id = :id", {"s": new_stars, "id": customer['card_id']})
                         
-                        st.success("Satış uğurlu!")
-                        st.session_state.cart = []
-                        st.session_state.current_customer = None
-                        time.sleep(1)
-                        st.rerun()
-                        
-                else:
-                    st.info("Səbət boşdur")
+                        st.success("Satış uğurlu!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
+                else: st.info("Səbət boşdur")
 
-        # --- ADMIN DASHBOARD ---
+        # --- ADMIN ---
         if role == 'admin':
             st.divider()
             with st.expander("📊 ADMIN STATİSTİKA"):
-                # Satışlar
                 sales_df = run_query("SELECT * FROM sales ORDER BY created_at DESC LIMIT 50")
                 st.dataframe(sales_df)
-                
                 total_sales = run_query("SELECT SUM(total) as t FROM sales WHERE created_at::date = CURRENT_DATE")
                 t_val = total_sales.iloc[0]['t'] if not total_sales.empty and total_sales.iloc[0]['t'] else 0
                 st.metric("Bu Günlük Satış", f"{t_val} ₼")
