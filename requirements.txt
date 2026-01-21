@@ -4,3 +4,4 @@ qrcode
 altair
 psycopg2-binary
 sqlalchemy
+bcrypt
