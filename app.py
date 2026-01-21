@@ -34,7 +34,8 @@ except Exception as e:
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
 def run_query(query, params=None):
     try:
-        return conn.query(query, params=params, ttl=0)
+        # DÜZƏLİŞ: show_spinner=False (Ekrana yazı çıxmasın)
+        return conn.query(query, params=params, ttl=0, show_spinner=False)
     except Exception as e:
         st.error(f"Sorğu xətası: {e}")
         return pd.DataFrame()
@@ -65,7 +66,6 @@ def show_qr_popup(card_id, type_text):
     st.markdown(f"<h3 style='text-align: center;'>ID: {card_id}</h3>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align: center; color: gray;'>Tip: {type_text}</p>", unsafe_allow_html=True)
     
-    # QR kod yalnız bura açılan anda yaranır (Serveri yormur)
     lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
     qr_bytes = generate_qr_image_bytes(lnk)
     
@@ -435,7 +435,6 @@ else:
                             with c2: st.write(f"⭐ {row['stars']}")
                             with c3: st.write(f"☕ {row['type'][:1].upper()}") 
                             with c4:
-                                # DÜZƏLİŞ: Siyahıda yalnız "Bax" düyməsi qaldı. Şəkil yoxdur.
                                 if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
                                     show_qr_popup(row['card_id'], row['type'].upper())
                                     
