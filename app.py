@@ -14,34 +14,27 @@ st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
 
 # --- DATABASE CONNECTION (NEON/POSTGRES) ---
 try:
-    # 1. Linki oxuyuruq
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     
-    # 2. Link yoxdursa xəbər veririk
     if not db_url:
         st.error("⚠️ XƏTA: Railway Variables bölməsində 'STREAMLIT_CONNECTIONS_NEON_URL' tapılmadı!")
         st.stop()
     
-    # 3. Dırnaq işarələrini təmizləyirik
     db_url = db_url.strip().strip('"').strip("'")
 
-    # 4. Protokolu düzəldirik (postgres -> postgresql+psycopg2)
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif db_url.startswith("postgresql://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-    # 5. Bağlantını yaradırıq
     conn = st.connection("neon", type="sql", url=db_url)
 
 except Exception as e:
     st.error(f"Bağlantı xətası yarandı: {e}")
-    st.info(f"Oxunan Link (İlk 15 simvol): {db_url[:15]}...") 
     st.stop()
 
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
 def run_query(query, params=None):
-    """Məlumat oxumaq üçün (SELECT)"""
     try:
         return conn.query(query, params=params, ttl=0)
     except Exception as e:
@@ -49,7 +42,6 @@ def run_query(query, params=None):
         return pd.DataFrame()
 
 def run_action(query, params=None):
-    """Məlumat yazmaq üçün (INSERT, UPDATE, DELETE)"""
     try:
         with conn.session as s:
             s.execute(text(query), params if params else {})
@@ -125,7 +117,6 @@ def process_scan():
     user = st.session_state.get('current_user', 'Unknown')
     
     if scan_code:
-        # 1. Müştərini tap
         df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": scan_code})
         
         if not df.empty:
@@ -134,7 +125,6 @@ def process_scan():
             cust_type = customer['type']
             is_first = customer['is_first_fill']
             
-            # --- MƏNTİQ ---
             if cust_type == 'thermos':
                 if is_first:
                     msg = "🎁 TERMOS: İLK DOLUM PULSUZ!"
@@ -165,10 +155,8 @@ def process_scan():
                 else:
                     msg = f"✅ Əlavə olundu. (Cəmi: {new_stars})"
                 
-                # SQL update
                 run_action("UPDATE customers SET stars = :stars, last_visit = NOW() WHERE card_id = :id", {"stars": new_stars, "id": scan_code})
 
-            # Log yaz
             run_action("INSERT INTO logs (staff_name, card_id, action_type) VALUES (:staff, :card, :action)", 
                        {"staff": user, "card": scan_code, "action": action})
             
@@ -182,14 +170,10 @@ def process_scan():
 # --- ƏSAS PROQRAM ---
 query_params = st.query_params
 
-# ================================
-# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ (MOBİL) ===
-# ================================
 if "id" in query_params:
     card_id = query_params["id"]
     show_logo()
     
-    # Müştərini oxu
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     
     if not df.empty:
@@ -207,7 +191,6 @@ if "id" in query_params:
         if cust_type != 'thermos':
             st.markdown(f"""<div class="promo-box"><div style="font-weight: bold;">{get_motivational_msg(stars)}</div></div>""", unsafe_allow_html=True)
 
-        # MENYU
         st.markdown("<br><h3>📋 MENYU</h3>", unsafe_allow_html=True)
         menu_df = run_query("SELECT * FROM menu WHERE is_active = TRUE ORDER BY id")
         if not menu_df.empty:
@@ -221,7 +204,6 @@ if "id" in query_params:
                 </div>""", unsafe_allow_html=True)
         else: st.caption("Menyu boşdur.")
 
-        # RƏY
         st.markdown("<br><h3>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
         with st.form("feedback_form"):
             rating = st.slider("Qiymət:", 1, 5, 5)
@@ -237,13 +219,9 @@ if "id" in query_params:
     else:
         st.error("Bu kart aktiv deyil.")
 
-# ================================
-# === 2. SİSTEM GÖRÜNÜŞÜ (ADMIN/STAFF) ===
-# ================================
 else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
-    # LOGIN LOGIC
     if not st.session_state.logged_in:
         show_logo()
         st.markdown("<br><h3 class='login-header'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
@@ -263,9 +241,8 @@ else:
                         st.rerun()
                     else: st.error("Yanlış şifrə!")
         else:
-            st.error("Bazada istifadəçi yoxdur. SQL-dən Admin yaratdığınızı yoxlayın.")
+            st.error("Bazada istifadəçi yoxdur.")
 
-    # LOGGED IN
     else:
         role = st.session_state.role
         user = st.session_state.current_user
@@ -327,19 +304,35 @@ else:
                         st.info(f"Kart: {r['card_id']} | {r['rating']}⭐\n\n{r['message']}")
 
             with tabs[4]:
-                st.markdown("### 🔐 Personal")
+                st.markdown("### 🔐 Personal & Admin")
+                
+                # --- 1. ADMIN ÖZ ŞİFRƏSİNİ DƏYİŞİR ---
+                st.info(f"🔑 Hazırda daxil olan istifadəçi: **{user}**")
+                with st.form("change_own_pass"):
+                    own_new_pass = st.text_input("Yeni Şifrəniz:", type="password")
+                    if st.form_submit_button("Mənim Şifrəmi Dəyiş"):
+                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": own_new_pass, "u": user})
+                        st.success("Şifrəniz yeniləndi! Çıxış edilir...")
+                        time.sleep(2)
+                        st.session_state.logged_in = False
+                        st.rerun()
+                
+                st.divider()
+
+                # --- 2. İŞÇİLƏRİN ŞİFRƏSİNİ DƏYİŞMƏK ---
+                st.markdown("### 👥 İşçi Şifrələri")
                 users_df = run_query("SELECT username FROM users WHERE role != 'admin'")
                 if not users_df.empty:
-                    target = st.selectbox("Seç:", users_df['username'].tolist())
-                    new_p = st.text_input("Yeni Şifrə:", type="password")
-                    if st.button("Yenilə"):
-                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": new_p, "u": target})
-                        st.success("Oldu!")
+                    target = st.selectbox("İşçi Seç:", users_df['username'].tolist())
+                    staff_new_pass = st.text_input("İşçi üçün Yeni Şifrə:", type="password")
+                    if st.button("İşçi Şifrəsini Yenilə", key="btn_staff_pass_update"):
+                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": staff_new_pass, "u": target})
+                        st.success(f"{target} üçün şifrə yeniləndi!")
+                
                 st.divider()
                 st.markdown("### ➕ Yeni İşçi")
                 n_name = st.text_input("Ad:")
                 n_pass = st.text_input("Şifrə:", type="password", key="np")
-                # DÜZƏLİŞ: key="btn_new_user" əlavə olundu
                 if st.button("Yarat", key="btn_new_user"):
                     run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u": n_name, "p": n_pass})
                     st.success("Hazır!"); st.rerun()
@@ -349,7 +342,6 @@ else:
                 c_qr1, c_qr2 = st.columns(2)
                 cnt = c_qr1.number_input("Say:", 1, 20, 1)
                 is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
-                # DÜZƏLİŞ: key="btn_new_qr" əlavə olundu
                 if st.button("Yarat", key="btn_new_qr"):
                     typ = "thermos" if is_th else "standard"
                     ff = True if is_th else False
