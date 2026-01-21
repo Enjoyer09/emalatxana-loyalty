@@ -22,7 +22,7 @@ try:
         st.error("⚠️ XƏTA: Railway Variables bölməsində 'STREAMLIT_CONNECTIONS_NEON_URL' tapılmadı!")
         st.stop()
     
-    # 3. Dırnaq işarələrini təmizləyirik (Ehtiyat üçün)
+    # 3. Dırnaq işarələrini təmizləyirik
     db_url = db_url.strip().strip('"').strip("'")
 
     # 4. Protokolu düzəldirik (postgres -> postgresql+psycopg2)
@@ -36,7 +36,7 @@ try:
 
 except Exception as e:
     st.error(f"Bağlantı xətası yarandı: {e}")
-    st.info(f"Oxunan Link (İlk 15 simvol): {db_url[:15]}...") # Təhlükəsizlik üçün hamısını göstərmirik
+    st.info(f"Oxunan Link (İlk 15 simvol): {db_url[:15]}...") 
     st.stop()
 
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
@@ -339,7 +339,8 @@ else:
                 st.markdown("### ➕ Yeni İşçi")
                 n_name = st.text_input("Ad:")
                 n_pass = st.text_input("Şifrə:", type="password", key="np")
-                if st.button("Yarat"):
+                # DÜZƏLİŞ: key="btn_new_user" əlavə olundu
+                if st.button("Yarat", key="btn_new_user"):
                     run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u": n_name, "p": n_pass})
                     st.success("Hazır!"); st.rerun()
 
@@ -348,7 +349,8 @@ else:
                 c_qr1, c_qr2 = st.columns(2)
                 cnt = c_qr1.number_input("Say:", 1, 20, 1)
                 is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
-                if st.button("Yarat"):
+                # DÜZƏLİŞ: key="btn_new_qr" əlavə olundu
+                if st.button("Yarat", key="btn_new_qr"):
                     typ = "thermos" if is_th else "standard"
                     ff = True if is_th else False
                     for i in range(cnt):
