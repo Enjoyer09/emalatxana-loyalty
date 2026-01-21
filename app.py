@@ -55,17 +55,14 @@ except Exception as e:
     st.error(f"Bağlantı xətası: {e}")
     st.stop()
 
-# --- SCHEMA MIGRATION (BAZA YENİLƏNMƏSİ) ---
+# --- SCHEMA MIGRATION ---
 def ensure_schema():
-    """Lazımi cədvəl və sütunları yaradır"""
     try:
         with conn.session as s:
-            # Müştəri məlumatları
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
             
-            # Bildirişlər
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS notifications (
                     id SERIAL PRIMARY KEY,
@@ -77,9 +74,9 @@ def ensure_schema():
             """))
             s.commit()
     except exc.OperationalError:
-        st.warning("⚠️ Baza ilə əlaqə kəsildi. Zəhmət olmasa səhifəni yeniləyin.")
-    except Exception as e:
-        pass # Sütunlar artıq varsa ignor edirik
+        st.warning("⚠️ Baza əlaqəsi yenilənir...")
+    except Exception:
+        pass
 
 ensure_schema()
 
@@ -104,7 +101,6 @@ def run_action(query, params=None):
     except: return False
 
 def send_email(to_email, subject, body):
-    """Email göndərmə funksiyası"""
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -306,11 +302,9 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     
-    # --- HEADER ---
     head1, head2, head3 = st.columns([1,3,1])
     with head2: show_logo()
     
-    # Bildirişləri yoxla (Əgər aktivdirsə)
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     
     if not df.empty:
@@ -318,7 +312,7 @@ if "id" in query_params:
         email = user_data.get('email')
         is_active = user_data.get('is_active')
         
-        # --- AKTİVASİYA YOXLANILIR ---
+        # --- AKTİVASİYA ---
         if not is_active or not email:
             st.markdown("""
                 <div class="activation-box">
@@ -341,11 +335,9 @@ if "id" in query_params:
                         st.rerun()
                     else:
                         st.error("Zəhmət olmasa email daxil edin.")
-            st.stop() # Aktivasiya bitmədən aşağı keçmir
+            st.stop()
 
-        # --- AKTİV İSTİFADƏÇİ EKRANI ---
-        
-        # Bildirişlər
+        # --- LOYALTY ---
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE ORDER BY created_at DESC", {"id": card_id})
         with head3:
             if not notifs.empty:
@@ -359,7 +351,6 @@ if "id" in query_params:
         stars = int(user_data['stars'])
         cust_type = user_data['type']
 
-        # --- LOYALTY CARD ---
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         if cust_type == 'thermos': st.info("⭐ VIP TERMOS KLUBU")
         
@@ -429,7 +420,8 @@ else:
         if c2.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
 
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "📧 Marketinq", "📊 Analitika", "📋 Menyu", "👥 Admin", "🖨️ QR"])
+            # --- DÜZƏLİŞ: Tabs sayı 7-dir ---
+            tabs = st.tabs(["📠 Terminal", "📧 Marketinq", "📊 Analitika", "📋 Menyu", "💬 Rəylər", "⚙️ Ayarlar", "🖨️ QR"])
             
             with tabs[0]: 
                 st.markdown("### 📠 Skaner")
@@ -440,10 +432,9 @@ else:
                     if r['type'] == 'success': st.success(r['msg'])
                     else: st.error(r['msg'])
 
-            with tabs[1]: # MARKETİNQ
+            with tabs[1]:
                 st.markdown("### 📧 Müştəri CRM")
                 m_df = run_query("SELECT card_id, email, birth_date, stars FROM customers WHERE email IS NOT NULL")
-                
                 if not m_df.empty:
                     st.info(f"Cəmi {len(m_df)} aktiv müştəri.")
                     m_df['50% Endirim'], m_df['Ad Günü Hədiyyəsi'] = False, False
