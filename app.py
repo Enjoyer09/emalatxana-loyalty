@@ -71,6 +71,7 @@ st.markdown("""
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
     .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
     .stTextInput input { text-align: center; font-size: 18px; }
+    .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -184,7 +185,6 @@ if "id" in query_params:
         if cust_type == 'thermos':
             st.markdown("""<div class="thermos-box"><b>⭐ VIP TERMOS KLUBU ⭐</b><br>Hər kofe <b>20% ENDİRİMLƏ!</b></div>""", unsafe_allow_html=True)
         
-        # BAŞLIQ RƏNGİ YAŞIL OLUNDU
         st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #2e7d32;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
         render_coffee_grid(stars)
         st.markdown(f"<div class='counter-text'>{get_remaining_text(stars)}</div>", unsafe_allow_html=True)
@@ -192,7 +192,6 @@ if "id" in query_params:
         if cust_type != 'thermos':
             st.markdown(f"""<div class="promo-box"><div style="font-weight: bold;">{get_motivational_msg(stars)}</div></div>""", unsafe_allow_html=True)
 
-        # MENYU RƏNGİ YAŞIL OLUNDU
         st.markdown("<br><h3 style='color: #2e7d32;'>📋 MENYU</h3>", unsafe_allow_html=True)
         menu_df = run_query("SELECT * FROM menu WHERE is_active = TRUE ORDER BY id")
         if not menu_df.empty:
@@ -206,16 +205,13 @@ if "id" in query_params:
                 </div>""", unsafe_allow_html=True)
         else: st.caption("Menyu boşdur.")
 
-        # RƏY RƏNGİ YAŞIL OLUNDU VƏ ULDUZ SİSTEMİ DƏYİŞDİ
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
-        
-        # Yeni st.feedback (narıncı ulduzlar)
         selected_stars = st.feedback("stars")
         review_msg = st.text_area("Rəyiniz:")
         
         if st.button("Rəyi Göndər", key="btn_send_feedback"):
             if selected_stars is not None:
-                real_rating = selected_stars + 1 # st.feedback 0-dan başlayır, bizə 1-5 lazımdır
+                real_rating = selected_stars + 1
                 run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", 
                           {"id": card_id, "rat": real_rating, "msg": review_msg})
                 st.success("Təşəkkürlər! Rəyiniz qeydə alındı.")
@@ -316,7 +312,6 @@ else:
             with tabs[4]:
                 st.markdown("### 🔐 İdarəetmə Paneli")
                 
-                # --- 1. ADMIN ÖZ ŞİFRƏSİNİ DƏYİŞİR (EXPANDER) ---
                 st.info(f"👤 Hazırda daxil olan: **{user}**")
                 
                 with st.expander("🔑 Öz Şifrəni Dəyiş"):
@@ -329,7 +324,6 @@ else:
                             st.session_state.logged_in = False
                             st.rerun()
 
-                # --- 2. İŞÇİLƏRİN ŞİFRƏSİNİ DƏYİŞMƏK (EXPANDER) ---
                 with st.expander("👥 İşçi Şifrələrini Yenilə"):
                     users_df = run_query("SELECT username FROM users WHERE role != 'admin'")
                     if not users_df.empty:
@@ -354,28 +348,56 @@ else:
                 c_qr1, c_qr2 = st.columns(2)
                 cnt = c_qr1.number_input("Say:", 1, 20, 1)
                 is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
+                
                 if st.button("Yarat", key="btn_new_qr"):
                     typ = "thermos" if is_th else "standard"
                     ff = True if is_th else False
                     for i in range(cnt):
                         r_id = str(random.randint(10000000, 99999999))
                         run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
-                        
-                        lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={r_id}"
-                        qr_b = generate_qr_image_bytes(lnk)
-                        st.divider()
-                        c1, c2 = st.columns([1,2])
-                        with c1: st.image(qr_b, width=150)
-                        with c2: 
-                            st.markdown(f"**ID:** `{r_id}` ({typ.upper()})")
-                            st.download_button("⬇️ Yüklə", data=qr_b, file_name=f"{r_id}.png", mime="image/png")
+                        st.toast(f"Kart yaradıldı: {r_id}")
+                    st.success(f"{cnt} ədəd yeni kart bazaya əlavə olundu! Aşağıdakı siyahıdan yükləyə bilərsiniz.")
+                    time.sleep(1)
+                    st.rerun()
+
+                st.divider()
+                st.markdown("### 📂 Bütün Kartlar (Arxiv)")
+                st.caption("Burada sistemdəki bütün kartlar saxlanılır. İstədiyinizi tapıb yenidən yükləyə bilərsiniz.")
+                
+                # Arxiv hissəsi
+                search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
+                
+                base_sql = "SELECT * FROM customers"
+                params = {}
+                if search_qr:
+                    base_sql += " WHERE card_id LIKE :s"
+                    params = {"s": f"%{search_qr}%"}
+                
+                base_sql += " ORDER BY last_visit DESC LIMIT 50"
+                
+                archive_df = run_query(base_sql, params)
+                
+                if not archive_df.empty:
+                    for i, row in archive_df.iterrows():
+                        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
+                        with c1: st.write(f"🆔 **{row['card_id']}**")
+                        with c2: st.write(f"⭐ {row['stars']}")
+                        with c3: st.write(f"☕ {row['type'][:1].upper()}") # S (Standard) və ya T (Termos)
+                        with c4:
+                            lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={row['card_id']}"
+                            b_data = generate_qr_image_bytes(lnk)
+                            st.download_button("⬇️ QR Yüklə", data=b_data, file_name=f"{row['card_id']}.png", mime="image/png", key=f"dl_{row['card_id']}")
+                        st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
+                else:
+                    st.info("Kart tapılmadı.")
                 
                 st.divider()
-                with st.expander("Silmə Paneli"):
+                with st.expander("🗑️ Silmə Paneli"):
                     d_id = st.text_input("Kart ID Sil:")
-                    if st.button("Sil"):
+                    if st.button("Sil", key="btn_del_card"):
                         run_action("DELETE FROM customers WHERE card_id = :id", {"id": d_id})
                         st.success("Silindi")
+                        st.rerun()
 
         else: # Staff
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
