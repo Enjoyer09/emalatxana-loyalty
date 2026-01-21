@@ -54,7 +54,6 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
     
-    /* Ümumi Gizlətmələr */
     header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
     div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
     div[data-testid="stStatusWidget"], #MainMenu { display: none !important; }
@@ -62,17 +61,14 @@ st.markdown("""
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
     .stApp { background-color: #ffffff; }
     
-    /* Şriftlər */
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
     p, div, button, input, li { font-family: 'Oswald', sans-serif; }
     
-    /* Şəkillər və Grid */
     [data-testid="stImage"] { display: flex; justify-content: center; }
     .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
     .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
     .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
     
-    /* Qutular */
     .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .thermos-box { background-color: #e65100; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
@@ -80,7 +76,6 @@ st.markdown("""
     .stTextInput input { text-align: center; font-size: 18px; }
     .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; }
     
-    /* ULDUZLARIN BÖYÜDÜLMƏSİ (NEW) */
     div[data-testid="stFeedback"] > div {
         transform: scale(1.5);
         transform-origin: left top;
@@ -127,12 +122,11 @@ def generate_qr_image_bytes(data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- AYARLARI OXUMA (MANUAL INPUT) ---
 def check_manual_input_status():
     df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
     if not df.empty:
         return df.iloc[0]['value'] == 'true'
-    return True # Default açıq
+    return True
 
 # --- SCAN PROSESİ (SQL) ---
 def process_scan():
@@ -228,7 +222,6 @@ if "id" in query_params:
 
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
         
-        # ULDUZ SİSTEMİ (CSS ilə böyüdülüb)
         selected_stars = st.feedback("stars")
         review_msg = st.text_area("Rəyiniz:")
         
@@ -275,8 +268,6 @@ else:
     else:
         role = st.session_state.role
         user = st.session_state.current_user
-        
-        # --- MANUAL GİRİŞ STATUSUNU YOXLAYIRIQ ---
         is_input_allowed = check_manual_input_status()
         
         c1, c2 = st.columns([3,1])
@@ -289,8 +280,6 @@ else:
             
             with tabs[0]: 
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
-                
-                # Admin həmişə görə bilir, amma statusu da görür
                 if not is_input_allowed:
                     st.caption("🔒 *Diqqət: İşçilər üçün manual giriş bağlıdır.*")
                 
@@ -344,16 +333,11 @@ else:
 
             with tabs[4]:
                 st.markdown("### 🔐 İdarəetmə Paneli")
-                
-                # --- TERMİNAL AYARLARI (NEW) ---
                 st.markdown("#### ⚙️ Terminal Ayarları")
                 col_set1, col_set2 = st.columns([3, 1])
                 col_set1.write("Baristalar üçün Manual Giriş (Əllə yazmaq):")
                 
-                # Cari statusu oxuyuruq
                 current_status = is_input_allowed
-                
-                # Toggle düyməsi
                 if col_set2.button("YANDIR" if not current_status else "SÖNDÜR", 
                                   type="primary" if not current_status else "secondary", 
                                   key="btn_toggle_input"):
@@ -362,9 +346,9 @@ else:
                     st.rerun()
                 
                 if current_status:
-                    st.success("✅ Giriş AÇIQDIR (Barista həm skanerlə, həm əllə yaza bilər)")
+                    st.success("✅ Giriş AÇIQDIR")
                 else:
-                    st.error("⛔ Giriş BAĞLIDIR (Barista yalnız QR skanerlə oxuda bilər, əllə yaza bilməz)")
+                    st.error("⛔ Giriş BAĞLIDIR")
                 
                 st.divider()
 
@@ -397,20 +381,22 @@ else:
 
             with tabs[5]:
                 st.markdown("### 🖨️ QR Kod")
-                c_qr1, c_qr2 = st.columns(2)
-                cnt = c_qr1.number_input("Say:", 1, 20, 1)
-                is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
                 
-                if st.button("Yarat", key="btn_new_qr"):
-                    typ = "thermos" if is_th else "standard"
-                    ff = True if is_th else False
-                    for i in range(cnt):
-                        r_id = str(random.randint(10000000, 99999999))
-                        run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
-                        st.toast(f"Kart yaradıldı: {r_id}")
-                    st.success(f"{cnt} ədəd yeni kart bazaya əlavə olundu!")
-                    time.sleep(1)
-                    st.rerun()
+                # --- YENİ FORM SİSTEMİ (STABİLLİK ÜÇÜN) ---
+                with st.form("qr_create_form"):
+                    c_qr1, c_qr2 = st.columns(2)
+                    cnt = c_qr1.number_input("Say:", 1, 20, 1)
+                    is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
+                    
+                    if st.form_submit_button("Yarat"):
+                        typ = "thermos" if is_th else "standard"
+                        ff = True if is_th else False
+                        for i in range(cnt):
+                            r_id = str(random.randint(10000000, 99999999))
+                            run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
+                        st.success(f"{cnt} ədəd yeni kart yaradıldı! Aşağıdan baxa bilərsiniz.")
+                        time.sleep(1)
+                        st.rerun()
 
                 st.divider()
                 
@@ -446,17 +432,13 @@ else:
                         st.success("Silindi")
                         st.rerun()
 
-        else: # Staff Görünüşü
+        else: # Staff
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
-            
-            # --- YOXLANIS: Girişə icazə varmı? ---
             if is_input_allowed:
                 st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
             else:
                 st.warning("⛔ DİQQƏT: Admin manual girişi bağlayıb.")
-                st.info("Zəhmət olmasa fiziki QR Skaner istifadə edin. Əgər skaner işləmirsə, Adminə müraciət edin.")
-                # Gizli input (Skaner üçün - bəzi skanerlər fokus tələb etdiyi üçün tam gizlətmirik, amma istifadəçiyə göstərmirik)
-                # Amma ən təhlükəsiz yol tamamilə göstərməməkdir.
+                st.info("Zəhmət olmasa fiziki QR Skaner istifadə edin.")
             
             if 'last_result' in st.session_state:
                 res = st.session_state['last_result']
