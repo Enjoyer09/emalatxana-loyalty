@@ -14,7 +14,7 @@ import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- EMAIL AYARLARI (Öz məlumatlarınızı yazın) ---
+# --- EMAIL AYARLARI ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = os.environ.get("MY_EMAIL") or "sizin_email@gmail.com"
@@ -74,7 +74,7 @@ def ensure_schema():
             """))
             s.commit()
     except exc.OperationalError:
-        st.warning("⚠️ Baza əlaqəsi yenilənir...")
+        st.warning("⚠️ Baza ilə əlaqə yenilənir...")
     except Exception:
         pass
 
@@ -284,6 +284,11 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     
+    /* REFRESH BUTTON STYLE */
+    .refresh-btn {
+        margin-top: 10px;
+    }
+    
     .metric-card {
         background-color: #fff; border: 1px solid #eee; padding: 15px; border-radius: 12px; text-align: center;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -302,9 +307,11 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     
+    # --- HEADER ---
     head1, head2, head3 = st.columns([1,3,1])
     with head2: show_logo()
     
+    # Bildirişləri yoxla (Əgər aktivdirsə)
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     
     if not df.empty:
@@ -389,6 +396,11 @@ if "id" in query_params:
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ (Offline Mode)", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         
+        # --- REFRESH BUTTON FOR CUSTOMER ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Səhifəni Yenilə", type="secondary", use_container_width=True):
+            st.rerun()
+        
     else: st.error("Kart tapılmadı.")
 
 else:
@@ -399,6 +411,10 @@ else:
         c1, c2, c3 = st.columns([1,2,1])
         with c2: show_logo()
         st.markdown("<h3 style='text-align:center'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
+        
+        # Giriş səhifəsində də yenilə düyməsi
+        if st.button("🔄 Yenilə", key="refresh_login"): st.rerun()
+        
         with st.form("login"):
             u = st.text_input("İstifadəçi")
             p = st.text_input("Şifrə", type="password")
@@ -415,12 +431,17 @@ else:
     else:
         role = st.session_state.role
         user = st.session_state.current_user
-        c1, c2 = st.columns([3,1])
-        c1.write(f"👤 **{user}** ({role})")
-        if c2.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
+        c1, c2, c3 = st.columns([2,3,1]) # Logo və Refresh üçün yer ayırırıq
+        
+        with c1:
+            st.write(f"👤 **{user}**")
+            if st.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
+        with c2: show_logo()
+        with c3:
+            # --- ADMIN REFRESH BUTTON ---
+            if st.button("🔄", key="admin_refresh", help="Sistemi Yenilə"): st.rerun()
 
         if role == 'admin':
-            # --- DÜZƏLİŞ: Tabs sayı 7-dir ---
             tabs = st.tabs(["📠 Terminal", "📧 Marketinq", "📊 Analitika", "📋 Menyu", "💬 Rəylər", "⚙️ Ayarlar", "🖨️ QR"])
             
             with tabs[0]: 
