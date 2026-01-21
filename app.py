@@ -184,14 +184,16 @@ if "id" in query_params:
         if cust_type == 'thermos':
             st.markdown("""<div class="thermos-box"><b>⭐ VIP TERMOS KLUBU ⭐</b><br>Hər kofe <b>20% ENDİRİMLƏ!</b></div>""", unsafe_allow_html=True)
         
-        st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #333;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
+        # BAŞLIQ RƏNGİ YAŞIL OLUNDU
+        st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #2e7d32;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
         render_coffee_grid(stars)
         st.markdown(f"<div class='counter-text'>{get_remaining_text(stars)}</div>", unsafe_allow_html=True)
         
         if cust_type != 'thermos':
             st.markdown(f"""<div class="promo-box"><div style="font-weight: bold;">{get_motivational_msg(stars)}</div></div>""", unsafe_allow_html=True)
 
-        st.markdown("<br><h3>📋 MENYU</h3>", unsafe_allow_html=True)
+        # MENYU RƏNGİ YAŞIL OLUNDU
+        st.markdown("<br><h3 style='color: #2e7d32;'>📋 MENYU</h3>", unsafe_allow_html=True)
         menu_df = run_query("SELECT * FROM menu WHERE is_active = TRUE ORDER BY id")
         if not menu_df.empty:
             for index, item in menu_df.iterrows():
@@ -204,13 +206,21 @@ if "id" in query_params:
                 </div>""", unsafe_allow_html=True)
         else: st.caption("Menyu boşdur.")
 
-        st.markdown("<br><h3>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
-        with st.form("feedback_form"):
-            rating = st.slider("Qiymət:", 1, 5, 5)
-            msg = st.text_area("Rəyiniz:")
-            if st.form_submit_button("Göndər"):
-                run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", {"id": card_id, "rat": rating, "msg": msg})
-                st.success("Təşəkkürlər!")
+        # RƏY RƏNGİ YAŞIL OLUNDU VƏ ULDUZ SİSTEMİ DƏYİŞDİ
+        st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
+        
+        # Yeni st.feedback (narıncı ulduzlar)
+        selected_stars = st.feedback("stars")
+        review_msg = st.text_area("Rəyiniz:")
+        
+        if st.button("Rəyi Göndər", key="btn_send_feedback"):
+            if selected_stars is not None:
+                real_rating = selected_stars + 1 # st.feedback 0-dan başlayır, bizə 1-5 lazımdır
+                run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", 
+                          {"id": card_id, "rat": real_rating, "msg": review_msg})
+                st.success("Təşəkkürlər! Rəyiniz qeydə alındı.")
+            else:
+                st.warning("Zəhmət olmasa ulduz seçin.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
@@ -304,30 +314,32 @@ else:
                         st.info(f"Kart: {r['card_id']} | {r['rating']}⭐\n\n{r['message']}")
 
             with tabs[4]:
-                st.markdown("### 🔐 Personal & Admin")
+                st.markdown("### 🔐 İdarəetmə Paneli")
                 
-                # --- 1. ADMIN ÖZ ŞİFRƏSİNİ DƏYİŞİR ---
-                st.info(f"🔑 Hazırda daxil olan istifadəçi: **{user}**")
-                with st.form("change_own_pass"):
-                    own_new_pass = st.text_input("Yeni Şifrəniz:", type="password")
-                    if st.form_submit_button("Mənim Şifrəmi Dəyiş"):
-                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": own_new_pass, "u": user})
-                        st.success("Şifrəniz yeniləndi! Çıxış edilir...")
-                        time.sleep(2)
-                        st.session_state.logged_in = False
-                        st.rerun()
+                # --- 1. ADMIN ÖZ ŞİFRƏSİNİ DƏYİŞİR (EXPANDER) ---
+                st.info(f"👤 Hazırda daxil olan: **{user}**")
                 
-                st.divider()
+                with st.expander("🔑 Öz Şifrəni Dəyiş"):
+                    with st.form("change_own_pass"):
+                        own_new_pass = st.text_input("Yeni Şifrəniz:", type="password")
+                        if st.form_submit_button("Mənim Şifrəmi Dəyiş"):
+                            run_action("UPDATE users SET password = :p WHERE username = :u", {"p": own_new_pass, "u": user})
+                            st.success("Şifrəniz yeniləndi! Çıxış edilir...")
+                            time.sleep(2)
+                            st.session_state.logged_in = False
+                            st.rerun()
 
-                # --- 2. İŞÇİLƏRİN ŞİFRƏSİNİ DƏYİŞMƏK ---
-                st.markdown("### 👥 İşçi Şifrələri")
-                users_df = run_query("SELECT username FROM users WHERE role != 'admin'")
-                if not users_df.empty:
-                    target = st.selectbox("İşçi Seç:", users_df['username'].tolist())
-                    staff_new_pass = st.text_input("İşçi üçün Yeni Şifrə:", type="password")
-                    if st.button("İşçi Şifrəsini Yenilə", key="btn_staff_pass_update"):
-                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": staff_new_pass, "u": target})
-                        st.success(f"{target} üçün şifrə yeniləndi!")
+                # --- 2. İŞÇİLƏRİN ŞİFRƏSİNİ DƏYİŞMƏK (EXPANDER) ---
+                with st.expander("👥 İşçi Şifrələrini Yenilə"):
+                    users_df = run_query("SELECT username FROM users WHERE role != 'admin'")
+                    if not users_df.empty:
+                        target = st.selectbox("İşçi Seç:", users_df['username'].tolist())
+                        staff_new_pass = st.text_input("İşçi üçün Yeni Şifrə:", type="password")
+                        if st.button("İşçi Şifrəsini Yenilə", key="btn_staff_pass_update"):
+                            run_action("UPDATE users SET password = :p WHERE username = :u", {"p": staff_new_pass, "u": target})
+                            st.success(f"{target} üçün şifrə yeniləndi!")
+                    else:
+                        st.caption("İşçi tapılmadı.")
                 
                 st.divider()
                 st.markdown("### ➕ Yeni İşçi")
