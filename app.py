@@ -34,7 +34,6 @@ except Exception as e:
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
 def run_query(query, params=None):
     try:
-        # DÜZƏLİŞ: show_spinner=False (Ekrana yazı çıxmasın)
         return conn.query(query, params=params, ttl=0, show_spinner=False)
     except Exception as e:
         st.error(f"Sorğu xətası: {e}")
@@ -52,7 +51,8 @@ def run_action(query, params=None):
 
 # --- QR GENERASIYA (BYTES) ---
 def generate_qr_image_bytes(data):
-    qr = qrcode.QRCode(box_size=10, border=2)
+    # box_size kiçildildi (Yaddaş qənaəti üçün)
+    qr = qrcode.QRCode(box_size=8, border=1)
     qr.add_data(data)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
@@ -60,60 +60,11 @@ def generate_qr_image_bytes(data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- POPUP DIALOG (QR BAXIŞI) ---
-@st.dialog("🟦 QR KOD BAXIŞI")
-def show_qr_popup(card_id, type_text):
-    st.markdown(f"<h3 style='text-align: center;'>ID: {card_id}</h3>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: gray;'>Tip: {type_text}</p>", unsafe_allow_html=True)
-    
-    lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
-    qr_bytes = generate_qr_image_bytes(lnk)
-    
-    st.image(BytesIO(qr_bytes), width=250)
-    
-    st.download_button(
-        label="📥 Şəkli Yüklə", 
-        data=qr_bytes, 
-        file_name=f"card_{card_id}.png", 
-        mime="image/png", 
-        use_container_width=True
-    )
-
-# --- CSS DİZAYN ---
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
-    
-    header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
-    div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
-    div[data-testid="stStatusWidget"], #MainMenu { display: none !important; }
-    
-    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
-    .stApp { background-color: #ffffff; }
-    
-    h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
-    p, div, button, input, li { font-family: 'Oswald', sans-serif; }
-    
-    [data-testid="stImage"] { display: flex; justify-content: center; }
-    .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
-    .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
-    .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
-    
-    .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
-    .thermos-box { background-color: #e65100; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
-    .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
-    .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
-    .stTextInput input { text-align: center; font-size: 18px; }
-    .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
-    
-    div[data-testid="stFeedback"] > div {
-        transform: scale(1.5);
-        transform-origin: left top;
-        margin-bottom: 20px;
-        margin-left: 10px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+def check_manual_input_status():
+    df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
+    if not df.empty:
+        return df.iloc[0]['value'] == 'true'
+    return True
 
 # --- HELPER FUNKSİYALAR ---
 def show_logo():
@@ -142,12 +93,6 @@ def render_coffee_grid(stars):
             html += f'<img src="{src}" class="coffee-item {"active" if idx<=stars else ""}" style="{style}">'
         html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
-
-def check_manual_input_status():
-    df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
-    if not df.empty:
-        return df.iloc[0]['value'] == 'true'
-    return True
 
 # --- SCAN PROSESİ (SQL) ---
 def process_scan():
@@ -203,6 +148,53 @@ def process_scan():
             st.error("Kart bazada tapılmadı! Adminə müraciət edin.")
             
     st.session_state.scanner_input = ""
+
+# --- CSS DİZAYN ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
+    
+    header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
+    div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
+    div[data-testid="stStatusWidget"], #MainMenu { display: none !important; }
+    
+    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
+    .stApp { background-color: #ffffff; }
+    
+    h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
+    p, div, button, input, li { font-family: 'Oswald', sans-serif; }
+    
+    [data-testid="stImage"] { display: flex; justify-content: center; }
+    .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
+    .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
+    .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
+    
+    .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
+    .thermos-box { background-color: #e65100; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
+    .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
+    .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
+    .stTextInput input { text-align: center; font-size: 18px; }
+    .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
+    
+    /* ULDUZLARIN BÖYÜDÜLMƏSİ */
+    div[data-testid="stFeedback"] > div {
+        transform: scale(1.5);
+        transform-origin: left top;
+        margin-bottom: 20px;
+        margin-left: 10px;
+    }
+    
+    /* SEÇİLMİŞ QR QUTUSU */
+    .selected-qr-box {
+        border: 2px solid #2e7d32;
+        padding: 20px;
+        border-radius: 10px;
+        background-color: #f1f8e9;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- ƏSAS PROQRAM ---
 query_params = st.query_params
@@ -418,8 +410,39 @@ else:
 
                 st.divider()
                 
+                # --- YENİ "BAX" SİSTEMİ (STABİL) ---
+                # Popup əvəzinə, "view_qr_id" varsa, onu yuxarıda göstəririk
+                
+                # 1. Əgər bir QR seçilibsə, onu GÖSTƏR
+                if 'view_qr_id' in st.session_state and st.session_state['view_qr_id']:
+                    v_id = st.session_state['view_qr_id']
+                    
+                    st.markdown(f"""
+                        <div class="selected-qr-box">
+                            <h3>SEÇİLMİŞ KART: {v_id}</h3>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={v_id}"
+                    qr_bytes = generate_qr_image_bytes(lnk)
+                    st.image(BytesIO(qr_bytes), width=300)
+                    
+                    col_close, col_dl = st.columns(2)
+                    if col_close.button("❌ Bağla", key="close_view"):
+                        del st.session_state['view_qr_id']
+                        st.rerun()
+                    
+                    col_dl.download_button(
+                        label="📥 Yüklə", 
+                        data=qr_bytes, 
+                        file_name=f"card_{v_id}.png", 
+                        mime="image/png", 
+                        use_container_width=True
+                    )
+                    st.markdown("---")
+
+                # 2. Axtarış və Siyahı
                 with st.expander("📂 Bütün Kartlar (Arxiv) - Axtarış"):
-                    st.caption("Burada sistemdəki bütün kartlar saxlanılır. İstədiyinizi tapıb yenidən yükləyə bilərsiniz.")
                     search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
                     base_sql = "SELECT * FROM customers"
                     params = {}
@@ -435,8 +458,10 @@ else:
                             with c2: st.write(f"⭐ {row['stars']}")
                             with c3: st.write(f"☕ {row['type'][:1].upper()}") 
                             with c4:
+                                # Bu düyməyə basanda state dəyişir və səhifə yenilənir (QR yuxarıda açılır)
                                 if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
-                                    show_qr_popup(row['card_id'], row['type'].upper())
+                                    st.session_state['view_qr_id'] = row['card_id']
+                                    st.rerun()
                                     
                             st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
                     else:
