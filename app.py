@@ -9,7 +9,16 @@ import time
 from sqlalchemy import text
 import os
 import bcrypt
-import datetime
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# --- EMAIL KONFİQURASİYASI (Bunu mütləq dəyişin!) ---
+# Əgər Railway istifadə edirsinizsə, bunları orada Variable kimi əlavə etmək daha təhlükəsizdir.
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = os.environ.get("MY_EMAIL") or "sizin_email@gmail.com" # BURANI DƏYİŞİN
+SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "sizin_app_password" # Gmail App Password
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(
@@ -19,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- META TAGS (PWA & MOBILE OPTIMIZATION) ---
+# --- META TAGS ---
 st.markdown("""
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <meta name="theme-color" content="#ffffff">
@@ -31,7 +40,7 @@ st.markdown("""
 try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     if not db_url:
-        st.error("⚠️ URL tapılmadı! Railway Variables yoxlayın.")
+        st.error("⚠️ URL tapılmadı!")
         st.stop()
     
     db_url = db_url.strip().strip('"').strip("'")
@@ -46,11 +55,16 @@ except Exception as e:
     st.error(f"Bağlantı xətası: {e}")
     st.stop()
 
-# --- SCHEMA MIGRATION ---
+# --- SCHEMA MIGRATION (MARKETING ÜÇÜN) ---
 def ensure_schema():
     try:
         with conn.session as s:
-            # Bildirişlər Cədvəli
+            # Müştəri məlumatları üçün yeni sütunlar
+            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
+            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;")) # Sadəlik üçün TEXT saxlayırıq (YYYY-MM-DD)
+            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
+            
+            # Bildirişlər
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS notifications (
                     id SERIAL PRIMARY KEY,
@@ -62,7 +76,7 @@ def ensure_schema():
             """))
             s.commit()
     except Exception as e:
-        st.error(f"Schema Update Error: {e}")
+        pass # Sütunlar varsa xəta verməsin
 
 ensure_schema()
 
@@ -71,8 +85,7 @@ def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password, stored_password):
-    if not stored_password.startswith('$2b$'):
-        return plain_password == stored_password
+    if not stored_password.startswith('$2b$'): return plain_password == stored_password
     return bcrypt.checkpw(plain_password.encode('utf-8'), stored_password.encode('utf-8'))
 
 def run_query(query, params=None):
@@ -87,7 +100,27 @@ def run_action(query, params=None):
         return True
     except: return False
 
-@st.cache_data(show_spinner=False, persist="disk") 
+def send_email(to_email, subject, body):
+    """Real E-mail göndərmə funksiyası"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        text_msg = msg.as_string()
+        server.sendmail(SENDER_EMAIL, to_email, text_msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Email Error: {e}")
+        return False
+
+@st.cache_data(show_spinner=False, persist="disk")
 def generate_custom_qr(data, center_text):
     qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=2)
     qr.add_data(data)
@@ -162,6 +195,7 @@ def process_scan():
         df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": scan_code})
         if not df.empty:
             customer = df.iloc[0]
+            # Aktiv deyilsə xəbərdarlıq etmirik, sadəcə işlədirik (Admin tərəfdə problem yoxdur)
             curr_stars = int(customer['stars'])
             c_type = customer['type']
             is_first = customer['is_first_fill']
@@ -227,11 +261,16 @@ st.markdown("""
     .counter-text { text-align: center; font-size: 18px; font-weight: 500; color: #d32f2f; margin-top: 5px; }
     .menu-item { background: white; border-bottom: 1px solid #eee; padding: 12px; margin-bottom: 5px; border-radius: 8px; }
     
-    /* NOTIFICATIONS */
+    /* NOTIFICATIONS & ACTIVATION */
     .notification-box {
         background-color: #e3f2fd; border-left: 5px solid #2196f3;
         padding: 10px; margin-bottom: 10px; border-radius: 5px;
         font-size: 14px; color: #0d47a1;
+    }
+    .activation-box {
+        background-color: #fff3e0; border: 2px solid #ff9800;
+        padding: 20px; border-radius: 15px; text-align: center;
+        margin-bottom: 20px;
     }
     
     /* ULDUZLAR */
@@ -262,31 +301,61 @@ st.markdown("""
 query_params = st.query_params
 
 # ================================================
-# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ (NOTIFY & LOYALTY) ===
+# === 1. MÜŞTƏRİ GÖRÜNÜŞÜ (ACTIVATION & LOYALTY) ===
 # ================================================
 if "id" in query_params:
     card_id = query_params["id"]
     
-    # --- HEADER & NOTIFICATION BELL ---
+    # --- HEADER ---
     head1, head2, head3 = st.columns([1,3,1])
     with head2: show_logo()
     
-    # Bildirişləri yoxla
-    notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE ORDER BY created_at DESC", {"id": card_id})
-    with head3:
-        if not notifs.empty:
-            st.markdown(f"<div style='text-align:right; font-size:24px;'>🔔<span style='color:red; font-size:14px; vertical-align:top;'>{len(notifs)}</span></div>", unsafe_allow_html=True)
-    
-    # Əgər oxunmamış mesaj varsa göstər və oxundu et
-    if not notifs.empty:
-        for i, row in notifs.iterrows():
-            st.markdown(f"<div class='notification-box'>📩 <b>YENİ MESAJ:</b> {row['message']}</div>", unsafe_allow_html=True)
-            # Oxundu kimi işarələ
-            run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
-
+    # Bildirişləri yoxla (Əgər aktivdirsə)
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    
     if not df.empty:
         user_data = df.iloc[0]
+        email = user_data.get('email')
+        is_active = user_data.get('is_active')
+        
+        # --- AKTİVASİYA YOXLANILIR ---
+        if not is_active or not email:
+            st.markdown("""
+                <div class="activation-box">
+                    <h3>🎉 KARTI AKTİVLƏŞDİRİN</h3>
+                    <p>Kampaniyalardan və hədiyyələrdən yararlanmaq üçün zəhmət olmasa məlumatları doldurun.</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            with st.form("activation_form"):
+                user_email = st.text_input("📧 Email ünvanınız")
+                user_dob = st.date_input("🎂 Doğum tarixiniz", min_value=datetime.date(1950, 1, 1))
+                
+                if st.form_submit_button("AKTİVLƏŞDİR"):
+                    if user_email:
+                        dob_str = user_dob.strftime("%Y-%m-%d")
+                        run_action("UPDATE customers SET email = :em, birth_date = :bd, is_active = TRUE WHERE card_id = :id", 
+                                  {"em": user_email, "bd": dob_str, "id": card_id})
+                        st.success("✅ Kartınız uğurla aktivləşdirildi!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("Zəhmət olmasa email daxil edin.")
+            st.stop() # Aktivasiya bitmədən aşağı keçmir
+
+        # --- AKTİV İSTİFADƏÇİ EKRANI ---
+        
+        # Bildirişlər
+        notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE ORDER BY created_at DESC", {"id": card_id})
+        with head3:
+            if not notifs.empty:
+                st.markdown(f"<div style='text-align:right; font-size:24px;'>🔔<span style='color:red; font-size:14px; vertical-align:top;'>{len(notifs)}</span></div>", unsafe_allow_html=True)
+        
+        if not notifs.empty:
+            for i, row in notifs.iterrows():
+                st.markdown(f"<div class='notification-box'>📩 <b>YENİ MESAJ:</b> {row['message']}</div>", unsafe_allow_html=True)
+                run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
+
         stars = int(user_data['stars'])
         cust_type = user_data['type']
 
@@ -326,7 +395,6 @@ if "id" in query_params:
                 else: st.toast("⚠️ Zəhmət olmasa ulduz seçin!")
 
         st.markdown("---")
-        # OFFLINE MODE ÜÇÜN LOCAL CACHE + DOWNLOAD
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ (Offline Mode)", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         
@@ -361,7 +429,7 @@ else:
         if c2.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
 
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "📊 Analitika", "📋 Menyu", "💬 Rəylər", "👥 Admin", "🖨️ QR"])
+            tabs = st.tabs(["📠 Terminal", "📧 Marketinq", "📊 Analitika", "📋 Menyu", "👥 Admin", "🖨️ QR"])
             
             with tabs[0]: 
                 st.markdown("### 📠 Skaner")
@@ -372,7 +440,76 @@ else:
                     if r['type'] == 'success': st.success(r['msg'])
                     else: st.error(r['msg'])
 
-            with tabs[1]:
+            with tabs[1]: # MARKETİNQ (YENİ)
+                st.markdown("### 📧 Müştəri CRM")
+                
+                # Müştəri Siyahısı (Aktiv olanlar)
+                m_df = run_query("SELECT card_id, email, birth_date, stars FROM customers WHERE email IS NOT NULL")
+                
+                if not m_df.empty:
+                    st.info(f"Cəmi {len(m_df)} aktiv müştəri var.")
+                    
+                    # Seçim Cədvəli
+                    # Müştəri siyahısına 2 checkbox sütunu əlavə edirik
+                    m_df['50% Endirim'] = False
+                    m_df['Ad Günü Hədiyyəsi'] = False
+                    
+                    edited_df = st.data_editor(
+                        m_df,
+                        column_config={
+                            "50% Endirim": st.column_config.CheckboxColumn("50% Göndər", default=False),
+                            "Ad Günü Hədiyyəsi": st.column_config.CheckboxColumn("🎁 Ad Günü", default=False),
+                            "card_id": "Kart ID",
+                            "email": "Email",
+                            "birth_date": "Doğum Tarixi"
+                        },
+                        disabled=["card_id", "email", "birth_date", "stars"],
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                    
+                    st.write("")
+                    if st.button("🚀 SEÇİLƏNLƏRƏ GÖNDƏR", type="primary"):
+                        count_50 = 0
+                        count_bday = 0
+                        
+                        progress_bar = st.progress(0)
+                        total_rows = len(edited_df)
+                        
+                        for i, row in edited_df.iterrows():
+                            # 50% Endirim Göndərilməsi
+                            if row['50% Endirim']:
+                                subject = "🎉 Emalatxana-dan Sizə Özəl 50% ENDİRİM!"
+                                body = f"Salam!\n\nSadiq müştərimiz olduğunuz üçün sizə növbəti kofenizdə 50% endirim təklif edirik.\n\nKart ID: {row['card_id']}\n\nEmalatxana Kofe Evi"
+                                if send_email(row['email'], subject, body):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "50% Endirim kuponu emailinizə göndərildi!"})
+                                    count_50 += 1
+                            
+                            # Ad Günü Təbriki Göndərilməsi
+                            if row['Ad Günü Hədiyyəsi']:
+                                subject = "🎂 Ad Gününüz Mübarək! Bir Kofe Bizdən!"
+                                body = f"Salam!\n\nEmalatxana ailəsi olaraq ad gününüzü təbrik edirik! Bu gün bizdən 1 ədəd PULSUZ kofe qonağımızsınız.\n\nKart ID: {row['card_id']}\n\nEmalatxana Kofe Evi"
+                                if send_email(row['email'], subject, body):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "Ad günü hədiyyəniz (Pulsuz Kofe) emailinizə göndərildi!"})
+                                    count_bday += 1
+                            
+                            progress_bar.progress((i + 1) / total_rows)
+                            
+                        st.success(f"Nəticə: {count_50} nəfərə Endirim, {count_bday} nəfərə Ad Günü təbriki göndərildi!")
+                else:
+                    st.warning("Hələ heç bir müştəri emailini aktivləşdirməyib.")
+
+                st.divider()
+                st.markdown("#### 🔔 Ümumi Bildiriş (Push)")
+                with st.form("push_notify"):
+                    p_msg = st.text_area("Bütün müştərilərə göndəriləcək mesaj:")
+                    if st.form_submit_button("Hamıya Göndər"):
+                        all_users = run_query("SELECT card_id FROM customers")
+                        for _, r in all_users.iterrows():
+                            run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": r['card_id'], "msg": p_msg})
+                        st.success("Bildiriş göndərildi!")
+
+            with tabs[2]:
                 st.markdown("### 📊 Biznes")
                 df = run_query("SELECT COUNT(*) FILTER (WHERE action_type = 'Star Added') as paid, COUNT(*) FILTER (WHERE action_type = 'Free Coffee') as free FROM logs")
                 if not df.empty:
@@ -384,7 +521,7 @@ else:
                 hdf = run_query("SELECT EXTRACT(HOUR FROM created_at) as hour, COUNT(*) as count FROM logs GROUP BY hour ORDER BY hour")
                 if not hdf.empty: st.bar_chart(hdf.set_index('hour'))
 
-            with tabs[2]:
+            with tabs[3]:
                 with st.form("add_menu"):
                     c1, c2, c3 = st.columns(3)
                     n = c1.text_input("Ad")
@@ -401,11 +538,11 @@ else:
                         run_action("DELETE FROM menu WHERE id=:id", {"id":r['id']})
                         st.rerun()
 
-            with tabs[3]:
+            with tabs[4]:
                 rdf = run_query("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 20")
                 for i, r in rdf.iterrows(): st.info(f"{r['rating']}⭐ - {r['message']}")
 
-            with tabs[4]:
+            with tabs[5]: # Admin (User & Settings)
                 st.markdown("### ⚙️ Ayarlar")
                 cs = check_manual_input_status()
                 c1, c2 = st.columns([1,3])
@@ -414,24 +551,8 @@ else:
                     st.rerun()
                 c2.write(f"Manual Giriş: **{'AÇIQ ✅' if cs else 'BAĞLI ⛔'}**")
                 
-                # --- PUSH NOTIFICATION SENDER ---
-                with st.expander("🔔 Bildiriş Göndər (Push Notification)"):
-                    with st.form("notify_form"):
-                        target_id = st.text_input("Kart ID (Boş burax = Hamısı)")
-                        notif_msg = st.text_area("Mesaj")
-                        if st.form_submit_button("Göndər"):
-                            if target_id:
-                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": target_id, "msg": notif_msg})
-                                st.success("Mesaj göndərildi!")
-                            else:
-                                # Hamıya göndər (Bütün aktiv müştərilərə)
-                                all_users = run_query("SELECT card_id FROM customers")
-                                for _, au in all_users.iterrows():
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": au['card_id'], "msg": notif_msg})
-                                st.success(f"{len(all_users)} nəfərə mesaj göndərildi!")
-
                 with st.expander("🔑 Şifrəmi Dəyiş"):
-                    np = st.text_input("Yeni Şifrə", type="password")
+                    np = st.text_input("Yeni Şifrə", type="password", key="upd_own_p")
                     if st.button("Yenilə", key="upd_own"):
                         run_action("UPDATE users SET password = :p WHERE username = :u", {"p": hash_password(np), "u": user})
                         st.success("OK!")
@@ -452,7 +573,7 @@ else:
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":nn, "p":hash_password(npp)})
                         st.success("OK!")
 
-            with tabs[5]:
+            with tabs[6]: # QR
                 with st.form("qr_gen"):
                     cnt = st.number_input("Say", 1, 50, 1)
                     is_th = st.checkbox("Termos")
