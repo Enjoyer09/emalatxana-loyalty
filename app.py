@@ -17,8 +17,8 @@ from email.mime.multipart import MIMEMultipart
 # --- EMAIL AYARLARI ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = os.environ.get("MY_EMAIL") or "sizin_email@gmail.com"
-SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "sizin_app_password"
+SENDER_EMAIL = os.environ.get("MY_EMAIL") or "emalatkhanacoffee@gmail.com"
+SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "Pezoxano@2025"
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(
