@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import random
 import qrcode
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers import RoundedModuleDrawer
 from io import BytesIO
-import altair as alt
-from datetime import datetime
+import zipfile
+from PIL import Image, ImageDraw, ImageFont
 import time
 from sqlalchemy import text
 import os
@@ -49,13 +51,53 @@ def run_action(query, params=None):
         st.error(f"Əməliyyat xətası: {e}")
         return False
 
-# --- QR GENERASIYA (BYTES) ---
-def generate_qr_image_bytes(data):
-    # box_size kiçildildi (Yaddaş qənaəti üçün)
-    qr = qrcode.QRCode(box_size=8, border=1)
+# --- QR GENERASIYA (YAZILI VƏ LOGOLU) ---
+def generate_custom_qr(data, center_text="EMALAT"):
+    # H (High) səviyyəli qoruma seçirik ki, ortasına yazı yazanda kod xarab olmasın
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2,
+    )
     qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+
+    # Şəkli yaradırıq (RGB formatında)
+    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    
+    # Ortasına yazı yazmaq üçün
+    draw = ImageDraw.Draw(img)
+    width, height = img.size
+    
+    # Oradakı qutunun ölçüsü (təxminən QR-ın 25%-i)
+    box_w = width // 3.5
+    box_h = height // 6
+    
+    # Mərkəzi tapırıq
+    x0 = (width - box_w) // 2
+    y0 = (height - box_h) // 2
+    x1 = x0 + box_w
+    y1 = y0 + box_h
+    
+    # Ağ düzbucaqlı çəkirik (Yazı oxunsun deyə)
+    draw.rectangle([x0, y0, x1, y1], fill="white", outline="black", width=2)
+    
+    # Yazını yazırıq (Default fontla)
+    try:
+        # Şrifti ölçüyə görə tənzimləməyə çalışırıq (sadə yanaşma)
+        font = ImageFont.load_default()
+    except:
+        font = None
+
+    # Mətni qutunun ortasına yerləşdiririk (təxmini)
+    # Pillow default fontu ilə dəqiq mərkəzləmə çətindir, sadə hesablama edirik
+    text_x = x0 + (box_w * 0.1)
+    text_y = y0 + (box_h * 0.3)
+    
+    draw.text((text_x, text_y), center_text, fill="black", font=font)
+
+    # Bytes-a çeviririk
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -176,12 +218,15 @@ st.markdown("""
     .stTextInput input { text-align: center; font-size: 18px; }
     .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
     
-    /* ULDUZLARIN BÖYÜDÜLMƏSİ */
+    /* ULDUZLARIN HƏCİMLİ BÖYÜDÜLMƏSİ (3x) */
+    div[data-testid="stFeedback"] {
+        display: flex;
+        justify-content: center;
+    }
     div[data-testid="stFeedback"] > div {
-        transform: scale(1.5);
-        transform-origin: left top;
-        margin-bottom: 20px;
-        margin-left: 10px;
+        transform: scale(2.5); /* 2.5 qat böyütmə */
+        margin-top: 10px;
+        margin-bottom: 30px;
     }
     
     /* SEÇİLMİŞ QR QUTUSU */
@@ -235,6 +280,7 @@ if "id" in query_params:
 
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
         
+        # ULDUZLAR İNDİ DAHA BÖYÜKDÜR
         selected_stars = st.feedback("stars")
         review_msg = st.text_area("Rəyiniz:")
         
@@ -249,7 +295,7 @@ if "id" in query_params:
 
         st.markdown("<br>", unsafe_allow_html=True)
         card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
-        st.download_button("📥 Kartı Yüklə", data=generate_qr_image_bytes(card_link), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
+        st.download_button("📥 Kartı Yüklə", data=generate_custom_qr(card_link, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         if stars == 0: st.balloons()
     else:
         st.error("Bu kart aktiv deyil.")
@@ -395,25 +441,77 @@ else:
             with tabs[5]:
                 st.markdown("### 🖨️ QR Kod")
                 
+                # Form-dan məlumatları alırıq
                 with st.form("qr_create_form"):
                     c_qr1, c_qr2 = st.columns(2)
                     cnt = c_qr1.number_input("Say:", 1, 20, 1)
                     is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
                     
-                    if st.form_submit_button("Yarat"):
+                    submitted = st.form_submit_button("Yarat")
+                    
+                    if submitted:
+                        # 1. Kartları yaradırıq
+                        new_ids = []
                         typ = "thermos" if is_th else "standard"
                         ff = True if is_th else False
+                        
                         for i in range(cnt):
                             r_id = str(random.randint(10000000, 99999999))
                             run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
-                        st.success(f"{cnt} ədəd yeni kart yaradıldı! (Arxivdə görünmək üçün səhifəni yeniləyə bilərsiniz)")
+                            new_ids.append(r_id)
+                        
+                        # 2. Sessiyada yadda saxlayırıq ki, form bitəndən sonra aşağıda göstərək
+                        st.session_state['new_created_qrs'] = new_ids
+                        st.session_state['last_qr_type'] = typ
+                        st.success(f"{cnt} ədəd yeni kart yaradıldı!")
+                        time.sleep(0.5)
+                        st.rerun() # Səhifəni yeniləyirik ki, aşağıdakı blok işə düşsün
+
+                # --- YENİ YARADILMIŞ KARTLARI GÖSTƏRMƏK (FORMDAN KƏNAR) ---
+                if 'new_created_qrs' in st.session_state and st.session_state['new_created_qrs']:
+                    st.divider()
+                    st.markdown("### 🎉 Yeni Kartlarınız Hazırdır!")
+                    
+                    new_qrs = st.session_state['new_created_qrs']
+                    qr_type = st.session_state.get('last_qr_type', 'standard')
+                    
+                    # Əgər 1 ədəddirsə - Tək göstər
+                    if len(new_qrs) == 1:
+                        single_id = new_qrs[0]
+                        st.write(f"🆔 **{single_id}**")
+                        lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={single_id}"
+                        # Ortasına "EMALATXANA" yazılmış QR
+                        qr_bytes = generate_custom_qr(lnk, center_text="EMALAT") 
+                        st.image(BytesIO(qr_bytes), width=250)
+                        st.download_button("⬇️ Bu Kartı Yüklə", data=qr_bytes, file_name=f"{single_id}.png", mime="image/png", type="primary")
+                    
+                    # Əgər çoxdursa - ZIP yarat
+                    else:
+                        st.info(f"Cəmi {len(new_qrs)} ədəd kart var. Hamısını bir paketdə yükləyin.")
+                        
+                        # ZIP faylı yaddaşda yaradırıq
+                        zip_buffer = BytesIO()
+                        with zipfile.ZipFile(zip_buffer, "w") as zf:
+                            for q_id in new_qrs:
+                                lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={q_id}"
+                                q_bytes = generate_custom_qr(lnk, center_text="EMALAT")
+                                zf.writestr(f"{q_id}.png", q_bytes)
+                        
+                        st.download_button(
+                            label=f"📦 Bütün {len(new_qrs)} Kartı ZIP kimi Yüklə",
+                            data=zip_buffer.getvalue(),
+                            file_name="Yeni_QR_Kodlar.zip",
+                            mime="application/zip",
+                            type="primary"
+                        )
+                    
+                    if st.button("Təmizlə və Bağla"):
+                        del st.session_state['new_created_qrs']
+                        st.rerun()
 
                 st.divider()
                 
                 # --- YENİ "BAX" SİSTEMİ (STABİL) ---
-                # Popup əvəzinə, "view_qr_id" varsa, onu yuxarıda göstəririk
-                
-                # 1. Əgər bir QR seçilibsə, onu GÖSTƏR
                 if 'view_qr_id' in st.session_state and st.session_state['view_qr_id']:
                     v_id = st.session_state['view_qr_id']
                     
@@ -424,7 +522,8 @@ else:
                     """, unsafe_allow_html=True)
                     
                     lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={v_id}"
-                    qr_bytes = generate_qr_image_bytes(lnk)
+                    # Burda da ortasında yazı olan QR
+                    qr_bytes = generate_custom_qr(lnk, center_text="EMALAT")
                     st.image(BytesIO(qr_bytes), width=300)
                     
                     col_close, col_dl = st.columns(2)
@@ -458,7 +557,6 @@ else:
                             with c2: st.write(f"⭐ {row['stars']}")
                             with c3: st.write(f"☕ {row['type'][:1].upper()}") 
                             with c4:
-                                # Bu düyməyə basanda state dəyişir və səhifə yenilənir (QR yuxarıda açılır)
                                 if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
                                     st.session_state['view_qr_id'] = row['card_id']
                                     st.rerun()
