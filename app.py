@@ -15,13 +15,11 @@ st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
 # --- DATABASE CONNECTION (NEON/POSTGRES) ---
 try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
-    
     if not db_url:
         st.error("⚠️ XƏTA: Railway Variables bölməsində 'STREAMLIT_CONNECTIONS_NEON_URL' tapılmadı!")
         st.stop()
     
     db_url = db_url.strip().strip('"').strip("'")
-
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif db_url.startswith("postgresql://"):
@@ -55,23 +53,40 @@ def run_action(query, params=None):
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
+    
+    /* Ümumi Gizlətmələr */
     header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
     div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
     div[data-testid="stStatusWidget"], #MainMenu { display: none !important; }
+    
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
     .stApp { background-color: #ffffff; }
+    
+    /* Şriftlər */
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
     p, div, button, input, li { font-family: 'Oswald', sans-serif; }
+    
+    /* Şəkillər və Grid */
     [data-testid="stImage"] { display: flex; justify-content: center; }
     .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
     .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
     .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
+    
+    /* Qutular */
     .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .thermos-box { background-color: #e65100; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
     .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
     .stTextInput input { text-align: center; font-size: 18px; }
     .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; }
+    
+    /* ULDUZLARIN BÖYÜDÜLMƏSİ (NEW) */
+    div[data-testid="stFeedback"] > div {
+        transform: scale(1.5);
+        transform-origin: left top;
+        margin-bottom: 20px;
+        margin-left: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -112,6 +127,13 @@ def generate_qr_image_bytes(data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
+# --- AYARLARI OXUMA (MANUAL INPUT) ---
+def check_manual_input_status():
+    df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
+    if not df.empty:
+        return df.iloc[0]['value'] == 'true'
+    return True # Default açıq
+
 # --- SCAN PROSESİ (SQL) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
@@ -143,7 +165,6 @@ def process_scan():
                         msg_type = "error"
                         action = "Free Coffee"
                     run_action("UPDATE customers SET stars = :stars, last_visit = NOW() WHERE card_id = :id", {"stars": new_stars, "id": scan_code})
-            
             else: # Standard
                 new_stars = current_stars + 1
                 msg_type = "success"
@@ -206,6 +227,8 @@ if "id" in query_params:
         else: st.caption("Menyu boşdur.")
 
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
+        
+        # ULDUZ SİSTEMİ (CSS ilə böyüdülüb)
         selected_stars = st.feedback("stars")
         review_msg = st.text_area("Rəyiniz:")
         
@@ -252,6 +275,10 @@ else:
     else:
         role = st.session_state.role
         user = st.session_state.current_user
+        
+        # --- MANUAL GİRİŞ STATUSUNU YOXLAYIRIQ ---
+        is_input_allowed = check_manual_input_status()
+        
         c1, c2 = st.columns([3,1])
         c1.write(f"👤 **{user}** ({role.upper()})")
         if c2.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
@@ -262,7 +289,13 @@ else:
             
             with tabs[0]: 
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
+                
+                # Admin həmişə görə bilir, amma statusu da görür
+                if not is_input_allowed:
+                    st.caption("🔒 *Diqqət: İşçilər üçün manual giriş bağlıdır.*")
+                
                 st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
+                
                 if 'last_result' in st.session_state:
                     res = st.session_state['last_result']
                     if res['type'] == 'error': st.error(res['msg']); st.balloons()
@@ -312,8 +345,29 @@ else:
             with tabs[4]:
                 st.markdown("### 🔐 İdarəetmə Paneli")
                 
-                st.info(f"👤 Hazırda daxil olan: **{user}**")
+                # --- TERMİNAL AYARLARI (NEW) ---
+                st.markdown("#### ⚙️ Terminal Ayarları")
+                col_set1, col_set2 = st.columns([3, 1])
+                col_set1.write("Baristalar üçün Manual Giriş (Əllə yazmaq):")
                 
+                # Cari statusu oxuyuruq
+                current_status = is_input_allowed
+                
+                # Toggle düyməsi
+                if col_set2.button("YANDIR" if not current_status else "SÖNDÜR", 
+                                  type="primary" if not current_status else "secondary", 
+                                  key="btn_toggle_input"):
+                    new_val = 'true' if not current_status else 'false'
+                    run_action("INSERT INTO settings (key, value) VALUES ('manual_input', :v) ON CONFLICT (key) DO UPDATE SET value = :v", {"v": new_val})
+                    st.rerun()
+                
+                if current_status:
+                    st.success("✅ Giriş AÇIQDIR (Barista həm skanerlə, həm əllə yaza bilər)")
+                else:
+                    st.error("⛔ Giriş BAĞLIDIR (Barista yalnız QR skanerlə oxuda bilər, əllə yaza bilməz)")
+                
+                st.divider()
+
                 with st.expander("🔑 Öz Şifrəni Dəyiş"):
                     with st.form("change_own_pass"):
                         own_new_pass = st.text_input("Yeni Şifrəniz:", type="password")
@@ -332,8 +386,6 @@ else:
                         if st.button("İşçi Şifrəsini Yenilə", key="btn_staff_pass_update"):
                             run_action("UPDATE users SET password = :p WHERE username = :u", {"p": staff_new_pass, "u": target})
                             st.success(f"{target} üçün şifrə yeniləndi!")
-                    else:
-                        st.caption("İşçi tapılmadı.")
                 
                 st.divider()
                 st.markdown("### ➕ Yeni İşçi")
@@ -362,22 +414,16 @@ else:
 
                 st.divider()
                 
-                # --- YENİLƏNMİŞ EXPANDER HİSSƏSİ ---
                 with st.expander("📂 Bütün Kartlar (Arxiv) - Axtarış"):
                     st.caption("Burada sistemdəki bütün kartlar saxlanılır. İstədiyinizi tapıb yenidən yükləyə bilərsiniz.")
-                    
                     search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
-                    
                     base_sql = "SELECT * FROM customers"
                     params = {}
                     if search_qr:
                         base_sql += " WHERE card_id LIKE :s"
                         params = {"s": f"%{search_qr}%"}
-                    
                     base_sql += " ORDER BY last_visit DESC LIMIT 50"
-                    
                     archive_df = run_query(base_sql, params)
-                    
                     if not archive_df.empty:
                         for i, row in archive_df.iterrows():
                             c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
@@ -400,9 +446,18 @@ else:
                         st.success("Silindi")
                         st.rerun()
 
-        else: # Staff
+        else: # Staff Görünüşü
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
-            st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
+            
+            # --- YOXLANIS: Girişə icazə varmı? ---
+            if is_input_allowed:
+                st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
+            else:
+                st.warning("⛔ DİQQƏT: Admin manual girişi bağlayıb.")
+                st.info("Zəhmət olmasa fiziki QR Skaner istifadə edin. Əgər skaner işləmirsə, Adminə müraciət edin.")
+                # Gizli input (Skaner üçün - bəzi skanerlər fokus tələb etdiyi üçün tam gizlətmirik, amma istifadəçiyə göstərmirik)
+                # Amma ən təhlükəsiz yol tamamilə göstərməməkdir.
+            
             if 'last_result' in st.session_state:
                 res = st.session_state['last_result']
                 if res['type'] == 'error': st.error(res['msg']); st.balloons()
