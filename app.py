@@ -356,40 +356,41 @@ else:
                         r_id = str(random.randint(10000000, 99999999))
                         run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
                         st.toast(f"Kart yaradıldı: {r_id}")
-                    st.success(f"{cnt} ədəd yeni kart bazaya əlavə olundu! Aşağıdakı siyahıdan yükləyə bilərsiniz.")
+                    st.success(f"{cnt} ədəd yeni kart bazaya əlavə olundu!")
                     time.sleep(1)
                     st.rerun()
 
                 st.divider()
-                st.markdown("### 📂 Bütün Kartlar (Arxiv)")
-                st.caption("Burada sistemdəki bütün kartlar saxlanılır. İstədiyinizi tapıb yenidən yükləyə bilərsiniz.")
                 
-                # Arxiv hissəsi
-                search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
-                
-                base_sql = "SELECT * FROM customers"
-                params = {}
-                if search_qr:
-                    base_sql += " WHERE card_id LIKE :s"
-                    params = {"s": f"%{search_qr}%"}
-                
-                base_sql += " ORDER BY last_visit DESC LIMIT 50"
-                
-                archive_df = run_query(base_sql, params)
-                
-                if not archive_df.empty:
-                    for i, row in archive_df.iterrows():
-                        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
-                        with c1: st.write(f"🆔 **{row['card_id']}**")
-                        with c2: st.write(f"⭐ {row['stars']}")
-                        with c3: st.write(f"☕ {row['type'][:1].upper()}") # S (Standard) və ya T (Termos)
-                        with c4:
-                            lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={row['card_id']}"
-                            b_data = generate_qr_image_bytes(lnk)
-                            st.download_button("⬇️ QR Yüklə", data=b_data, file_name=f"{row['card_id']}.png", mime="image/png", key=f"dl_{row['card_id']}")
-                        st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
-                else:
-                    st.info("Kart tapılmadı.")
+                # --- YENİLƏNMİŞ EXPANDER HİSSƏSİ ---
+                with st.expander("📂 Bütün Kartlar (Arxiv) - Axtarış"):
+                    st.caption("Burada sistemdəki bütün kartlar saxlanılır. İstədiyinizi tapıb yenidən yükləyə bilərsiniz.")
+                    
+                    search_qr = st.text_input("Kart ID ilə axtar:", placeholder="Məs: 84930211")
+                    
+                    base_sql = "SELECT * FROM customers"
+                    params = {}
+                    if search_qr:
+                        base_sql += " WHERE card_id LIKE :s"
+                        params = {"s": f"%{search_qr}%"}
+                    
+                    base_sql += " ORDER BY last_visit DESC LIMIT 50"
+                    
+                    archive_df = run_query(base_sql, params)
+                    
+                    if not archive_df.empty:
+                        for i, row in archive_df.iterrows():
+                            c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
+                            with c1: st.write(f"🆔 **{row['card_id']}**")
+                            with c2: st.write(f"⭐ {row['stars']}")
+                            with c3: st.write(f"☕ {row['type'][:1].upper()}") 
+                            with c4:
+                                lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={row['card_id']}"
+                                b_data = generate_qr_image_bytes(lnk)
+                                st.download_button("⬇️ QR", data=b_data, file_name=f"{row['card_id']}.png", mime="image/png", key=f"dl_{row['card_id']}")
+                            st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
+                    else:
+                        st.info("Kart tapılmadı.")
                 
                 st.divider()
                 with st.expander("🗑️ Silmə Paneli"):
