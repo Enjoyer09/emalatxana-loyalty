@@ -7,13 +7,31 @@ import altair as alt
 from datetime import datetime
 import time
 from sqlalchemy import text
+import os
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
 
 # --- DATABASE CONNECTION (NEON/POSTGRES) ---
-# Streamlit-in öz connection sistemini işlədirik
-conn = st.connection("neon", type="sql")
+# Düzəliş: Railway-dən URL-i birbaşa oxuyuruq
+try:
+    # Railway-dəki dəyişəni götürürük
+    db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
+    
+    if not db_url:
+        st.error("⚠️ Baza linki tapılmadı! Railway Variables bölməsini yoxlayın.")
+        st.stop()
+        
+    # SQLAlchemy üçün linki düzəldirik (postgres -> postgresql)
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    # Bağlantını birbaşa URL ilə yaradırıq
+    conn = st.connection("neon", type="sql", url=db_url)
+
+except Exception as e:
+    st.error(f"Bağlantı xətası: {e}")
+    st.stop()
 
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
 def run_query(query, params=None):
