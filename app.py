@@ -110,15 +110,14 @@ def show_size_selector(base_name, variants):
                 st.session_state.cart.append(item)
                 st.rerun()
 
-# --- CSS STYLES (FINAL UPDATED) ---
+# --- CSS STYLES (FIXED) ---
 st.markdown("""
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* GLOBAL FONT & COLOR */
-    html, body, [class*="css"] {
-        font-family: 'Oswald', sans-serif;
+    /* GLOBAL FONT */
+    html, body, .stApp {
+        font-family: 'Oswald', sans-serif !important;
     }
     
     /* HIDE STREAMLIT UI */
@@ -130,7 +129,7 @@ st.markdown("""
     
     /* CUSTOMER CARD */
     .digital-card {
-        background: linear-gradient(145deg, #ffffff, #f1f8e9); /* Light Green Tint */
+        background: linear-gradient(145deg, #ffffff, #f1f8e9); 
         border-radius: 20px; padding: 20px;
         box-shadow: 0 10px 25px rgba(46, 125, 50, 0.15);
         border: 2px solid #2E7D32;
