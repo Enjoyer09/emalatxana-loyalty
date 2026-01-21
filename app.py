@@ -49,6 +49,35 @@ def run_action(query, params=None):
         st.error(f"Əməliyyat xətası: {e}")
         return False
 
+# --- QR GENERASIYA (BYTES) ---
+def generate_qr_image_bytes(data):
+    qr = qrcode.QRCode(box_size=10, border=2)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+# --- POPUP DIALOG (QR BAXIŞI) ---
+@st.dialog("🟦 QR KOD BAXIŞI")
+def show_qr_popup(card_id, type_text):
+    st.markdown(f"<h3 style='text-align: center;'>ID: {card_id}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: gray;'>Tip: {type_text}</p>", unsafe_allow_html=True)
+    
+    lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
+    qr_bytes = generate_qr_image_bytes(lnk)
+    
+    st.image(qr_bytes, width=250)
+    
+    st.download_button(
+        label="📥 Şəkli Yüklə", 
+        data=qr_bytes, 
+        file_name=f"card_{card_id}.png", 
+        mime="image/png", 
+        use_container_width=True
+    )
+
 # --- CSS DİZAYN ---
 st.markdown("""
     <style>
@@ -74,7 +103,7 @@ st.markdown("""
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
     .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
     .stTextInput input { text-align: center; font-size: 18px; }
-    .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; }
+    .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
     
     div[data-testid="stFeedback"] > div {
         transform: scale(1.5);
@@ -112,15 +141,6 @@ def render_coffee_grid(stars):
             html += f'<img src="{src}" class="coffee-item {"active" if idx<=stars else ""}" style="{style}">'
         html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
-
-def generate_qr_image_bytes(data):
-    qr = qrcode.QRCode(box_size=10, border=2)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 def check_manual_input_status():
     df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
@@ -382,7 +402,6 @@ else:
             with tabs[5]:
                 st.markdown("### 🖨️ QR Kod")
                 
-                # --- YENİ FORM SİSTEMİ (STABİLLİK ÜÇÜN) ---
                 with st.form("qr_create_form"):
                     c_qr1, c_qr2 = st.columns(2)
                     cnt = c_qr1.number_input("Say:", 1, 20, 1)
@@ -394,9 +413,8 @@ else:
                         for i in range(cnt):
                             r_id = str(random.randint(10000000, 99999999))
                             run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
-                        st.success(f"{cnt} ədəd yeni kart yaradıldı! Aşağıdan baxa bilərsiniz.")
-                        time.sleep(1)
-                        st.rerun()
+                        # RERUN LƏĞV EDİLDİ (Səhifəni terminala atmamaq üçün)
+                        st.success(f"{cnt} ədəd yeni kart yaradıldı! (Arxivdə görünmək üçün səhifəni yeniləyə bilərsiniz)")
 
                 st.divider()
                 
@@ -412,14 +430,15 @@ else:
                     archive_df = run_query(base_sql, params)
                     if not archive_df.empty:
                         for i, row in archive_df.iterrows():
-                            c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
+                            c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
                             with c1: st.write(f"🆔 **{row['card_id']}**")
                             with c2: st.write(f"⭐ {row['stars']}")
                             with c3: st.write(f"☕ {row['type'][:1].upper()}") 
                             with c4:
-                                lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={row['card_id']}"
-                                b_data = generate_qr_image_bytes(lnk)
-                                st.download_button("⬇️ QR", data=b_data, file_name=f"{row['card_id']}.png", mime="image/png", key=f"dl_{row['card_id']}")
+                                # YENİ: Popup düyməsi
+                                if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
+                                    show_qr_popup(row['card_id'], row['type'].upper())
+                                    
                             st.markdown("<div class='archive-row'></div>", unsafe_allow_html=True)
                     else:
                         st.info("Kart tapılmadı.")
