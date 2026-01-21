@@ -14,11 +14,9 @@ import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- EMAIL AYARLARI ---
-# QEYD: Əgər Railway-də "Variables" bölməsində bu adları (MY_EMAIL, MY_PASSWORD) yazmısınızsa, kod avtomatik oradan götürəcək.
-# Yazmamısınızsa, dırnaq içində birbaşa yaza bilərsiniz.
+# --- EMAIL AYARLARI (YENİLƏNDİ - PORT 465 SSL) ---
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_PORT = 465  # DÜZƏLİŞ: 587 yox, 465 (SSL) istifadə edirik ki, bloklanmasın
 SENDER_EMAIL = os.environ.get("MY_EMAIL") or "emalatkhanacoffee@gmail.com"
 SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "Pezoxano@2025"
 
@@ -64,6 +62,7 @@ def ensure_schema():
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
+            
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS notifications (
                     id SERIAL PRIMARY KEY,
@@ -76,7 +75,8 @@ def ensure_schema():
             s.commit()
     except exc.OperationalError:
         st.warning("⚠️ Baza ilə əlaqə yenilənir...")
-    except Exception: pass
+    except Exception:
+        pass
 
 ensure_schema()
 
@@ -372,7 +372,6 @@ if "id" in query_params:
         lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ (Offline Mode)", data=generate_custom_qr(lnk, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         
-        # --- REFRESH BUTTON FOR CUSTOMER ---
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Səhifəni Yenilə", type="secondary", use_container_width=True):
             st.rerun()
@@ -447,9 +446,8 @@ else:
                     if st.button("🚀 SEÇİLƏNLƏRƏ GÖNDƏR", type="primary"):
                         status = st.status("Serverə qoşulur...", expanded=True)
                         try:
-                            # 1. Tək qoşulma (Single Connection)
-                            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-                            server.starttls()
+                            # 1. Tək qoşulma (SSL ilə - Port 465)
+                            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
                             server.login(SENDER_EMAIL, SENDER_PASSWORD)
                             status.write("✅ Serverə qoşuldu. Göndərilir...")
                             
