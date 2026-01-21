@@ -110,7 +110,7 @@ def show_size_selector(base_name, variants):
                 st.session_state.cart.append(item)
                 st.rerun()
 
-# --- CSS STYLES (UPDATED FOR 5-5 GRID & GREEN THEME) ---
+# --- CSS STYLES (FINAL UPDATED) ---
 st.markdown("""
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
@@ -230,8 +230,8 @@ if "id" in query_params:
                 icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
                 cls = ""
             else: # 10th cup (Gift)
-                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png" # Eyni icon, amma CSS ilə dəyişəcəyik
-                cls = "orange-gift" # CSS class for Orange color
+                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png" 
+                cls = "orange-gift" 
             
             # Logic
             if i < user['stars']:
