@@ -13,24 +13,30 @@ import os
 st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
 
 # --- DATABASE CONNECTION (NEON/POSTGRES) ---
-# Düzəliş: Railway-dən URL-i birbaşa oxuyuruq
 try:
-    # Railway-dəki dəyişəni götürürük
+    # 1. Linki oxuyuruq
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     
+    # 2. Link yoxdursa xəbər veririk
     if not db_url:
-        st.error("⚠️ Baza linki tapılmadı! Railway Variables bölməsini yoxlayın.")
+        st.error("⚠️ XƏTA: Railway Variables bölməsində 'STREAMLIT_CONNECTIONS_NEON_URL' tapılmadı!")
         st.stop()
-        
-    # SQLAlchemy üçün linki düzəldirik (postgres -> postgresql)
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    
+    # 3. Dırnaq işarələrini təmizləyirik (Ehtiyat üçün)
+    db_url = db_url.strip().strip('"').strip("'")
 
-    # Bağlantını birbaşa URL ilə yaradırıq
+    # 4. Protokolu düzəldirik (postgres -> postgresql+psycopg2)
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    # 5. Bağlantını yaradırıq
     conn = st.connection("neon", type="sql", url=db_url)
 
 except Exception as e:
-    st.error(f"Bağlantı xətası: {e}")
+    st.error(f"Bağlantı xətası yarandı: {e}")
+    st.info(f"Oxunan Link (İlk 15 simvol): {db_url[:15]}...") # Təhlükəsizlik üçün hamısını göstərmirik
     st.stop()
 
 # --- SQL KÖMƏKÇİ FUNKSİYALAR ---
@@ -39,7 +45,7 @@ def run_query(query, params=None):
     try:
         return conn.query(query, params=params, ttl=0)
     except Exception as e:
-        st.error(f"Baza xətası: {e}")
+        st.error(f"Sorğu xətası: {e}")
         return pd.DataFrame()
 
 def run_action(query, params=None):
