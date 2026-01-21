@@ -10,6 +10,7 @@ from sqlalchemy import text, exc
 import os
 import bcrypt
 import requests
+import datetime
 
 # --- EMAIL AYARLARI (BREVO) ---
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY") or "xkeysib-..."
@@ -132,6 +133,7 @@ if "id" in query_params:
     c1, c2, c3 = st.columns([1,3,1])
     with c2: st.image("emalatxana.png", width=150)
     
+    # Bildirişlər
     notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
     with c3:
         if not notifs.empty: st.markdown(f"<div style='text-align:right'>🔔<span style='color:red'>{len(notifs)}</span></div>", unsafe_allow_html=True)
@@ -143,13 +145,24 @@ if "id" in query_params:
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user = df.iloc[0]
+        
+        # --- AKTİVASİYA (Doğum Günü ilə) ---
         if not user['is_active']:
-            st.info("KARTI AKTİVLƏŞDİRİN")
+            st.info("🎉 KARTI AKTİVLƏŞDİRİN")
+            st.write("Kampaniyalardan yararlanmaq üçün məlumatları doldurun.")
             with st.form("act"):
-                em = st.text_input("Email")
+                em = st.text_input("📧 Email")
+                dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 if st.form_submit_button("Təsdiq"):
-                    run_action("UPDATE customers SET email=:e, is_active=TRUE WHERE card_id=:i", {"e":em, "i":card_id})
-                    st.rerun()
+                    if em:
+                        dob_str = dob.strftime("%Y-%m-%d")
+                        run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", 
+                                  {"e":em, "b":dob_str, "i":card_id})
+                        st.success("Təbriklər! Kart aktivdir.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Email vacibdir.")
             st.stop()
 
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
@@ -302,21 +315,63 @@ else:
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 md = run_query("SELECT * FROM menu WHERE is_active=TRUE ORDER BY id")
                 st.dataframe(md)
-            with tabs[4]:
-                with st.expander("➕ Yeni İşçi"):
-                    un = st.text_input("User"); ps = st.text_input("Pass", type="password")
+            
+            with tabs[4]: # ADMIN & SETTINGS (YENİLƏNDİ)
+                st.markdown("### ⚙️ İdarəetmə")
+                
+                # ŞİFRƏ DƏYİŞMƏ (Hamı üçün)
+                with st.expander("🔑 Şifrə Dəyişdir (Admin və İşçilər)"):
+                    all_users_df = run_query("SELECT username FROM users")
+                    if not all_users_df.empty:
+                        target_user = st.selectbox("İstifadəçi seçin:", all_users_df['username'].tolist())
+                        new_pass = st.text_input("Yeni Şifrə", type="password", key="new_pass_input")
+                        if st.button("Şifrəni Yenilə", key="change_pass_btn"):
+                            if new_pass:
+                                run_action("UPDATE users SET password = :p WHERE username = :u", 
+                                          {"p": hash_password(new_pass), "u": target_user})
+                                st.success(f"{target_user} üçün şifrə yeniləndi!")
+                            else:
+                                st.warning("Şifrə yazın.")
+                    else:
+                        st.error("İstifadəçi tapılmadı.")
+
+                # YENİ İŞÇİ
+                with st.expander("➕ Yeni İşçi Yarat"):
+                    un = st.text_input("İstifadəçi adı (User)"); ps = st.text_input("Şifrə (Pass)", type="password")
                     if st.button("Yarat", key="create_staff_btn"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
-            with tabs[5]:
-                cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
-                if st.button("Yarat", key="create_qr_btn"):
+            
+            with tabs[5]: # QR (YENİLƏNDİ)
+                st.markdown("### 🖨️ QR Generator")
+                c1, c2 = st.columns(2)
+                cnt = c1.number_input("Say", 1, 100, 1)
+                is_th = c2.checkbox("Bu Termos kartıdır?")
+                
+                if st.button("QR Yarat", key="create_qr_btn"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
-                    for i in ids: run_action("INSERT INTO customers (card_id, stars, type) VALUES (:i, 0, :t)", {"i":i, "t":typ})
-                    z = BytesIO()
-                    with zipfile.ZipFile(z, "w") as zf:
-                        for i in ids: zf.writestr(f"{i}.png", generate_custom_qr(f"{APP_URL}/?id={i}", i))
-                    st.download_button("📦 ZIP", z.getvalue(), "qr.zip", "application/zip")
+                    
+                    # Bazaya yazırıq
+                    for i in ids: 
+                        run_action("INSERT INTO customers (card_id, stars, type) VALUES (:i, 0, :t)", {"i":i, "t":typ})
+                    
+                    # 1 Ədəd -> PNG
+                    if cnt == 1:
+                        one_id = ids[0]
+                        png_data = generate_custom_qr(f"{APP_URL}/?id={one_id}", one_id)
+                        st.image(BytesIO(png_data), width=200)
+                        st.download_button("⬇️ Yüklə (PNG)", png_data, f"{one_id}.png", "image/png")
+                    
+                    # 2+ Ədəd -> ZIP
+                    else:
+                        zip_buf = BytesIO()
+                        with zipfile.ZipFile(zip_buf, "w") as zf:
+                            for i in ids: 
+                                img_data = generate_custom_qr(f"{APP_URL}/?id={i}", i)
+                                zf.writestr(f"{i}.png", img_data)
+                        
+                        st.success(f"{cnt} ədəd QR yaradıldı!")
+                        st.download_button("📦 Hamsını Yüklə (ZIP)", zip_buf.getvalue(), "qrs.zip", "application/zip")
 
         elif role == 'staff':
             render_pos()
