@@ -1,66 +1,64 @@
 import streamlit as st
-from supabase import create_client, Client
-from datetime import datetime
-import time
 import pandas as pd
 import random
 import qrcode
 from io import BytesIO
+import altair as alt
+from datetime import datetime
+import time
+from sqlalchemy import text
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(page_title="Emalatxana", page_icon="☕", layout="centered")
 
-# --- SUPABASE QOŞULMASI ---
-@st.cache_resource
-def init_connection():
+# --- DATABASE CONNECTION (NEON/POSTGRES) ---
+# Streamlit-in öz connection sistemini işlədirik
+conn = st.connection("neon", type="sql")
+
+# --- SQL KÖMƏKÇİ FUNKSİYALAR ---
+def run_query(query, params=None):
+    """Məlumat oxumaq üçün (SELECT)"""
     try:
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["key"]
-        return create_client(url, key)
-    except:
-        return None
+        return conn.query(query, params=params, ttl=0)
+    except Exception as e:
+        st.error(f"Baza xətası: {e}")
+        return pd.DataFrame()
 
-supabase = init_connection()
+def run_action(query, params=None):
+    """Məlumat yazmaq üçün (INSERT, UPDATE, DELETE)"""
+    try:
+        with conn.session as s:
+            s.execute(text(query), params if params else {})
+            s.commit()
+        return True
+    except Exception as e:
+        st.error(f"Əməliyyat xətası: {e}")
+        return False
 
-# --- CSS DİZAYN (APP GÖRÜNÜŞÜ & TAM GİZLİLİK) ---
+# --- CSS DİZAYN ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
-
-    /* GİZLƏTMƏ KODLARI */
     header[data-testid="stHeader"], div[data-testid="stDecoration"], footer, 
     div[data-testid="stToolbar"], div[class*="stAppDeployButton"], 
-    div[data-testid="stStatusWidget"], #MainMenu {
-        display: none !important; visibility: hidden !important;
-    }
-
-    /* DİZAYN TƏNZİMLƏMƏLƏRİ */
+    div[data-testid="stStatusWidget"], #MainMenu { display: none !important; }
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
     .stApp { background-color: #ffffff; }
-    
-    /* Fontlar */
     h1, h2, h3 { font-family: 'Anton', sans-serif !important; text-transform: uppercase; letter-spacing: 1px; }
     p, div, button, input, li { font-family: 'Oswald', sans-serif; }
-    
-    /* Logo Mərkəzləşdirmə */
     [data-testid="stImage"] { display: flex; justify-content: center; }
-    .login-header { text-align: center; margin-bottom: 20px; }
-
-    /* Kofe Grid Sistemi */
     .coffee-grid { display: flex; justify-content: center; gap: 8px; margin-bottom: 5px; margin-top: 5px; }
     .coffee-item { width: 17%; max-width: 50px; transition: transform 0.2s ease; }
     .coffee-item.active { transform: scale(1.1); filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.2)); }
-
-    /* Mesaj Qutuları */
     .promo-box { background-color: #2e7d32; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
+    .thermos-box { background-color: #e65100; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-top: 15px; }
     .counter-text { text-align: center; font-size: 19px; font-weight: 500; color: #d32f2f; margin-top: 8px; }
-    
-    /* Form Elementleri */
+    .menu-item { border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 10px; background: #f9f9f9; }
     .stTextInput input { text-align: center; font-size: 18px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNKSİYALAR ---
+# --- HELPER FUNKSİYALAR ---
 def show_logo():
     try: st.image("emalatxana.png", width=180) 
     except: pass
@@ -97,27 +95,64 @@ def generate_qr_image_bytes(data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- SCAN PROSESİ ---
+# --- SCAN PROSESİ (SQL) ---
 def process_scan():
     scan_code = st.session_state.scanner_input
     user = st.session_state.get('current_user', 'Unknown')
     
-    if scan_code and supabase:
-        res = supabase.table("customers").select("*").eq("card_id", scan_code).execute()
-        current = res.data[0]['stars'] if res.data else 0
-        new_stars = current + 1
+    if scan_code:
+        # 1. Müştərini tap
+        df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": scan_code})
         
-        is_free, msg, type = False, f"✅ Əlavə olundu. (Cəmi: {new_stars})", "success"
-        action = "Star Added"
-        
-        if new_stars >= 10:
-            new_stars = 0; is_free = True; msg = "🎁 PULSUZ KOFE VERİLDİ!"; type = "error"; action = "Free Coffee"
+        if not df.empty:
+            customer = df.iloc[0]
+            current_stars = int(customer['stars'])
+            cust_type = customer['type']
+            is_first = customer['is_first_fill']
             
-        # Bazaları Yenilə
-        supabase.table("customers").upsert({"card_id": scan_code, "stars": new_stars, "last_visit": datetime.now().isoformat()}).execute()
-        supabase.table("logs").insert({"staff_name": user, "card_id": scan_code, "action_type": action}).execute()
+            # --- MƏNTİQ ---
+            if cust_type == 'thermos':
+                if is_first:
+                    msg = "🎁 TERMOS: İLK DOLUM PULSUZ!"
+                    msg_type = "info"
+                    action = "Thermos First Free"
+                    run_action("UPDATE customers SET is_first_fill = FALSE, stars = stars + 1, last_visit = NOW() WHERE card_id = :id", {"id": scan_code})
+                else:
+                    msg = "🏷️ TERMOS: 20% ENDİRİM TƏTBİQ ET!"
+                    msg_type = "warning"
+                    action = "Thermos Discount 20%"
+                    new_stars = current_stars + 1
+                    if new_stars >= 10:
+                        new_stars = 0
+                        msg = "🎁 TERMOS: 10-cu KOFE PULSUZ!"
+                        msg_type = "error"
+                        action = "Free Coffee"
+                    run_action("UPDATE customers SET stars = :stars, last_visit = NOW() WHERE card_id = :id", {"stars": new_stars, "id": scan_code})
+            
+            else: # Standard
+                new_stars = current_stars + 1
+                msg_type = "success"
+                action = "Star Added"
+                if new_stars >= 10:
+                    new_stars = 0
+                    msg = "🎁 PULSUZ KOFE VERİLDİ!"
+                    msg_type = "error"
+                    action = "Free Coffee"
+                else:
+                    msg = f"✅ Əlavə olundu. (Cəmi: {new_stars})"
+                
+                # SQL update
+                run_action("UPDATE customers SET stars = :stars, last_visit = NOW() WHERE card_id = :id", {"stars": new_stars, "id": scan_code})
+
+            # Log yaz
+            run_action("INSERT INTO logs (staff_name, card_id, action_type) VALUES (:staff, :card, :action)", 
+                       {"staff": user, "card": scan_code, "action": action})
+            
+            st.session_state['last_result'] = {"msg": msg, "type": msg_type}
         
-        st.session_state['last_result'] = {"msg": msg, "type": type, "card": scan_code, "time": datetime.now().strftime("%H:%M:%S")}
+        else:
+            st.error("Kart bazada tapılmadı! Adminə müraciət edin.")
+            
     st.session_state.scanner_input = ""
 
 # --- ƏSAS PROQRAM ---
@@ -129,39 +164,54 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     show_logo()
-    if supabase:
-        response = supabase.table("customers").select("*").eq("card_id", card_id).execute()
-        user_data = response.data[0] if response.data else None
-        stars = user_data['stars'] if user_data else 0
+    
+    # Müştərini oxu
+    df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    
+    if not df.empty:
+        user_data = df.iloc[0]
+        stars = int(user_data['stars'])
+        cust_type = user_data['type']
+
+        if cust_type == 'thermos':
+            st.markdown("""<div class="thermos-box"><b>⭐ VIP TERMOS KLUBU ⭐</b><br>Hər kofe <b>20% ENDİRİMLƏ!</b></div>""", unsafe_allow_html=True)
         
-        # Başlıq və Grid
         st.markdown(f"<h3 style='text-align: center; margin: 0px; color: #333;'>KARTINIZ: {stars}/10</h3>", unsafe_allow_html=True)
         render_coffee_grid(stars)
         st.markdown(f"<div class='counter-text'>{get_remaining_text(stars)}</div>", unsafe_allow_html=True)
         
-        # Emosional Mesaj
-        st.markdown(f"""
-            <div class="promo-box">
-                <div style="font-size: 24px;">🌿</div>
-                <div style="font-size: 20px; font-weight: bold; margin-bottom: 5px;">{get_motivational_msg(stars)}</div>
-                <div style="font-size: 16px; opacity: 0.9;">Sən kofeni sevirsən, biz isə səni!</div>
-            </div>
-        """, unsafe_allow_html=True)
+        if cust_type != 'thermos':
+            st.markdown(f"""<div class="promo-box"><div style="font-weight: bold;">{get_motivational_msg(stars)}</div></div>""", unsafe_allow_html=True)
 
-        # Kartı Yükləmə Düyməsi
+        # MENYU
+        st.markdown("<br><h3>📋 MENYU</h3>", unsafe_allow_html=True)
+        menu_df = run_query("SELECT * FROM menu WHERE is_active = TRUE ORDER BY id")
+        if not menu_df.empty:
+            for index, item in menu_df.iterrows():
+                st.markdown(f"""
+                <div class="menu-item">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:18px;">
+                        <span>{item['item_name']}</span><span style="color:#2e7d32;">{item['price']}</span>
+                    </div>
+                    <div style="font-size:14px; color:gray;">{item['category']}</div>
+                </div>""", unsafe_allow_html=True)
+        else: st.caption("Menyu boşdur.")
+
+        # RƏY
+        st.markdown("<br><h3>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
+        with st.form("feedback_form"):
+            rating = st.slider("Qiymət:", 1, 5, 5)
+            msg = st.text_area("Rəyiniz:")
+            if st.form_submit_button("Göndər"):
+                run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", {"id": card_id, "rat": rating, "msg": msg})
+                st.success("Təşəkkürlər!")
+
         st.markdown("<br>", unsafe_allow_html=True)
-        card_link = f"https://emalatxana-loyalty.streamlit.app/?id={card_id}"
-        qr_bytes = generate_qr_image_bytes(card_link)
-        
-        st.download_button(
-            label="📥 Kartı Şəkil Kimi Yüklə",
-            data=qr_bytes,
-            file_name=f"emalatxana_{card_id}.png",
-            mime="image/png",
-            use_container_width=True
-        )
-        
-        if stars == 0 and user_data: st.balloons()
+        card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
+        st.download_button("📥 Kartı Yüklə", data=generate_qr_image_bytes(card_link), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
+        if stars == 0: st.balloons()
+    else:
+        st.error("Bu kart aktiv deyil.")
 
 # ================================
 # === 2. SİSTEM GÖRÜNÜŞÜ (ADMIN/STAFF) ===
@@ -169,160 +219,140 @@ if "id" in query_params:
 else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
-    # A. ADMİN YOXLAMASI (İLK DƏFƏ)
-    admin_check = supabase.table("users").select("*").eq("role", "admin").execute()
-    
-    if not admin_check.data:
-        show_logo()
-        st.warning("⚠️ Admin yoxdur. Zəhmət olmasa yaradın.")
-        with st.form("create_admin"):
-            new_admin_user = st.text_input("Admin Adı", value="Admin")
-            new_admin_pass = st.text_input("Şifrə", type="password")
-            if st.form_submit_button("Yarat"):
-                supabase.table("users").insert({"username": new_admin_user, "password": new_admin_pass, "role": "admin"}).execute()
-                st.success("Admin yaradıldı! Giriş edin.")
-                time.sleep(1)
-                st.rerun()
-                
-    # B. LOGİN EKRANI
-    elif not st.session_state.logged_in:
+    # LOGIN LOGIC
+    if not st.session_state.logged_in:
         show_logo()
         st.markdown("<br><h3 class='login-header'>SİSTEMƏ GİRİŞ</h3>", unsafe_allow_html=True)
         
-        users_res = supabase.table("users").select("username").execute()
-        user_list = [u['username'] for u in users_res.data]
-        
-        with st.form("login_form"):
-            selected_user = st.selectbox("İstifadəçi:", user_list)
-            pwd = st.text_input("Şifrə:", type="password")
-            submit_login = st.form_submit_button("DAXİL OL", use_container_width=True)
-        
-        if submit_login:
-            check = supabase.table("users").select("*").eq("username", selected_user).eq("password", pwd).execute()
-            if check.data:
-                st.session_state.logged_in = True
-                st.session_state.current_user = selected_user
-                st.session_state.role = check.data[0]['role']
-                st.rerun()
-            else:
-                st.error("Yanlış şifrə!")
+        users_df = run_query("SELECT username FROM users")
+        if not users_df.empty:
+            user_list = users_df['username'].tolist()
+            with st.form("login_form"):
+                selected_user = st.selectbox("İstifadəçi:", user_list)
+                pwd = st.text_input("Şifrə:", type="password")
+                if st.form_submit_button("DAXİL OL", use_container_width=True):
+                    check = run_query("SELECT * FROM users WHERE username = :u AND password = :p", {"u": selected_user, "p": pwd})
+                    if not check.empty:
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = selected_user
+                        st.session_state.role = check.iloc[0]['role']
+                        st.rerun()
+                    else: st.error("Yanlış şifrə!")
+        else:
+            st.error("Bazada istifadəçi yoxdur. SQL-dən Admin yaratdığınızı yoxlayın.")
 
-    # C. DAXİL OLDUQDAN SONRA
+    # LOGGED IN
     else:
         role = st.session_state.role
         user = st.session_state.current_user
-        
-        col1, col2 = st.columns([3,1])
-        col1.write(f"👤 **{user}** ({role.upper()})")
-        if col2.button("Çıxış"):
-            st.session_state.logged_in = False
-            st.rerun()
-            
+        c1, c2 = st.columns([3,1])
+        c1.write(f"👤 **{user}** ({role.upper()})")
+        if c2.button("Çıxış"): st.session_state.logged_in = False; st.rerun()
         show_logo()
 
-        # === ADMİN PANELİ ===
         if role == 'admin':
-            tabs = st.tabs(["📠 Terminal", "👥 İdarəetmə", "📊 Baza və Təmizlik", "🖨️ QR Kod"])
+            tabs = st.tabs(["📠 Terminal", "📊 Statistika", "📋 Menyu", "💬 Rəylər", "👥 İdarəetmə", "🖨️ QR & Baza"])
             
-            with tabs[0]: # Terminal
+            with tabs[0]: 
                 st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
                 st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
                 if 'last_result' in st.session_state:
                     res = st.session_state['last_result']
                     if res['type'] == 'error': st.error(res['msg']); st.balloons()
+                    elif res['type'] == 'warning': st.warning(res['msg'])
+                    elif res['type'] == 'info': st.info(res['msg'])
                     else: st.success(res['msg'])
 
-            with tabs[1]: # İdarəetmə
-                st.markdown("### 🔐 Şifrə Dəyişimi")
-                users_res = supabase.table("users").select("username").neq("role", "admin").execute()
-                staff_list = [u['username'] for u in users_res.data]
+            with tabs[1]:
+                st.markdown("### 📊 Satış Analizi")
+                logs_df = run_query("SELECT * FROM logs ORDER BY created_at DESC")
+                if not logs_df.empty:
+                    logs_df['created_at'] = pd.to_datetime(logs_df['created_at']).dt.date
+                    daily = logs_df.groupby('created_at').size().reset_index(name='count')
+                    chart = alt.Chart(daily).mark_bar().encode(x='created_at', y='count').properties(title="Günlük Aktivlik")
+                    st.altair_chart(chart, use_container_width=True)
+                    st.markdown("### 🏆 İşçi Performansı")
+                    st.bar_chart(logs_df['staff_name'].value_counts())
+
+            with tabs[2]:
+                st.markdown("### 📋 Menyu")
+                with st.form("add_menu"):
+                    c1, c2, c3 = st.columns(3)
+                    name = c1.text_input("Ad")
+                    price = c2.text_input("Qiymət")
+                    cat = c3.text_input("Kateqoriya")
+                    if st.form_submit_button("Əlavə Et"):
+                        run_action("INSERT INTO menu (item_name, price, category) VALUES (:n, :p, :c)", {"n": name, "p": price, "c": cat})
+                        st.success("OK"); st.rerun()
                 
-                target_user = st.selectbox("İşçi seç:", staff_list)
-                new_pass = st.text_input("Yeni Şifrə:", type="password")
-                
-                if st.button("Şifrəni Yenilə"):
-                    supabase.table("users").update({"password": new_pass}).eq("username", target_user).execute()
-                    st.success(f"{target_user} şifrəsi yeniləndi!")
-                    
+                st.markdown("---")
+                menu_df = run_query("SELECT * FROM menu WHERE is_active = TRUE ORDER BY id")
+                if not menu_df.empty:
+                    for i, row in menu_df.iterrows():
+                        c1, c2 = st.columns([4, 1])
+                        c1.write(f"**{row['item_name']}** - {row['price']}")
+                        if c2.button("Sil", key=f"m_{row['id']}"):
+                            run_action("DELETE FROM menu WHERE id = :id", {"id": row['id']})
+                            st.rerun()
+
+            with tabs[3]:
+                st.markdown("### 💬 Rəylər")
+                feed_df = run_query("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 20")
+                if not feed_df.empty:
+                    for i, r in feed_df.iterrows():
+                        st.info(f"Kart: {r['card_id']} | {r['rating']}⭐\n\n{r['message']}")
+
+            with tabs[4]:
+                st.markdown("### 🔐 Personal")
+                users_df = run_query("SELECT username FROM users WHERE role != 'admin'")
+                if not users_df.empty:
+                    target = st.selectbox("Seç:", users_df['username'].tolist())
+                    new_p = st.text_input("Yeni Şifrə:", type="password")
+                    if st.button("Yenilə"):
+                        run_action("UPDATE users SET password = :p WHERE username = :u", {"p": new_p, "u": target})
+                        st.success("Oldu!")
                 st.divider()
                 st.markdown("### ➕ Yeni İşçi")
-                new_staff_name = st.text_input("Ad:")
-                new_staff_pass = st.text_input("Şifrə:", type="password", key="new_s_p")
-                if st.button("Əlavə et"):
-                    try:
-                        supabase.table("users").insert({"username": new_staff_name, "password": new_staff_pass, "role": "staff"}).execute()
-                        st.success("İşçi əlavə olundu!")
-                        time.sleep(1)
-                        st.rerun()
-                    except: st.error("Xəta: Bu ad artıq mövcuddur.")
-
-            with tabs[2]: # Baza & Silmə
-                st.markdown("### 📋 Log Tarixçəsi")
-                
-                # --- LOG RƏNGLƏNDİRMƏ LOGİKASI ---
-                logs = supabase.table("logs").select("*").order("created_at", desc=True).limit(50).execute()
-                df_logs = pd.DataFrame(logs.data)
-                
-                # Sətirləri rəngləndirən funksiya
-                def highlight_free(row):
-                    if "Free Coffee" in str(row.get('action_type', '')):
-                        return ['color: #d32f2f; font-weight: bold'] * len(row) # Qırmızı və Qalın
-                    else:
-                        return [''] * len(row)
-                
-                # Styler tətbiqi
-                st.dataframe(df_logs.style.apply(highlight_free, axis=1), use_container_width=True)
-                
-                st.divider()
-                st.markdown("### 👥 Müştərilər")
-                custs = supabase.table("customers").select("*").order("last_visit", desc=True).execute()
-                st.dataframe(pd.DataFrame(custs.data), use_container_width=True)
-                
-                st.divider()
-                st.markdown("### 🗑️ Təmizlik Paneli")
-                with st.expander("🔴 Silmə Zonası (Ehtiyatlı olun)"):
-                    st.warning("Silinən məlumatlar geri qaytarılmır!")
-                    col_del1, col_del2 = st.columns(2)
-                    
-                    with col_del1:
-                        st.subheader("Müştəri Sil")
-                        del_card_id = st.text_input("Kart ID:", placeholder="12345678")
-                        if st.button("Müştərini Sil"):
-                            if del_card_id:
-                                res = supabase.table("customers").delete().eq("card_id", del_card_id).execute()
-                                if res.data: st.success("Silindi!"); time.sleep(1); st.rerun()
-                                else: st.error("Tapılmadı.")
-                            else: st.error("ID yazın.")
-
-                    with col_del2:
-                        st.subheader("Log Sil")
-                        del_log_id = st.number_input("Log ID:", min_value=0, step=1, value=0)
-                        if st.button("Logu Sil"):
-                            if del_log_id > 0:
-                                res = supabase.table("logs").delete().eq("id", del_log_id).execute()
-                                if res.data: st.success("Silindi!"); time.sleep(1); st.rerun()
-                                else: st.error("Tapılmadı.")
-
-            with tabs[3]: # QR Generator
-                st.markdown("### 🖨️ QR Kod Yarat")
-                count = st.number_input("Say:", min_value=1, max_value=20, value=1)
+                n_name = st.text_input("Ad:")
+                n_pass = st.text_input("Şifrə:", type="password", key="np")
                 if st.button("Yarat"):
-                    for i in range(count):
-                        r_id = str(random.randint(10000000, 99999999))
-                        link = f"https://emalatxana-loyalty.streamlit.app/?id={r_id}"
-                        qr_bytes = generate_qr_image_bytes(link)
-                        st.divider()
-                        c1, c2 = st.columns([1, 2])
-                        with c1: st.image(qr_bytes, width=150)
-                        with c2:
-                            st.markdown(f"**ID:** `{r_id}`")
-                            st.download_button("⬇️ Yüklə", data=qr_bytes, file_name=f"{r_id}.png", mime="image/png")
+                    run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u": n_name, "p": n_pass})
+                    st.success("Hazır!"); st.rerun()
 
-        # === STAFF PANELİ ===
-        else:
+            with tabs[5]:
+                st.markdown("### 🖨️ QR Kod")
+                c_qr1, c_qr2 = st.columns(2)
+                cnt = c_qr1.number_input("Say:", 1, 20, 1)
+                is_th = c_qr2.checkbox("Bu Termosdur? (20%)")
+                if st.button("Yarat"):
+                    typ = "thermos" if is_th else "standard"
+                    ff = True if is_th else False
+                    for i in range(cnt):
+                        r_id = str(random.randint(10000000, 99999999))
+                        run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
+                        
+                        lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={r_id}"
+                        qr_b = generate_qr_image_bytes(lnk)
+                        st.divider()
+                        c1, c2 = st.columns([1,2])
+                        with c1: st.image(qr_b, width=150)
+                        with c2: 
+                            st.markdown(f"**ID:** `{r_id}` ({typ.upper()})")
+                            st.download_button("⬇️ Yüklə", data=qr_b, file_name=f"{r_id}.png", mime="image/png")
+                
+                st.divider()
+                with st.expander("Silmə Paneli"):
+                    d_id = st.text_input("Kart ID Sil:")
+                    if st.button("Sil"):
+                        run_action("DELETE FROM customers WHERE card_id = :id", {"id": d_id})
+                        st.success("Silindi")
+
+        else: # Staff
             st.markdown("<h3 style='text-align: center;'>TERMİNAL</h3>", unsafe_allow_html=True)
             st.text_input("Barkod:", key="scanner_input", on_change=process_scan, label_visibility="collapsed")
             if 'last_result' in st.session_state:
                 res = st.session_state['last_result']
                 if res['type'] == 'error': st.error(res['msg']); st.balloons()
+                elif res['type'] == 'warning': st.warning(res['msg'])
+                elif res['type'] == 'info': st.info(res['msg'])
                 else: st.success(res['msg'])
