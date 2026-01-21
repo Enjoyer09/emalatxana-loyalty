@@ -15,12 +15,12 @@ import requests
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY") or "xkeysib-..."
 SENDER_EMAIL = "info@emalatxana.az" 
 SENDER_NAME = "Emalatxana Loyalty"
-APP_URL = "https://emalatxana-loyalty-production.up.railway.app" # SİZİN REAL URL
+APP_URL = "https://emalatxana-loyalty-production.up.railway.app" 
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
-# --- META TAGS (MOBİL EKRAN ÜÇÜN) ---
+# --- META TAGS ---
 st.markdown("""
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
 """, unsafe_allow_html=True)
@@ -92,21 +92,15 @@ def check_manual_input_status():
     df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
     return df.iloc[0]['value'] == 'true' if not df.empty else True
 
-# --- POS DIALOG (POPUP SİSTEMİ) ---
+# --- POS DIALOG ---
 @st.dialog("📏 ÖLÇÜ SEÇİN")
 def show_size_selector(base_name, variants):
     st.markdown(f"<h3 style='text-align:center'>{base_name}</h3>", unsafe_allow_html=True)
-    
-    # 3 sütunlu grid yaradırıq (S, M, L və ya digərləri üçün)
     cols = st.columns(len(variants))
-    
     for idx, item in enumerate(variants):
-        # Size adını tapırıq (Məs: "Americano S" -> "S")
         name_parts = item['item_name'].split()
         size_label = name_parts[-1] if name_parts[-1] in ['S', 'M', 'L'] else item['item_name']
-        
         with cols[idx]:
-            # Böyük düymələr
             if st.button(f"{size_label}\n{item['price']} ₼", key=f"sz_{item['id']}", use_container_width=True):
                 st.session_state.cart.append(item)
                 st.rerun()
@@ -118,21 +112,9 @@ st.markdown("""
     .stApp { background-color: #f8f9fa; }
     h1, h2, h3 { font-family: 'Anton'; letter-spacing: 1px; }
     p, div, button { font-family: 'Oswald'; }
-    
-    /* POS BUTTONS (TOUCH FRIENDLY) */
-    div.stButton > button {
-        min-height: 70px; /* Hündür düymələr */
-        font-size: 20px !important;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        font-weight: bold;
-    }
-    
-    /* CUSTOMER CARD */
+    div.stButton > button { min-height: 70px; font-size: 20px !important; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-weight: bold; }
     .digital-card { background: linear-gradient(145deg, #ffffff, #f9f9f9); border-radius: 20px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); }
     .coffee-grid { display: flex; justify-content: center; gap: 10px; }
-    
-    /* BASKET */
     .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2e7d32; }
     </style>
 """, unsafe_allow_html=True)
@@ -197,7 +179,7 @@ else:
         with c2: 
             st.image("emalatxana.png", width=150)
             st.markdown("<h3 style='text-align:center'>GİRİŞ</h3>", unsafe_allow_html=True)
-            if st.button("🔄 Yenilə"): st.rerun()
+            if st.button("🔄 Yenilə", key="login_refresh"): st.rerun()
             with st.form("login"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
@@ -212,15 +194,14 @@ else:
         with h1: 
             if st.button("🔴 Çıxış"): st.session_state.logged_in = False; st.rerun()
         with h3:
-            if st.button("🔄"): st.rerun()
+            if st.button("🔄", key="app_refresh"): st.rerun()
 
         role = st.session_state.role
         
-        # --- POS MƏNTİQİ (ORTAQ) ---
+        # --- POS MƏNTİQİ ---
         def render_pos():
             left_col, right_col = st.columns([2, 1])
             with left_col:
-                # 1. Müştəri Skaneri
                 c_scan, c_info = st.columns([2, 2])
                 with c_scan:
                     scan_val = st.text_input("Müştəri QR", key="pos_scan_input")
@@ -233,41 +214,31 @@ else:
                     curr = st.session_state.current_customer
                     if curr:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
-                        if st.button("❌ Ləğv"): st.session_state.current_customer = None; st.rerun()
+                        if st.button("❌ Ləğv", key="pos_cancel_cust"): st.session_state.current_customer = None; st.rerun()
                 
-                # 2. Menyu (Qruplaşdırılmış)
                 cats = ["Qəhvə", "İçkilər", "Desert"]
                 sel_cat = st.radio(" ", cats, horizontal=True, label_visibility="collapsed")
                 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": sel_cat})
-                
-                # Qruplaşdırma Məntiqi (Americano S, M, L -> Americano)
                 grouped_items = {}
                 for _, row in menu_df.iterrows():
                     name_parts = row['item_name'].split()
-                    # Əgər son söz S, M, L və ya XL-dirsə, onu əsas addan ayırırıq
                     if name_parts[-1] in ['S', 'M', 'L', 'XL']:
                         base_name = " ".join(name_parts[:-1])
                         if base_name not in grouped_items: grouped_items[base_name] = []
                         grouped_items[base_name].append(row.to_dict())
                     else:
-                        # Tək məhsullar (Su, Cola)
                         grouped_items[row['item_name']] = [row.to_dict()]
                 
-                # Düymələrin düzülüşü
                 item_names = list(grouped_items.keys())
                 cols = st.columns(3)
                 for idx, name in enumerate(item_names):
                     variants = grouped_items[name]
                     with cols[idx % 3]:
-                        # Düymə mətni
                         if len(variants) > 1:
-                            # Çox variantlı (Popup açacaq)
-                            btn_text = f"{name}\n(Seçim)"
-                            if st.button(btn_text, key=f"grp_{idx}", use_container_width=True):
+                            if st.button(f"{name}\n(Seçim)", key=f"grp_{idx}", use_container_width=True):
                                 show_size_selector(name, variants)
                         else:
-                            # Tək variantlı (Birbaşa səbətə)
                             item = variants[0]
                             if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"sng_{item['id']}", use_container_width=True):
                                 st.session_state.cart.append(item)
@@ -295,7 +266,7 @@ else:
                     st.markdown(f"<div class='basket-total'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
-                    if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True):
+                    if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="pay_btn"):
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
                         run_action("INSERT INTO sales (items, total, payment_method) VALUES (:i, :t, 'Cash')", {"i":items_str, "t":final})
                         if curr:
@@ -316,7 +287,7 @@ else:
                 m_df = run_query("SELECT card_id, email FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
                     ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    if st.button("🚀 Hamıya Göndər"):
+                    if st.button("🚀 Hamıya Göndər", key="crm_send"):
                         st.success("Test rejimi: Göndərildi!")
                 else: st.info("Müştəri yoxdur")
             with tabs[2]:
@@ -334,11 +305,11 @@ else:
             with tabs[4]:
                 with st.expander("➕ Yeni İşçi"):
                     un = st.text_input("User"); ps = st.text_input("Pass", type="password")
-                    if st.button("Yarat"):
+                    if st.button("Yarat", key="create_staff_btn"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
             with tabs[5]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
-                if st.button("Yarat"):
+                if st.button("Yarat", key="create_qr_btn"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
                     for i in ids: run_action("INSERT INTO customers (card_id, stars, type) VALUES (:i, 0, :t)", {"i":i, "t":typ})
