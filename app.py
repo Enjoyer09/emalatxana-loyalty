@@ -6,19 +6,19 @@ from io import BytesIO
 import zipfile
 from PIL import Image, ImageDraw, ImageFont
 import time
-from sqlalchemy import text
+from sqlalchemy import text, exc
 import os
 import bcrypt
 import smtplib
+import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- EMAIL KONFİQURASİYASI (Bunu mütləq dəyişin!) ---
-# Əgər Railway istifadə edirsinizsə, bunları orada Variable kimi əlavə etmək daha təhlükəsizdir.
+# --- EMAIL AYARLARI (Öz məlumatlarınızı yazın) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = os.environ.get("MY_EMAIL") or "sizin_email@gmail.com" # BURANI DƏYİŞİN
-SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "sizin_app_password" # Gmail App Password
+SENDER_EMAIL = os.environ.get("MY_EMAIL") or "sizin_email@gmail.com"
+SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "sizin_app_password"
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(
@@ -55,13 +55,14 @@ except Exception as e:
     st.error(f"Bağlantı xətası: {e}")
     st.stop()
 
-# --- SCHEMA MIGRATION (MARKETING ÜÇÜN) ---
+# --- SCHEMA MIGRATION (BAZA YENİLƏNMƏSİ) ---
 def ensure_schema():
+    """Lazımi cədvəl və sütunları yaradır"""
     try:
         with conn.session as s:
-            # Müştəri məlumatları üçün yeni sütunlar
+            # Müştəri məlumatları
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
-            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;")) # Sadəlik üçün TEXT saxlayırıq (YYYY-MM-DD)
+            s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
             s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
             
             # Bildirişlər
@@ -75,8 +76,10 @@ def ensure_schema():
                 );
             """))
             s.commit()
+    except exc.OperationalError:
+        st.warning("⚠️ Baza ilə əlaqə kəsildi. Zəhmət olmasa səhifəni yeniləyin.")
     except Exception as e:
-        pass # Sütunlar varsa xəta verməsin
+        pass # Sütunlar artıq varsa ignor edirik
 
 ensure_schema()
 
@@ -101,7 +104,7 @@ def run_action(query, params=None):
     except: return False
 
 def send_email(to_email, subject, body):
-    """Real E-mail göndərmə funksiyası"""
+    """Email göndərmə funksiyası"""
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -112,12 +115,10 @@ def send_email(to_email, subject, body):
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        text_msg = msg.as_string()
-        server.sendmail(SENDER_EMAIL, to_email, text_msg)
+        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
         server.quit()
         return True
-    except Exception as e:
-        print(f"Email Error: {e}")
+    except:
         return False
 
 @st.cache_data(show_spinner=False, persist="disk")
@@ -195,7 +196,6 @@ def process_scan():
         df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": scan_code})
         if not df.empty:
             customer = df.iloc[0]
-            # Aktiv deyilsə xəbərdarlıq etmirik, sadəcə işlədirik (Admin tərəfdə problem yoxdur)
             curr_stars = int(customer['stars'])
             c_type = customer['type']
             is_first = customer['is_first_fill']
@@ -440,74 +440,49 @@ else:
                     if r['type'] == 'success': st.success(r['msg'])
                     else: st.error(r['msg'])
 
-            with tabs[1]: # MARKETİNQ (YENİ)
+            with tabs[1]: # MARKETİNQ
                 st.markdown("### 📧 Müştəri CRM")
-                
-                # Müştəri Siyahısı (Aktiv olanlar)
                 m_df = run_query("SELECT card_id, email, birth_date, stars FROM customers WHERE email IS NOT NULL")
                 
                 if not m_df.empty:
-                    st.info(f"Cəmi {len(m_df)} aktiv müştəri var.")
-                    
-                    # Seçim Cədvəli
-                    # Müştəri siyahısına 2 checkbox sütunu əlavə edirik
-                    m_df['50% Endirim'] = False
-                    m_df['Ad Günü Hədiyyəsi'] = False
-                    
+                    st.info(f"Cəmi {len(m_df)} aktiv müştəri.")
+                    m_df['50% Endirim'], m_df['Ad Günü Hədiyyəsi'] = False, False
                     edited_df = st.data_editor(
                         m_df,
                         column_config={
                             "50% Endirim": st.column_config.CheckboxColumn("50% Göndər", default=False),
                             "Ad Günü Hədiyyəsi": st.column_config.CheckboxColumn("🎁 Ad Günü", default=False),
-                            "card_id": "Kart ID",
-                            "email": "Email",
-                            "birth_date": "Doğum Tarixi"
+                            "card_id": "Kart ID", "email": "Email", "birth_date": "Doğum Tarixi"
                         },
                         disabled=["card_id", "email", "birth_date", "stars"],
-                        hide_index=True,
-                        use_container_width=True
+                        hide_index=True, use_container_width=True
                     )
                     
-                    st.write("")
                     if st.button("🚀 SEÇİLƏNLƏRƏ GÖNDƏR", type="primary"):
-                        count_50 = 0
-                        count_bday = 0
-                        
-                        progress_bar = st.progress(0)
-                        total_rows = len(edited_df)
-                        
+                        c50, cb = 0, 0
+                        prog = st.progress(0)
                         for i, row in edited_df.iterrows():
-                            # 50% Endirim Göndərilməsi
                             if row['50% Endirim']:
-                                subject = "🎉 Emalatxana-dan Sizə Özəl 50% ENDİRİM!"
-                                body = f"Salam!\n\nSadiq müştərimiz olduğunuz üçün sizə növbəti kofenizdə 50% endirim təklif edirik.\n\nKart ID: {row['card_id']}\n\nEmalatxana Kofe Evi"
-                                if send_email(row['email'], subject, body):
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "50% Endirim kuponu emailinizə göndərildi!"})
-                                    count_50 += 1
-                            
-                            # Ad Günü Təbriki Göndərilməsi
+                                if send_email(row['email'], "🎉 Emalatxana: 50% ENDİRİM!", f"Kart ID: {row['card_id']}\nSizə özəl 50% endirim!"):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "50% Endirim kuponu göndərildi!"})
+                                    c50 += 1
                             if row['Ad Günü Hədiyyəsi']:
-                                subject = "🎂 Ad Gününüz Mübarək! Bir Kofe Bizdən!"
-                                body = f"Salam!\n\nEmalatxana ailəsi olaraq ad gününüzü təbrik edirik! Bu gün bizdən 1 ədəd PULSUZ kofe qonağımızsınız.\n\nKart ID: {row['card_id']}\n\nEmalatxana Kofe Evi"
-                                if send_email(row['email'], subject, body):
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "Ad günü hədiyyəniz (Pulsuz Kofe) emailinizə göndərildi!"})
-                                    count_bday += 1
-                            
-                            progress_bar.progress((i + 1) / total_rows)
-                            
-                        st.success(f"Nəticə: {count_50} nəfərə Endirim, {count_bday} nəfərə Ad Günü təbriki göndərildi!")
-                else:
-                    st.warning("Hələ heç bir müştəri emailini aktivləşdirməyib.")
+                                if send_email(row['email'], "🎂 Ad Gününüz Mübarək!", f"Kart ID: {row['card_id']}\nBir kofe bizdən hədiyyə!"):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "Ad günü hədiyyəsi göndərildi!"})
+                                    cb += 1
+                            prog.progress((i + 1) / len(edited_df))
+                        st.success(f"Nəticə: {c50} Endirim, {cb} Ad Günü mesajı göndərildi!")
+                else: st.warning("Aktiv müştəri yoxdur.")
 
                 st.divider()
-                st.markdown("#### 🔔 Ümumi Bildiriş (Push)")
+                st.markdown("#### 🔔 Ümumi Bildiriş")
                 with st.form("push_notify"):
-                    p_msg = st.text_area("Bütün müştərilərə göndəriləcək mesaj:")
+                    p_msg = st.text_area("Mesaj:")
                     if st.form_submit_button("Hamıya Göndər"):
                         all_users = run_query("SELECT card_id FROM customers")
                         for _, r in all_users.iterrows():
                             run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": r['card_id'], "msg": p_msg})
-                        st.success("Bildiriş göndərildi!")
+                        st.success("Göndərildi!")
 
             with tabs[2]:
                 st.markdown("### 📊 Biznes")
@@ -542,7 +517,7 @@ else:
                 rdf = run_query("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 20")
                 for i, r in rdf.iterrows(): st.info(f"{r['rating']}⭐ - {r['message']}")
 
-            with tabs[5]: # Admin (User & Settings)
+            with tabs[5]:
                 st.markdown("### ⚙️ Ayarlar")
                 cs = check_manual_input_status()
                 c1, c2 = st.columns([1,3])
@@ -573,7 +548,7 @@ else:
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":nn, "p":hash_password(npp)})
                         st.success("OK!")
 
-            with tabs[6]: # QR
+            with tabs[6]:
                 with st.form("qr_gen"):
                     cnt = st.number_input("Say", 1, 50, 1)
                     is_th = st.checkbox("Termos")
