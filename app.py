@@ -59,7 +59,7 @@ def generate_qr_image_bytes(data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- POPUP DIALOG (QR BAXIŞI) ---
+# --- POPUP DIALOG (QR BAXIŞI - DÜZƏLDİLDİ) ---
 @st.dialog("🟦 QR KOD BAXIŞI")
 def show_qr_popup(card_id, type_text):
     st.markdown(f"<h3 style='text-align: center;'>ID: {card_id}</h3>", unsafe_allow_html=True)
@@ -68,7 +68,8 @@ def show_qr_popup(card_id, type_text):
     lnk = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
     qr_bytes = generate_qr_image_bytes(lnk)
     
-    st.image(qr_bytes, width=250)
+    # DÜZƏLİŞ: BytesIO istifadə edərək şəkli "fayl axını" kimi göstəririk
+    st.image(BytesIO(qr_bytes), width=250)
     
     st.download_button(
         label="📥 Şəkli Yüklə", 
@@ -413,7 +414,6 @@ else:
                         for i in range(cnt):
                             r_id = str(random.randint(10000000, 99999999))
                             run_action("INSERT INTO customers (card_id, stars, type, is_first_fill) VALUES (:id, 0, :t, :f)", {"id": r_id, "t": typ, "f": ff})
-                        # RERUN LƏĞV EDİLDİ (Səhifəni terminala atmamaq üçün)
                         st.success(f"{cnt} ədəd yeni kart yaradıldı! (Arxivdə görünmək üçün səhifəni yeniləyə bilərsiniz)")
 
                 st.divider()
@@ -435,7 +435,6 @@ else:
                             with c2: st.write(f"⭐ {row['stars']}")
                             with c3: st.write(f"☕ {row['type'][:1].upper()}") 
                             with c4:
-                                # YENİ: Popup düyməsi
                                 if st.button("👁️ Bax", key=f"view_{row['card_id']}"):
                                     show_qr_popup(row['card_id'], row['type'].upper())
                                     
