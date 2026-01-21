@@ -1,7 +1,8 @@
 streamlit
 pandas
-qrcode
-altair
-psycopg2-binary
 sqlalchemy
+psycopg2-binary
 bcrypt
+qrcode
+pillow
+stripe
