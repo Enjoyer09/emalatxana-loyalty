@@ -49,12 +49,11 @@ def run_action(query, params=None):
         st.error(f"Əməliyyat xətası: {e}")
         return False
 
-# --- QR GENERASIYA (YENİ SƏLİQƏLİ DİZAYN) ---
+# --- QR GENERASIYA ---
 def generate_custom_qr(data, center_text):
-    # 1. QR Kod
     qr = qrcode.QRCode(
         version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H, # Yüksək dözümlülük
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
         box_size=10,
         border=2,
     )
@@ -64,14 +63,11 @@ def generate_custom_qr(data, center_text):
     draw = ImageDraw.Draw(img)
     width, height = img.size
 
-    # 2. Şrift (Font)
     font = ImageFont.load_default()
-    # Serverdə varsa daha yaxşı font yoxlayırıq
     try:
         possible_fonts = ["arial.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"]
         for f in possible_fonts:
             try:
-                # Fontu QR ölçüsünə görə dinamik seçirik
                 font_size = int(height * 0.06) 
                 font = ImageFont.truetype(f, font_size)
                 break
@@ -80,7 +76,6 @@ def generate_custom_qr(data, center_text):
     except:
         pass
 
-    # 3. Mətnin ölçüləri
     try:
         bbox = draw.textbbox((0, 0), center_text, font=font)
         text_w = bbox[2] - bbox[0]
@@ -88,31 +83,20 @@ def generate_custom_qr(data, center_text):
     except:
         text_w, text_h = draw.textsize(center_text, font=font)
 
-    # 4. Ağ Qutu (Daha yığcam və səliqəli)
-    # Mətndən bir az böyük olsun (padding)
     pad_x = 10
     pad_y = 5
-    
     box_w = text_w + (pad_x * 2)
     box_h = text_h + (pad_y * 2)
-    
-    # Qutunun mərkəzi
     x0 = (width - box_w) // 2
     y0 = (height - box_h) // 2
     x1 = x0 + box_w
     y1 = y0 + box_h
 
-    # Qutunu çəkirik (Qalın çərçivə yox, sadə ağ fon)
     draw.rectangle([x0, y0, x1, y1], fill="white", outline="white")
-    
-    # İncə qara çərçivə (estetik üçün)
     draw.rectangle([x0, y0, x1, y1], outline="black", width=1)
 
-    # 5. Mətni yerləşdiririk
-    # Mətni qutunun ortasına qoyuruq
     txt_x = x0 + pad_x
-    txt_y = y0 + pad_y - 2 # Kiçik düzəliş
-    
+    txt_y = y0 + pad_y - 2
     draw.text((txt_x, txt_y), center_text, fill="black", font=font)
 
     buf = BytesIO()
@@ -208,7 +192,7 @@ def process_scan():
             
     st.session_state.scanner_input = ""
 
-# --- CSS DİZAYN (YENİLƏNMİŞ) ---
+# --- CSS DİZAYN ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500&display=swap');
@@ -235,38 +219,22 @@ st.markdown("""
     .stTextInput input { text-align: center; font-size: 18px; }
     .archive-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; align-items: center; }
     
-    /* === YENİ ULDUZ DİZAYNI (Full Width & Orange) === */
-    
-    /* Konteyneri ekran boyu açırıq */
-    div[data-testid="stFeedback"] {
-        width: 100%;
-        padding: 10px 0;
-    }
-    
-    /* Ulduzların öz konteynerini flex edirik ki, yayılsınlar */
-    div[data-testid="stFeedback"] > div {
-        display: flex !important;
-        justify-content: space-between !important; /* Ekran boyu yayıl */
-        width: 100% !important;
-        flex-wrap: nowrap !important;
-    }
-    
-    /* Hər bir ulduz düyməsi */
-    div[data-testid="stFeedback"] button {
-        flex-grow: 1; /* Hər ulduz bərabər yer tutsun */
-        transform: scale(2.2); /* Ölçünü böyüt */
-        background: transparent !important;
-        border: none !important;
-    }
-    
-    /* Ulduzun RƏNGİ - Narıncı (#FF9800) */
-    /* Streamlit SVG-lərinə təsir etmək üçün */
-    div[data-testid="stFeedback"] svg {
-        fill: #FF9800 !important; /* Dolu rəng */
+    /* === ULDUZ DİZAYNI (AQRESSIV CSS) === */
+    /* Ulduzların özünü hədəfləyirik */
+    div[data-testid="stFeedback"] button svg {
+        width: 40px !important;
+        height: 40px !important;
+        fill: #FF9800 !important;
         color: #FF9800 !important;
+        stroke: #FF9800 !important;
     }
     
-    /* SEÇİLMİŞ QR QUTUSU */
+    /* Konteyneri düzəldirik */
+    div[data-testid="stFeedback"] {
+        justify-content: center !important;
+        gap: 10px !important;
+    }
+    
     .selected-qr-box {
         border: 2px solid #2e7d32;
         padding: 20px;
@@ -315,24 +283,39 @@ if "id" in query_params:
                 </div>""", unsafe_allow_html=True)
         else: st.caption("Menyu boşdur.")
 
+        # --- RƏY BÖLMƏSİ (GRAYED OUT FUNKSİYASI) ---
         st.markdown("<br><h3 style='color: #2e7d32;'>⭐ BİZİ QİYMƏTLƏNDİR</h3>", unsafe_allow_html=True)
         
-        # ULDUZLAR (FULL WIDTH & ORANGE CSS İLƏ)
-        selected_stars = st.feedback("stars")
-        review_msg = st.text_area("Rəyiniz:")
+        # Sessiyada bu kart üçün rəy yazılıb-yazılmadığını yoxlayırıq
+        if 'submitted_reviews' not in st.session_state:
+            st.session_state['submitted_reviews'] = []
+            
+        is_submitted = card_id in st.session_state['submitted_reviews']
         
-        if st.button("Rəyi Göndər", key="btn_send_feedback"):
-            if selected_stars is not None:
-                real_rating = selected_stars + 1
-                run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", 
-                          {"id": card_id, "rat": real_rating, "msg": review_msg})
-                st.success("Təşəkkürlər! Rəyiniz qeydə alındı.")
-            else:
-                st.warning("Zəhmət olmasa ulduz seçin.")
+        if is_submitted:
+            st.success("✅ Rəyiniz qeydə alındı! Növbəti ulduzda yenidən yaza bilərsiniz.")
+            # Bozarmış (Deaktiv) görünüş üçün
+            st.feedback("stars", disabled=True, key="disabled_stars")
+            st.text_area("Rəyiniz:", placeholder="Rəyiniz artıq göndərilib...", disabled=True, key="disabled_msg")
+            st.button("Rəyi Göndər", disabled=True, key="disabled_btn")
+        else:
+            selected_stars = st.feedback("stars", key="active_stars")
+            review_msg = st.text_area("Rəyiniz:", key="active_msg")
+            
+            if st.button("Rəyi Göndər", key="btn_send_feedback"):
+                if selected_stars is not None:
+                    real_rating = selected_stars + 1
+                    run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:id, :rat, :msg)", 
+                              {"id": card_id, "rat": real_rating, "msg": review_msg})
+                    
+                    # Rəy göndərildi, sessiyaya əlavə edirik
+                    st.session_state['submitted_reviews'].append(card_id)
+                    st.rerun() # Səhifəni yeniləyirik ki, deaktiv olsun
+                else:
+                    st.warning("Zəhmət olmasa ulduz seçin.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         card_link = f"https://emalatxana-loyalty-production.up.railway.app/?id={card_id}"
-        # ID NÖMRƏSİ OLAN SƏLİQƏLİ QR
         st.download_button("📥 Kartı Yüklə", data=generate_custom_qr(card_link, card_id), file_name=f"card_{card_id}.png", mime="image/png", use_container_width=True)
         if stars == 0: st.balloons()
     else:
@@ -502,14 +485,12 @@ else:
                         time.sleep(0.5)
                         st.rerun() 
 
-                # --- YENİ YARADILMIŞ KARTLARI GÖSTƏRMƏK ---
                 if 'new_created_qrs' in st.session_state and st.session_state['new_created_qrs']:
                     st.divider()
                     st.markdown("### 🎉 Yeni Kartlarınız Hazırdır!")
                     
                     new_qrs = st.session_state['new_created_qrs']
                     
-                    # 1 ƏDƏDDİRSƏ
                     if len(new_qrs) == 1:
                         single_id = new_qrs[0]
                         st.write(f"🆔 **{single_id}**")
@@ -518,7 +499,6 @@ else:
                         st.image(BytesIO(qr_bytes), width=250)
                         st.download_button("⬇️ Bu Kartı Yüklə", data=qr_bytes, file_name=f"{single_id}.png", mime="image/png", type="primary")
                     
-                    # ÇOXDURSA (ZIP)
                     else:
                         st.info(f"Cəmi {len(new_qrs)} ədəd kart var. Hamısını bir paketdə yükləyin.")
                         zip_buffer = BytesIO()
@@ -542,7 +522,6 @@ else:
 
                 st.divider()
                 
-                # --- ARXİV BAXIŞI ---
                 if 'view_qr_id' in st.session_state and st.session_state['view_qr_id']:
                     v_id = st.session_state['view_qr_id']
                     
