@@ -1,5 +1,6 @@
 streamlit
-supabase
 pandas
 qrcode
-Pillow
+altair
+psycopg2-binary
+sqlalchemy
