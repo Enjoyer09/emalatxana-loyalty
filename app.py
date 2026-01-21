@@ -14,11 +14,11 @@ import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- EMAIL AYARLARI (YENİLƏNDİ - PORT 465 SSL) ---
+# --- EMAIL AYARLARI (Port 587 TLS - Ən Stabil) ---
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465  # DÜZƏLİŞ: 587 yox, 465 (SSL) istifadə edirik ki, bloklanmasın
-SENDER_EMAIL = os.environ.get("MY_EMAIL") or "emalatkhanacoffee@gmail.com"
-SENDER_PASSWORD = os.environ.get("MY_PASSWORD") or "Pezoxano@2025"
+SMTP_PORT = 587
+SENDER_EMAIL = os.environ.get("emalatkhanacoffee@gmail.com") or "emalatkhanacoffee@gmail.com"
+SENDER_PASSWORD = os.environ.get("Pezoxano@2025") or "Pezoxano@2025"
 
 # --- SƏHİFƏ AYARLARI ---
 st.set_page_config(
@@ -99,6 +99,28 @@ def run_action(query, params=None):
             s.commit()
         return True
     except: return False
+
+def send_email(to_email, subject, body):
+    """Email göndərmə (Qorunmalı)"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        # TLS Connection (587)
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.ehlo() # Serveri salamla
+        server.starttls() # Şifrələməni başlat
+        server.ehlo()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Email Error: {e}")
+        return False
 
 @st.cache_data(show_spinner=False, persist="disk")
 def generate_custom_qr(data, center_text):
@@ -444,16 +466,21 @@ else:
                     )
                     
                     if st.button("🚀 SEÇİLƏNLƏRƏ GÖNDƏR", type="primary"):
-                        status = st.status("Serverə qoşulur...", expanded=True)
+                        status_box = st.status("Serverə qoşulur...", expanded=True)
                         try:
-                            # 1. Tək qoşulma (SSL ilə - Port 465)
-                            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
+                            # --- 587 TLS (Stabil) ---
+                            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+                            server.ehlo()
+                            server.starttls()
+                            server.ehlo()
                             server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                            status.write("✅ Serverə qoşuldu. Göndərilir...")
+                            status_box.write("✅ Serverə qoşuldu. Göndərilir...")
                             
                             c50, cb = 0, 0
                             
                             for i, row in edited_df.iterrows():
+                                sent = False
+                                # 50% ENDİRİM
                                 if row['50% Endirim']:
                                     msg = MIMEMultipart()
                                     msg['From'] = SENDER_EMAIL
@@ -463,8 +490,9 @@ else:
                                     server.sendmail(SENDER_EMAIL, row['email'], msg.as_string())
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "50% Endirim kuponu göndərildi!"})
                                     c50 += 1
-                                    status.write(f"📤 {row['email']} (Endirim)")
+                                    sent = True
                                 
+                                # AD GÜNÜ
                                 if row['Ad Günü Hədiyyəsi']:
                                     msg = MIMEMultipart()
                                     msg['From'] = SENDER_EMAIL
@@ -474,20 +502,22 @@ else:
                                     server.sendmail(SENDER_EMAIL, row['email'], msg.as_string())
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :msg)", {"id": row['card_id'], "msg": "Ad günü hədiyyəsi göndərildi!"})
                                     cb += 1
-                                    status.write(f"📤 {row['email']} (Ad Günü)")
+                                    sent = True
+                                
+                                if sent: status_box.write(f"📤 {row['email']}")
                             
                             server.quit()
-                            status.update(label="✅ Uğurla göndərildi!", state="complete", expanded=False)
+                            status_box.update(label="✅ Uğurla tamamlandı!", state="complete", expanded=False)
                             st.success(f"Nəticə: {c50} Endirim, {cb} Ad Günü mesajı göndərildi!")
                         
                         except Exception as e:
-                            status.update(label="❌ Xəta baş verdi", state="error")
-                            st.error(f"Xəta: {e}")
+                            status_box.update(label="❌ Xəta baş verdi (Server)", state="error")
+                            st.error(f"E-mail Xətası: {e}. Provayder portu bloklayır.")
 
                 else: st.warning("Aktiv müştəri yoxdur.")
 
                 st.divider()
-                st.markdown("#### 🔔 Ümumi Bildiriş")
+                st.markdown("#### 🔔 Ümumi Bildiriş (Push)")
                 with st.form("push_notify"):
                     p_msg = st.text_area("Mesaj:")
                     if st.form_submit_button("Hamıya Göndər"):
