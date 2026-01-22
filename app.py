@@ -11,7 +11,7 @@ import os
 import bcrypt
 import requests
 import datetime
-import secrets # Token yaratmaq üçün
+import secrets
 
 # --- EMAIL AYARLARI ---
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
@@ -118,7 +118,7 @@ try:
     conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
-# --- SCHEMA (UPDATE FOR SECURITY) ---
+# --- SCHEMA ---
 def ensure_schema_and_seed():
     for _ in range(3):
         try:
@@ -127,21 +127,15 @@ def ensure_schema_and_seed():
                 s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
                 s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
                 s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
-                
-                # Customers Table Updates
                 s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
                 s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
                 s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
-                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visit TIMESTAMP;")) # Rate Limit üçün
-                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS secret_token TEXT;")) # IDOR Fix üçün
-                
+                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_visit TIMESTAMP;"))
+                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS secret_token TEXT;"))
                 s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_coffee BOOLEAN DEFAULT FALSE, is_active BOOLEAN DEFAULT TRUE);"))
                 try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS is_coffee BOOLEAN DEFAULT FALSE;"))
                 except: pass
-                
-                # Köhnə müştərilərə token vermək (Migration)
                 s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token IS NULL;"))
-                
                 s.commit()
             break
         except exc.OperationalError: time.sleep(1)
@@ -163,7 +157,7 @@ def run_action(q, p=None):
     except: return False
 
 def send_email(to_email, subject, body):
-    if not BREVO_API_KEY: return False # Fail-safe
+    if not BREVO_API_KEY: return False 
     url = "https://api.brevo.com/v3/smtp/email"
     headers = {"accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json"}
     payload = {"sender": {"name": SENDER_NAME, "email": SENDER_EMAIL}, "to": [{"email": to_email}], "subject": subject, "textContent": body}
@@ -219,15 +213,22 @@ def confirm_backup():
     st.write("Bütün məlumat bazasını (Excel) yükləmək istəyirsiniz?")
     if st.button("📥 Yüklə", type="primary"):
         try:
+            # FIX: Zaman Qurşağı problemini həll edən funksiya
+            def clean_df(df):
+                for col in df.columns:
+                    if pd.api.types.is_datetime64_any_dtype(df[col]):
+                        df[col] = df[col].dt.tz_localize(None)
+                return df
+
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                run_query("SELECT * FROM customers").to_excel(writer, sheet_name='Müştərilər', index=False)
-                run_query("SELECT * FROM sales").to_excel(writer, sheet_name='Satışlar', index=False)
-                run_query("SELECT * FROM menu").to_excel(writer, sheet_name='Menyu', index=False)
-                run_query("SELECT * FROM feedback").to_excel(writer, sheet_name='Rəylər', index=False)
+                clean_df(run_query("SELECT * FROM customers")).to_excel(writer, sheet_name='Müştərilər', index=False)
+                clean_df(run_query("SELECT * FROM sales")).to_excel(writer, sheet_name='Satışlar', index=False)
+                clean_df(run_query("SELECT * FROM menu")).to_excel(writer, sheet_name='Menyu', index=False)
+                clean_df(run_query("SELECT * FROM feedback")).to_excel(writer, sheet_name='Rəylər', index=False)
             
             st.download_button("⬇️ Faylı Endir", output.getvalue(), f"Backup_{datetime.date.today()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            st.success("Hazırdır!")
+            st.success("Hazırdır! Yükləyin.")
         except Exception as e: st.error(f"Xəta: {e}")
 
 # --- SESSION STATE ---
@@ -241,31 +242,25 @@ if 'pos_category' not in st.session_state: st.session_state.pos_category = "Qəh
 query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
-    token = query_params.get("t") # SECURITY: Token
+    token = query_params.get("t")
     
     c1, c2, c3 = st.columns([1,2,1])
     with c2: st.image("emalatxana.png", width=180)
     
-    # Məlumatı çək
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
-    
     if not df.empty:
         user = df.iloc[0]
         
-        # --- IDOR PROTECTION ---
-        # Əgər bazada token varsa və URL-dəki token uyğun gəlmirsə -> BLOKLA
+        # IDOR Protection
         if user['secret_token'] and user['secret_token'] != token:
-            st.error("⛔ İcazəsiz Giriş! (Yanlış Token)")
-            st.stop()
+            st.error("⛔ İcazəsiz Giriş!"); st.stop()
 
-        # Bildirişlər
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         if not notifs.empty:
             for i, row in notifs.iterrows():
                 st.info(f"📩 {row['message']}")
                 run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
 
-        # Aktivasiya
         if not user['is_active']:
             st.warning("🎉 KARTI AKTİVLƏŞDİRİN")
             with st.form("act"):
@@ -289,7 +284,6 @@ if "id" in query_params:
                         st.balloons(); st.rerun()
             st.stop()
 
-        # Ekran
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         if user['type'] == 'thermos': st.markdown('<div class="vip-status-box">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
@@ -324,7 +318,6 @@ if "id" in query_params:
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
-        # QR Generation (Includes Token)
         qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}" if user['secret_token'] else f"{APP_URL}/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(qr_url, card_id), f"{card_id}.png", "image/png", use_container_width=True)
     else: st.error("Kart tapılmadı")
@@ -342,18 +335,14 @@ else:
             st.markdown("<h3 style='text-align:center'>GİRİŞ</h3>", unsafe_allow_html=True)
             st.markdown("""<button class="js-button" onclick="window.location.reload();">🔄 Məcburi Yenilə</button>""", unsafe_allow_html=True)
             
-            # --- BRUTE FORCE PROTECTION ---
             if 'login_attempts' not in st.session_state: st.session_state.login_attempts = 0
             if 'lockout_time' not in st.session_state: st.session_state.lockout_time = None
 
             if st.session_state.lockout_time:
                 if time.time() < st.session_state.lockout_time:
                     wait_sec = int(st.session_state.lockout_time - time.time())
-                    st.error(f"⚠️ Çox sayda uğursuz cəhd! {wait_sec} saniyə gözləyin.")
-                    st.stop()
-                else:
-                    st.session_state.login_attempts = 0
-                    st.session_state.lockout_time = None
+                    st.error(f"⚠️ Çox sayda uğursuz cəhd! {wait_sec} saniyə gözləyin."); st.stop()
+                else: st.session_state.login_attempts = 0; st.session_state.lockout_time = None
 
             with st.form("login"):
                 u = st.text_input("User")
@@ -369,8 +358,7 @@ else:
                         left = 5 - st.session_state.login_attempts
                         if left <= 0:
                             st.session_state.lockout_time = time.time() + 300
-                            st.error("⛔ 5 dəqiqə bloklandınız.")
-                            st.rerun()
+                            st.error("⛔ 5 dəqiqə bloklandınız."); st.rerun()
                         else: st.error(f"Şifrə səhvdir! Qalan: {left}")
     else:
         h1, h2, h3 = st.columns([2,6,1])
@@ -401,12 +389,9 @@ else:
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
-                if cat_col1.button("Qəhvə", key="cat_coff", type="primary", use_container_width=True): 
-                    st.session_state.pos_category = "Qəhvə"; st.rerun()
-                if cat_col2.button("İçkilər", key="cat_drk", type="primary", use_container_width=True): 
-                    st.session_state.pos_category = "İçkilər"; st.rerun()
-                if cat_col3.button("Desert", key="cat_dst", type="primary", use_container_width=True): 
-                    st.session_state.pos_category = "Desert"; st.rerun()
+                if cat_col1.button("Qəhvə", key="cat_coff", type="primary", use_container_width=True): st.session_state.pos_category = "Qəhvə"; st.rerun()
+                if cat_col2.button("İçkilər", key="cat_drk", type="primary", use_container_width=True): st.session_state.pos_category = "İçkilər"; st.rerun()
+                if cat_col3.button("Desert", key="cat_dst", type="primary", use_container_width=True): st.session_state.pos_category = "Desert"; st.rerun()
                 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
                 grouped_items = {}
@@ -454,26 +439,20 @@ else:
                     pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pm")
                     
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
-                        # --- SECURITY: TRANSACTION & RATE LIMIT ---
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
-                        
                         try:
                             with conn.session as s:
                                 if curr:
-                                    # Rate Limit Check (1 minute)
                                     if curr['last_visit'] and (datetime.datetime.now() - curr['last_visit']) < datetime.timedelta(minutes=1):
                                         st.error("⚠️ Gözləyin! Eyni kartı 1 dəqiqə ərzində təkrar oxutmaq olmaz."); st.stop()
-                                    
                                     ns = curr['stars']
                                     if coffs > 0:
                                         if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
                                         else: ns += 1
                                     s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
-                                
                                 s.execute(text("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())"), {"i":items_str, "t":final, "p":p_code})
                                 s.commit()
-                            
                             st.success("Uğurlu!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Xəta: {e}")
                 else: st.info("Səbət boşdur")
@@ -562,13 +541,10 @@ else:
                 if st.button("Yarat", key="gen"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
-                    # Token Generation for new customers
                     for i in ids: 
                         token = secrets.token_urlsafe(8)
                         run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":typ, "st":token})
-                    
                     if cnt == 1:
-                        # New URL with Token
                         tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
                         d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
                         st.image(BytesIO(d), width=200); st.download_button("⬇️ PNG", d, f"{ids[0]}.png", "image/png")
