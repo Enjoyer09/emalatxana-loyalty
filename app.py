@@ -26,60 +26,58 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS STYLES (FULL UI FIX) ---
+# --- CSS STYLES (SİZİN KODLAR + GİZLƏTMƏ KODLARI) ---
 st.markdown("""
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* 1. GİZLƏDİLMƏLİ OLAN HİSSƏLƏR (Adam işarəsi, Başlıq, Menu) */
+    /* 1. INTERFEYS ELEMENTLƏRİNİ GİZLƏT (CLEAN UI) */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
     div[data-testid="stStatusWidget"] { visibility: hidden; height: 0%; position: fixed; }
 
-    /* 2. ÜMUMİ FONT VƏ RƏNGLƏR */
-    html, body, .stApp { font-family: 'Oswald', sans-serif !important; }
-    .block-container { padding-top: 1rem !important; padding-bottom: 3rem !important; }
+    /* 2. ÜMUMİ FONT VƏ RƏNGLƏR */ 
+    html, body, .stApp { font-family: 'Oswald', sans-serif !important; } 
+    .block-container { padding-top: 1rem !important; padding-bottom: 3rem !important; } 
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
+
+    /* 3. DİZAYN KODLARI (SİZİN GÖNDƏRDİYİNİZ) */
     
-    /* 3. DİZAYN KODLARI */
-    
-    /* Customer Card */
-    .digital-card {
+    /* Customer Card */ 
+    .digital-card { 
         background: linear-gradient(145deg, #ffffff, #f1f8e9); 
-        border-radius: 20px; padding: 20px;
-        box-shadow: 0 10px 25px rgba(46, 125, 50, 0.15);
-        border: 2px solid #2E7D32;
-        margin-bottom: 20px;
+        border-radius: 20px; padding: 20px; 
+        box-shadow: 0 10px 25px rgba(46, 125, 50, 0.15); 
+        border: 2px solid #2E7D32; margin-bottom: 20px; 
     }
     
-    /* 5-5 Coffee Grid */
-    .coffee-grid-container {
-        display: grid; 
-        grid-template-columns: repeat(5, 1fr); 
-        gap: 12px;
-        justify-items: center; 
-        margin-top: 15px;
-    }
+    /* 5-5 Coffee Grid */ 
+    .coffee-grid-container { 
+        display: grid; grid-template-columns: repeat(5, 1fr); 
+        gap: 12px; justify-items: center; margin-top: 15px; 
+    } 
     .coffee-icon { width: 100%; max-width: 50px; transition: all 0.3s ease; }
     
-    /* Animasiyalar */
-    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #2E7D32); }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    /* Animasiyalar */ 
+    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #2E7D32); } 
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } } 
     .orange-gift { filter: sepia(100%) saturate(500%) hue-rotate(320deg) brightness(100%) contrast(100%); }
     
-    /* POS Düymələri */
-    div.stButton > button {
+    /* POS Düymələri */ 
+    div.stButton > button { 
         min-height: 65px; font-size: 18px !important; 
         border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-        font-weight: bold; border: 1px solid #2E7D32;
-    }
+        font-weight: bold; border: 1px solid #2E7D32; 
+    } 
     div.stButton > button:hover { background-color: #E8F5E9; border-color: #1B5E20; }
     
-    /* Mətnlər */
-    .quote-text { text-align: center; color: #555 !important; font-style: italic; margin-bottom: 10px; font-size: 16px; }
-    .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2E7D32; }
+    /* Mətnlər */ 
+    .quote-text { text-align: center; color: #555 !important; font-style: italic; margin-bottom: 10px; font-size: 16px; } 
+    .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2E7D32; } 
+    
+    /* Analytics Metric */ 
     div[data-testid="stMetricValue"] { font-size: 24px !important; color: #2E7D32 !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -299,7 +297,6 @@ else:
 
         role = st.session_state.role
         
-        # --- POS RENDER ---
         def render_pos():
             left_col, right_col = st.columns([2, 1])
             with left_col:
@@ -358,8 +355,11 @@ else:
                     
                     disc, curr = 0, st.session_state.current_customer
                     if curr:
+                        # Termos Endirimi
                         if curr['type'] == 'thermos': 
                             disc += sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']]) * 0.2
+                        
+                        # Hədiyyə Kofe (9 Ulduz = 10-cu Pulsuz)
                         if curr['stars'] >= 9: 
                             c_items = [x for x in st.session_state.cart if x['is_coffee']]
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
@@ -368,6 +368,7 @@ else:
                     st.markdown(f"<div class='basket-total'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
+                    # Ödəniş Metodu (Aydın Seçim)
                     pay_method = st.radio("Ödəniş Növü:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True)
                     
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
@@ -380,9 +381,13 @@ else:
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
-                                if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
-                                else: ns += 1
+                                # 10-cu kofe alındısa (stars >= 9), sıfırla
+                                if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): 
+                                    ns = 0 
+                                else: 
+                                    ns += 1
                             run_action("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id", {"s":ns, "id":curr['card_id']})
+                        
                         st.success("Satış Uğurlu!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
                 else: st.info("Səbət boşdur")
 
@@ -390,7 +395,7 @@ else:
             tabs = st.tabs(["🛒 POS", "📊 Analitika", "📧 CRM", "📋 Menyu", "👥 Admin", "🖨️ QR"])
             with tabs[0]: render_pos()
             
-            with tabs[1]: # YENİLƏNMİŞ ANALİTİKA
+            with tabs[1]: # YENİLƏNMİŞ ANALİTİKA (AYLIQ)
                 st.markdown("### 📊 Aylıq Satış Hesabatı")
                 
                 today = datetime.date.today()
@@ -425,8 +430,8 @@ else:
                     if st.button("🚀 Seçilənləri Göndər", key="crm_s"):
                         cnt = 0
                         for i, r in ed.iterrows():
-                            if r['50% Endirim']: send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"); cnt+=1
-                            if r['Ad Günü']: send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!"); cnt+=1
+                            if r['50% Endirim']: send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"); run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']}); cnt+=1
+                            if r['Ad Günü']: send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!"); run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']}); cnt+=1
                         st.success(f"{cnt} mesaj göndərildi!")
                     
                     st.divider()
