@@ -12,7 +12,7 @@ import bcrypt
 import requests
 import datetime
 import secrets
-import threading # Arxa fon prosesləri üçün
+import threading
 
 # --- EMAIL AYARLARI ---
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
@@ -29,24 +29,58 @@ st.set_page_config(
 )
 
 # ==========================================
-# === DİZAYN KODLARI (FINAL) ===
+# === DİZAYN KODLARI & ANTI-SLEEP SCRIPT ===
 # ==========================================
 st.markdown("""
+    <script>
+    // 1. HEARTBEAT: Hər 30 saniyədən bir serveri dürtükləyir ki, yatmasın
+    function keepAlive() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/", true);
+        xhr.send();
+    }
+    setInterval(keepAlive, 30000); 
+    </script>
+
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
     @keyframes heartbeat-enter {
-        0% { transform: scale(0.9); opacity: 0; }
+        0% { transform: scale(0.95); opacity: 0; }
         100% { transform: scale(1); opacity: 1; }
     }
     .stApp {
-        animation: heartbeat-enter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+        animation: heartbeat-enter 0.4s ease-out both;
         font-family: 'Oswald', sans-serif !important;
         background-color: #FAFAFA;
     }
-    .block-container { padding-top: 0rem !important; padding-bottom: 2rem !important; max-width: 100%; }
+    .block-container { padding-top: 0rem !important; padding-bottom: 4rem !important; max-width: 100%; }
+
+    /* FÖVQƏLADƏ YENİLƏ DÜYMƏSİ (FIXED FLOATING BUTTON) */
+    .emergency-refresh {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 99999;
+        background-color: #D32F2F;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        font-size: 30px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        transition: transform 0.2s;
+    }
+    .emergency-refresh:active { transform: scale(0.9); }
+    .emergency-refresh:hover { background-color: #B71C1C; }
 
     /* POS BUTTONS - PRODUCTS (ORANGE) */
     div.stButton > button {
@@ -115,6 +149,8 @@ st.markdown("""
         color: #145A32; font-weight: bold; font-size: 18px; margin-bottom: 10px;
     }
     </style>
+    
+    <a href="javascript:window.location.reload();" class="emergency-refresh" title="Donarsa bas">🔄</a>
 """, unsafe_allow_html=True)
 
 # --- DATABASE CONNECTION ---
@@ -195,9 +231,8 @@ def get_random_quote():
     quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"]
     return random.choice(quotes)
 
-# --- 🔥 AVTOMATİK AD GÜNÜ SİSTEMİ ---
+# --- AVTOMATİK AD GÜNÜ SİSTEMİ ---
 def check_and_send_birthday_emails():
-    """Gündə 1 dəfə ad günlərini yoxlayır və hədiyyə göndərir"""
     try:
         today_str = datetime.date.today().strftime("%Y-%m-%d")
         with conn.session as s:
@@ -304,7 +339,6 @@ if "id" in query_params:
                 em = st.text_input("📧 Email")
                 dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
-                # --- TAM HÜQUQİ MƏTN (BURA DÜZƏLDİLDİ) ---
                 with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     **EMALATXANA COFFEE — İSTİFADƏÇİ RAZILAŞMASI**
