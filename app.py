@@ -26,60 +26,99 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS DİZAYN KODLARI (FIXED) ---
-# Bu hissəni diqqətlə kopyalayın, <style> teqləri vacibdir
+# --- CSS DİZAYN (FIXED & IMPROVED) ---
 st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* 1. GİZLƏDİLMƏLİ OLAN HİSSƏLƏR (Adam, Menu, Header) */
-    #MainMenu {visibility: hidden; display: none;}
-    header {visibility: hidden; display: none;}
-    footer {visibility: hidden; display: none;}
-    div[data-testid="stStatusWidget"] { visibility: hidden; display: none;}
-    div[class^="stAppDeployButton"] { display: none; }
+    /* 1. CLEAN UI (Gizlədilənlər) */
+    #MainMenu, header, footer, div[data-testid="stStatusWidget"] { visibility: hidden; display: none !important; }
     
-    /* 2. FONT VƏ ÜMUMİ RƏNGLƏR */
-    html, body, .stApp { font-family: 'Oswald', sans-serif !important; }
-    .block-container { padding-top: 1rem !important; padding-bottom: 3rem !important; }
-    h1, h2, h3, h4, span { color: #2E7D32 !important; }
+    /* 2. GLOBAL FONT */
+    html, body, .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100%; }
     
-    /* 3. MÜŞTƏRİ KARTI (Wallet Style) */
+    /* 3. MÜŞTƏRİ KARTI (Premium Look) */
     .digital-card {
-        background: linear-gradient(145deg, #ffffff, #f1f8e9); 
-        border-radius: 20px; padding: 20px;
-        box-shadow: 0 10px 25px rgba(46, 125, 50, 0.15);
-        border: 2px solid #2E7D32;
-        margin-bottom: 20px;
+        background: white;
+        border-radius: 25px; 
+        padding: 25px 15px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        border: 1px solid #eee;
+        margin-bottom: 25px;
+        text-align: center;
     }
     
-    /* 4. 5-5 KOFE DÜZÜLÜŞÜ */
+    /* 4. VIP BADGE (Premium Gold/Orange) */
+    .vip-badge {
+        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 15px;
+        font-weight: bold;
+        font-size: 20px;
+        letter-spacing: 1px;
+        margin-bottom: 20px;
+        box-shadow: 0 5px 15px rgba(245, 124, 0, 0.3);
+        text-transform: uppercase;
+    }
+    
+    /* 5. MOTIVASİYA MƏTNİ */
+    .motivation-text {
+        color: #E65100 !important;
+        font-size: 22px;
+        font-weight: bold;
+        font-style: italic;
+        text-align: center;
+        margin-bottom: 15px;
+    }
+
+    /* 6. COFFEE GRID (Böyük İkonlar) */
     .coffee-grid-container {
         display: grid; 
         grid-template-columns: repeat(5, 1fr); 
-        gap: 12px;
+        gap: 8px;
         justify-items: center; 
-        margin-top: 15px;
+        margin-top: 20px;
     }
-    .coffee-icon { width: 100%; max-width: 50px; transition: all 0.3s ease; }
+    .coffee-icon { width: 100%; max-width: 65px; transition: transform 0.2s; } /* İkonlar böyüdüldü */
     
-    /* 5. ANİMASİYALAR */
-    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #2E7D32); }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    .orange-gift { filter: sepia(100%) saturate(500%) hue-rotate(320deg) brightness(100%) contrast(100%); }
-    
-    /* 6. POS DÜYMƏLƏRİ */
+    /* 7. POS & TOUCH DÜYMƏLƏR (Square & Orange) */
     div.stButton > button {
-        min-height: 65px; font-size: 18px !important; 
-        border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-        font-weight: bold; border: 1px solid #2E7D32;
+        background-color: white;
+        border: 2px solid #FF9800;
+        color: #E65100;
+        font-size: 22px !important; 
+        font-weight: 700;
+        border-radius: 15px;
+        min-height: 80px; /* Daha hündür */
+        width: 100%;
+        box-shadow: 0 4px 0px #FFCC80; /* 3D effekt */
+        transition: all 0.1s;
     }
-    div.stButton > button:hover { background-color: #E8F5E9; border-color: #1B5E20; }
+    div.stButton > button:active {
+        box-shadow: 0 0 0;
+        transform: translateY(4px);
+        background-color: #FFF3E0;
+    }
+    div.stButton > button:hover {
+        background-color: #FFF8E1;
+        border-color: #EF6C00;
+    }
     
-    /* 7. MƏTNLƏR */
-    .quote-text { text-align: center; color: #555 !important; font-style: italic; margin-bottom: 10px; font-size: 16px; }
-    .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2E7D32; }
-    div[data-testid="stMetricValue"] { font-size: 24px !important; color: #2E7D32 !important; }
+    /* 8. RƏY BÖLMƏSİ (Açıq və Aydın) */
+    .feedback-section {
+        background: #fff; border: 1px solid #ddd;
+        border-radius: 15px; padding: 15px;
+        margin-top: 20px;
+    }
+
+    /* Animasiyalar */
+    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 8px #FF9800); }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
+    .orange-gift { filter: sepia(100%) saturate(2000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
+    
     </style>
 """, unsafe_allow_html=True)
 
@@ -154,13 +193,13 @@ def generate_custom_qr(data, center_text):
     buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
 def get_random_quote():
-    quotes = ["Bu gün əla görünürsən! ☕", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! 💖", "Kofe ilə gün daha gözəldir! ☀️"]
+    quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Uğurlar səninlə olsun! 🚀"]
     return random.choice(quotes)
 
 # --- POS DIALOG ---
 @st.dialog("📏 ÖLÇÜ SEÇİN")
 def show_size_selector(base_name, variants):
-    st.markdown(f"<h3 style='text-align:center; color:#2E7D32'>{base_name}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='text-align:center; color:#E65100'>{base_name}</h3>", unsafe_allow_html=True)
     cols = st.columns(len(variants))
     for idx, item in enumerate(variants):
         name_parts = item['item_name'].split()
@@ -180,84 +219,88 @@ if 'current_customer' not in st.session_state: st.session_state.current_customer
 query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2: st.image("emalatxana.png", width=160)
     
+    # Header Logo
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2: st.image("emalatxana.png", width=180)
+    
+    # Notifs
     notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
-    with c3:
-        if not notifs.empty: st.markdown(f"<div style='text-align:right'>🔔<span style='color:red; font-weight:bold'>{len(notifs)}</span></div>", unsafe_allow_html=True)
     if not notifs.empty:
         for i, row in notifs.iterrows():
-            st.warning(f"📩 {row['message']}")
+            st.info(f"📩 {row['message']}")
             run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
 
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user = df.iloc[0]
         
+        # AKTİVASİYA
         if not user['is_active']:
-            st.info("🎉 KARTI AKTİVLƏŞDİRİN")
-            st.markdown("Xoş gəlmisiniz! Endirimlər üçün qeydiyyatdan keçin.")
+            st.warning("🎉 KARTI AKTİVLƏŞDİRİN")
             with st.form("act"):
-                em = st.text_input("📧 Email ünvanınız")
-                dob = st.date_input("🎂 Doğum Tarixiniz", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
-                with st.expander("📜 Qaydalar və Şərtlər"):
-                    st.markdown("""
-                    * **Məxfilik:** Email və doğum tarixiniz yalnız endirim üçün istifadə olunur.
-                    * **Sadiqlik:** **9 ulduz toplandıqda, sistem avtomatik olaraq 1 (bir) ədəd standart ölçülü kofeni (10-cu kofeni) ödənişsiz (hədiyyə) təklif edir.**
-                    * **Termos:** Termosla gələnlərə 20% endirim.
-                    """)
-                agree = st.checkbox("Qaydaları oxudum və qəbul edirəm")
-                if st.form_submit_button("Təsdiq və Giriş"):
-                    if not em or "@" not in em:
-                        st.error("Düzgün email yazın.")
-                    elif not agree:
-                        st.error("Qaydaları qəbul etməlisiniz.")
-                    else:
+                em = st.text_input("📧 Email")
+                dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+                st.markdown("*Qeydiyyatdan keçməklə qaydaları qəbul edirsiniz.*")
+                if st.form_submit_button("Təsdiq"):
+                    if em:
                         run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", 
                                   {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
                         st.balloons()
-                        st.success("Təbriklər! Kartınız hazırdır.")
-                        time.sleep(1.5)
                         st.rerun()
+                    else: st.error("Email yazın")
             st.stop()
 
-        st.markdown(f"<p class='quote-text'>{get_random_quote()}</p>", unsafe_allow_html=True)
+        # --- MOTIVATION (Yuxarıda, Böyük, Narıncı) ---
+        st.markdown(f"<div class='motivation-text'>{get_random_quote()}</div>", unsafe_allow_html=True)
+
+        # --- VIP KART HISSƏSİ ---
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
-        if user['type'] == 'thermos': st.info("⭐ VIP TERMOS KLUBU")
+        
+        # VIP Badge (Göy əvəzinə Premium Dizayn)
+        if user['type'] == 'thermos': 
+            st.markdown('<div class="vip-badge">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
+        # --- 5-5 COFFEE GRID ---
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            if i < 9: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = ""
-            else: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = "orange-gift" 
+            if i < 9: 
+                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+                cls = ""
+            else: 
+                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+                cls = "orange-gift" 
             
             if i < user['stars']: style = "opacity: 1;"
             else: style = "opacity: 0.2; filter: grayscale(100%);"
             
-            if i == user['stars']: style = "opacity: 0.6;"; cls += " pulse-anim"
+            if i == user['stars']: style = "opacity: 0.8;"; cls += " pulse-anim"
             html += f'<img src="{icon}" class="coffee-icon {cls}" style="{style}">'
         html += '</div>'
         st.markdown(html, unsafe_allow_html=True)
         
         rem = 9 - user['stars']
-        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#FF9800 !important; margin-top:10px;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
-        else: st.markdown(f"<p style='text-align:center; margin-top:10px;'>🎁 Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
+        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#E65100 !important; margin-top:15px;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
+        else: st.markdown(f"<p style='text-align:center; margin-top:10px; color:#555'>Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        with st.expander("💬 Rəy Bildir"):
-            with st.form("feed"):
-                s = st.feedback("stars")
-                m = st.text_area("Fikriniz")
-                if st.form_submit_button("Göndər"):
-                    if s is not None:
-                        run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:i,:r,:m)", {"i":card_id, "r":s+1, "m":m})
-                        st.success("Təşəkkürlər!")
-                    else: st.warning("Ulduz seçin")
+        # --- RƏY (AÇIQ FORMA, Expander yoxdur) ---
+        st.markdown("<div class='feedback-section'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align:center; margin:0'>💌 Bizə Rəy Bildirin</h4>", unsafe_allow_html=True)
+        with st.form("feed"):
+            s = st.feedback("stars")
+            m = st.text_input("Fikriniz", placeholder="Kofeni bəyəndinizmi?")
+            if st.form_submit_button("Göndər"):
+                if s is not None:
+                    run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:i,:r,:m)", {"i":card_id, "r":s+1, "m":m})
+                    st.success("Təşəkkürlər!")
+                else: st.warning("Ulduz seçin")
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
-        st.download_button("📥 KARTI YÜKLƏ (Offline)", generate_custom_qr(f"{APP_URL}/?id={card_id}", card_id), f"{card_id}.png", "image/png", use_container_width=True)
+        st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(f"{APP_URL}/?id={card_id}", card_id), f"{card_id}.png", "image/png", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Yenilə", type="secondary", use_container_width=True): st.rerun()
     else: st.error("Kart tapılmadı")
@@ -292,13 +335,14 @@ else:
 
         role = st.session_state.role
         
+        # POS RENDER (Updated Buttons)
         def render_pos():
             left_col, right_col = st.columns([2, 1])
             with left_col:
                 c_scan, c_info = st.columns([2, 2])
                 with c_scan:
                     scan_val = st.text_input("Müştəri QR", key="ps")
-                    if st.button("🔍", key="psb"):
+                    if st.button("🔍 AXTAR", key="psb"):
                         if scan_val:
                             c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":scan_val})
                             if not c_df.empty: st.session_state.current_customer = c_df.iloc[0].to_dict(); st.rerun()
@@ -357,10 +401,10 @@ else:
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
                     
                     final = max(0, total - disc)
-                    st.markdown(f"<div class='basket-total'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:24px; font-weight:bold; text-align:right; color:#E65100'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
-                    pay_method = st.radio("Ödəniş Növü:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True)
+                    pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True)
                     
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
@@ -381,46 +425,37 @@ else:
         if role == 'admin':
             tabs = st.tabs(["🛒 POS", "📊 Analitika", "📧 CRM", "📋 Menyu", "👥 Admin", "🖨️ QR"])
             with tabs[0]: render_pos()
-            
             with tabs[1]:
-                st.markdown("### 📊 Aylıq Satış Hesabatı")
+                st.markdown("### 📊 Aylıq Satış")
                 today = datetime.date.today()
                 sel_date = st.date_input("Ay Seçin", today)
                 sel_month = sel_date.strftime("%Y-%m")
-                
                 sales = run_query(f"SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = '{sel_month}' ORDER BY created_at DESC")
-                
                 if not sales.empty:
                     tot = sales['total'].sum()
                     cash = sales[sales['payment_method'] == 'Cash']['total'].sum()
                     card = sales[sales['payment_method'] == 'Card']['total'].sum()
-                    
                     m1, m2, m3 = st.columns(3)
-                    m1.metric("Ümumi", f"{tot:.2f} ₼")
-                    m2.metric("💵 Nağd", f"{cash:.2f} ₼")
-                    m3.metric("💳 Kart", f"{card:.2f} ₼")
-                    
-                    st.divider()
+                    m1.metric("Ümumi", f"{tot:.2f}")
+                    m2.metric("💵 Nağd", f"{cash:.2f}")
+                    m3.metric("💳 Kart", f"{card:.2f}")
                     sales['day'] = pd.to_datetime(sales['created_at']).dt.day
                     daily = sales.groupby('day')['total'].sum()
                     st.bar_chart(daily)
-                    with st.expander("📄 Detallı Siyahı"): st.dataframe(sales)
+                    with st.expander("Siyahı"): st.dataframe(sales)
                 else: st.info("Satış yoxdur.")
-
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 m_df = run_query("SELECT card_id, email, birth_date FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
                     m_df['50% Endirim'] = False; m_df['Ad Günü'] = False
                     ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    if st.button("🚀 Seçilənləri Göndər", key="crm_s"):
+                    if st.button("🚀 Göndər"):
                         cnt = 0
                         for i, r in ed.iterrows():
                             if r['50% Endirim']: send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"); run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']}); cnt+=1
                             if r['Ad Günü']: send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!"); run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']}); cnt+=1
                         st.success(f"{cnt} mesaj göndərildi!")
-                    
-                    st.divider()
                     with st.form("bulk"):
                         txt = st.text_area("Ümumi Bildiriş")
                         if st.form_submit_button("Hamıya Göndər"):
@@ -428,7 +463,6 @@ else:
                             for _, r in ids.iterrows(): run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt})
                             st.success("Göndərildi!")
                 else: st.info("Müştəri yoxdur")
-            
             with tabs[3]:
                 with st.form("addm"):
                     c1,c2,c3 = st.columns(3)
@@ -438,25 +472,23 @@ else:
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 md = run_query("SELECT * FROM menu WHERE is_active=TRUE ORDER BY id")
                 st.dataframe(md)
-            
             with tabs[4]:
                 with st.expander("🔑 Şifrə Dəyiş"):
                     all_us = run_query("SELECT username FROM users")
                     target = st.selectbox("Seç:", all_us['username'].tolist())
                     np = st.text_input("Yeni Şifrə", type="password", key="np_adm")
-                    if st.button("Yenilə", key="upd_pass"):
+                    if st.button("Yenilə"):
                         run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(np), "u":target}); st.success("OK")
                 with st.expander("➕ Yeni İşçi"):
                     un = st.text_input("User"); ps = st.text_input("Pass", type="password")
-                    if st.button("Yarat", key="crt_stf"):
+                    if st.button("Yarat"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
             with tabs[5]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
-                if st.button("Yarat", key="crt_qr"):
+                if st.button("Yarat"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
                     for i in ids: run_action("INSERT INTO customers (card_id, stars, type) VALUES (:i, 0, :t)", {"i":i, "t":typ})
-                    
                     if cnt == 1:
                         d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}", ids[0])
                         st.image(BytesIO(d), width=200); st.download_button("⬇️ PNG", d, f"{ids[0]}.png", "image/png")
