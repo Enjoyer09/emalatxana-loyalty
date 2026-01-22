@@ -26,101 +26,118 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS DİZAYN (FIXED & IMPROVED) ---
-st.markdown("""
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-    <style>
+# ==========================================
+# === DİZAYN KODLARI (CSS) - FIX EDİLDİ ===
+# ==========================================
+custom_css = """
+<style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* 1. CLEAN UI (Gizlədilənlər) */
-    #MainMenu, header, footer, div[data-testid="stStatusWidget"] { visibility: hidden; display: none !important; }
+    /* 1. EKRANDAKI ARTIQ HİSSƏLƏRİ GİZLƏT (Adam, Menu, Header) */
+    #MainMenu {visibility: hidden; display: none;}
+    header {visibility: hidden; display: none;}
+    footer {visibility: hidden; display: none;}
+    div[data-testid="stStatusWidget"] { visibility: hidden; display: none;}
+    div[class^="stAppDeployButton"] { display: none; }
     
-    /* 2. GLOBAL FONT */
+    /* 2. FONT VƏ ARXAFON */
     html, body, .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
-    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100%; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 3rem !important; max-width: 100%; }
     
-    /* 3. MÜŞTƏRİ KARTI (Premium Look) */
+    /* Rənglər (Emalatxana Yaşılı) */
+    h1, h2, h3, h4, span { color: #2E7D32 !important; }
+    
+    /* 3. MÜŞTƏRİ KARTI (Ağır və Şıq) */
     .digital-card {
         background: white;
-        border-radius: 25px; 
+        border-radius: 20px; 
         padding: 25px 15px;
-        box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-        border: 1px solid #eee;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        border: 1px solid #E0E0E0;
         margin-bottom: 25px;
         text-align: center;
+        position: relative;
     }
     
-    /* 4. VIP BADGE (Premium Gold/Orange) */
-    .vip-badge {
+    /* VIP STATUS (Cəlbedici Narıncı/Qızılı) */
+    .vip-status-box {
         background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-        color: white;
-        padding: 15px;
-        border-radius: 15px;
+        color: white !important;
+        padding: 12px;
+        border-radius: 12px;
         font-weight: bold;
-        font-size: 20px;
-        letter-spacing: 1px;
-        margin-bottom: 20px;
-        box-shadow: 0 5px 15px rgba(245, 124, 0, 0.3);
+        font-size: 18px;
+        margin-bottom: 15px;
         text-transform: uppercase;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 10px rgba(245, 124, 0, 0.3);
     }
     
-    /* 5. MOTIVASİYA MƏTNİ */
-    .motivation-text {
-        color: #E65100 !important;
-        font-size: 22px;
+    /* 4. MOTIVASİYA SÖZÜ (Gözə çarpan) */
+    .motivation-header {
+        font-size: 24px;
         font-weight: bold;
-        font-style: italic;
+        color: #EF6C00 !important; /* Tünd Narıncı */
         text-align: center;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
+        font-style: italic;
+        text-shadow: 0px 1px 1px rgba(0,0,0,0.1);
     }
 
-    /* 6. COFFEE GRID (Böyük İkonlar) */
+    /* 5. 5-5 STAKAN DÜZÜLÜŞÜ */
     .coffee-grid-container {
         display: grid; 
         grid-template-columns: repeat(5, 1fr); 
-        gap: 8px;
+        gap: 10px;
         justify-items: center; 
         margin-top: 20px;
+        margin-bottom: 20px;
     }
-    .coffee-icon { width: 100%; max-width: 65px; transition: transform 0.2s; } /* İkonlar böyüdüldü */
+    .coffee-icon { width: 100%; max-width: 60px; transition: transform 0.2s; }
     
-    /* 7. POS & TOUCH DÜYMƏLƏR (Square & Orange) */
+    /* Animasiyalar */
+    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #FF9800); }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
+    
+    /* 6. POS DÜYMƏLƏRİ (Böyük, Kvadrat, Touch-Friendly) */
     div.stButton > button {
         background-color: white;
-        border: 2px solid #FF9800;
-        color: #E65100;
-        font-size: 22px !important; 
+        border: 2px solid #FF9800; /* Narıncı haşiyə */
+        color: #E65100 !important;
+        font-size: 20px !important; 
         font-weight: 700;
-        border-radius: 15px;
-        min-height: 80px; /* Daha hündür */
+        border-radius: 12px;
+        min-height: 85px; /* Barmaq üçün rahat */
         width: 100%;
-        box-shadow: 0 4px 0px #FFCC80; /* 3D effekt */
+        margin-bottom: 10px;
+        box-shadow: 0 4px 0 #FFCC80; /* 3D effekt */
         transition: all 0.1s;
     }
     div.stButton > button:active {
-        box-shadow: 0 0 0;
         transform: translateY(4px);
-        background-color: #FFF3E0;
+        box-shadow: none;
     }
     div.stButton > button:hover {
-        background-color: #FFF8E1;
-        border-color: #EF6C00;
+        background-color: #FFF3E0;
+        border-color: #E65100;
     }
     
-    /* 8. RƏY BÖLMƏSİ (Açıq və Aydın) */
-    .feedback-section {
-        background: #fff; border: 1px solid #ddd;
-        border-radius: 15px; padding: 15px;
+    /* 7. RƏY BÖLMƏSİ (Açıq) */
+    .feedback-container {
+        background-color: white;
+        border: 1px solid #ddd;
+        padding: 15px;
+        border-radius: 15px;
         margin-top: 20px;
     }
-
-    /* Animasiyalar */
-    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 8px #FF9800); }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
-    .orange-gift { filter: sepia(100%) saturate(2000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
     
-    </style>
-""", unsafe_allow_html=True)
+    /* 8. DİGƏR YAZILAR */
+    .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2E7D32; }
+    div[data-testid="stMetricValue"] { font-size: 24px !important; color: #2E7D32 !important; }
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
 
 # --- DATABASE CONNECTION ---
 try:
@@ -193,7 +210,13 @@ def generate_custom_qr(data, center_text):
     buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
 def get_random_quote():
-    quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Uğurlar səninlə olsun! 🚀"]
+    quotes = [
+        "Bu gün əla görünürsən! 🧡", 
+        "Enerjini bərpa etmək vaxtıdır! ⚡", 
+        "Sən ən yaxşısına layiqsən! ✨", 
+        "Kofe ilə gün daha gözəldir! ☀️", 
+        "Gülüşün dünyanı dəyişə bilər! 😊"
+    ]
     return random.choice(quotes)
 
 # --- POS DIALOG ---
@@ -220,7 +243,7 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     
-    # Header Logo
+    # Header Logo (Mərkəzləşdirilmiş)
     c1, c2, c3 = st.columns([1,2,1])
     with c2: st.image("emalatxana.png", width=180)
     
@@ -252,14 +275,14 @@ if "id" in query_params:
             st.stop()
 
         # --- MOTIVATION (Yuxarıda, Böyük, Narıncı) ---
-        st.markdown(f"<div class='motivation-text'>{get_random_quote()}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='motivation-header'>{get_random_quote()}</div>", unsafe_allow_html=True)
 
         # --- VIP KART HISSƏSİ ---
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         
-        # VIP Badge (Göy əvəzinə Premium Dizayn)
+        # VIP Badge
         if user['type'] == 'thermos': 
-            st.markdown('<div class="vip-badge">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
+            st.markdown('<div class="vip-status-box">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
@@ -287,8 +310,8 @@ if "id" in query_params:
         st.markdown('</div>', unsafe_allow_html=True)
         
         # --- RƏY (AÇIQ FORMA, Expander yoxdur) ---
-        st.markdown("<div class='feedback-section'>", unsafe_allow_html=True)
-        st.markdown("<h4 style='text-align:center; margin:0'>💌 Bizə Rəy Bildirin</h4>", unsafe_allow_html=True)
+        st.markdown("<div class='feedback-container'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Bizə Rəy Bildirin</h4>", unsafe_allow_html=True)
         with st.form("feed"):
             s = st.feedback("stars")
             m = st.text_input("Fikriniz", placeholder="Kofeni bəyəndinizmi?")
