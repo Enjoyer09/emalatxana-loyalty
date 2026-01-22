@@ -27,7 +27,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# === DİZAYN KODLARI (XÜSUSİ AYRILMIŞ) ===
+# === DİZAYN KODLARI (FIXED SPACINGS & SIZES) ===
 # ==========================================
 st.markdown("""
     <style>
@@ -36,19 +36,24 @@ st.markdown("""
     /* 1. GİZLƏDİLMƏLİ OLANLAR */
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI (Heartbeat Zoom) */
+    /* 2. SƏHİFƏ AYARLARI (Boşluq azaldıldı) */
     @keyframes heartbeat-enter {
-        0% { transform: scale(0.8); opacity: 0; }
+        0% { transform: scale(0.9); opacity: 0; }
         100% { transform: scale(1); opacity: 1; }
     }
     .stApp {
-        animation: heartbeat-enter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+        animation: heartbeat-enter 0.5s ease-out both;
         font-family: 'Oswald', sans-serif !important;
         background-color: #FAFAFA;
     }
+    /* Logo üzərindəki boşluq 0-a endirildi */
+    .block-container { 
+        padding-top: 0rem !important; 
+        padding-bottom: 2rem !important; 
+        max-width: 100%; 
+    }
     
-    /* 3. POS DÜYMƏLƏRİ - MƏHSULLAR (NARINCI - DEFAULT) */
-    /* Bu, məhsullara (Latte, Espresso) aiddir */
+    /* 3. POS DÜYMƏLƏRİ - MƏHSULLAR & AXTAR (NARINCI) */
     div.stButton > button {
         background-color: white;
         border: 2px solid #FF9800; /* Narıncı */
@@ -56,7 +61,7 @@ st.markdown("""
         font-size: 20px !important; 
         font-weight: 700;
         border-radius: 15px;
-        min-height: 85px; /* İri ölçü */
+        min-height: 85px; /* Standart İri Ölçü */
         width: 100%;
         box-shadow: 0 4px 0 #FFCC80;
         transition: all 0.1s;
@@ -65,15 +70,15 @@ st.markdown("""
     div.stButton > button:active { transform: translateY(4px); box-shadow: none; }
     div.stButton > button:hover { background-color: #FFF3E0; }
 
-    /* 4. POS DÜYMƏLƏRİ - KATEQORİYALAR (YAŞIL - PRIMARY) */
-    /* Yalniz 'type="primary"' olan düymələr Yaşıl olacaq */
+    /* 4. POS DÜYMƏLƏRİ - KATEQORİYALAR (YAŞIL) */
+    /* İndi bunlar da Axtar düyməsi ilə eyni boydadır (85px) */
     div.stButton > button[kind="primary"] {
         background-color: #F1F8E9;
         border: 2px solid #2E7D32 !important; /* Emalatxana Yaşılı */
         color: #2E7D32 !important;
-        font-size: 18px !important;
-        min-height: 60px !important; /* Daha yığcam */
-        box-shadow: 0 3px 0 #A5D6A7;
+        font-size: 20px !important; /* Font böyüdüldü */
+        min-height: 85px !important; /* Axtar düyməsi ilə eyni */
+        box-shadow: 0 4px 0 #A5D6A7;
     }
     div.stButton > button[kind="primary"]:hover {
         background-color: #DCEDC8;
@@ -82,21 +87,19 @@ st.markdown("""
     /* 5. MÜŞTƏRİ KARTI */
     .digital-card {
         background: white; border-radius: 25px; padding: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 2px solid #E0E0E0;
+        box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1);
+        border: 2px solid #E8F5E9;
         margin-bottom: 25px; text-align: center; position: relative;
     }
     
-    /* 6. HƏYƏCANLI MƏTN (Ürək Döyüntüsü) */
+    /* 6. HƏYƏCANLI MƏTN */
     .heartbeat-text {
-        color: #D32F2F !important; /* Qırmızı */
-        font-weight: bold; font-size: 22px;
+        color: #D32F2F !important; font-weight: bold; font-size: 22px;
         margin-top: 15px; text-align: center;
         animation: pulse-text 1.2s infinite;
     }
     @keyframes pulse-text {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.1); }
-        100% { transform: scale(1); }
+        0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
 
     /* 7. KOFE GRID */
@@ -350,7 +353,7 @@ else:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
-                # --- KATEQORİYA DÜYMƏLƏRİ (Yaşıl və Kiçik) ---
+                # --- KATEQORİYA DÜYMƏLƏRİ (Yaşıl və Kvadrat) ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
