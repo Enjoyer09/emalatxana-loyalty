@@ -13,7 +13,7 @@ import requests
 import datetime
 
 # --- EMAIL AYARLARI ---
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY") or "xkeysib-..."
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 SENDER_EMAIL = "info@emalatxana.az" 
 SENDER_NAME = "Emalatxana Coffee"
 APP_URL = "https://emalatxana-loyalty-production.up.railway.app" 
@@ -36,7 +36,7 @@ st.markdown("""
     /* 1. ARTIQ ELEMENTLƏRİ GİZLƏT */
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI (Heartbeat Zoom) */
+    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI */
     @keyframes heartbeat-enter {
         0% { transform: scale(0.9); opacity: 0; }
         100% { transform: scale(1); opacity: 1; }
@@ -71,7 +71,7 @@ st.markdown("""
         border: 2px solid #2E7D32 !important; /* Emalatxana Yaşılı */
         color: #2E7D32 !important;
         font-size: 18px !important;
-        min-height: 60px !important; /* Daha yığcam */
+        min-height: 60px !important;
         box-shadow: 0 3px 0 #A5D6A7;
     }
     div.stButton > button[kind="primary"]:hover {
@@ -86,7 +86,7 @@ st.markdown("""
         margin-bottom: 25px; text-align: center; position: relative;
     }
     
-    /* 6. HƏYƏCANLI MƏTN (Ürək Döyüntüsü) */
+    /* 6. HƏYƏCANLI MƏTN */
     .heartbeat-text {
         color: #D32F2F !important; font-weight: bold; font-size: 22px;
         margin-top: 15px; text-align: center;
@@ -183,6 +183,7 @@ def run_action(q, p=None):
     except: return False
 
 def send_email(to_email, subject, body):
+    if not BREVO_API_KEY: return True 
     url = "https://api.brevo.com/v3/smtp/email"
     headers = {"accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json"}
     payload = {"sender": {"name": SENDER_NAME, "email": SENDER_EMAIL}, "to": [{"email": to_email}], "subject": subject, "textContent": body}
@@ -261,14 +262,12 @@ if "id" in query_params:
     if not df.empty:
         user = df.iloc[0]
         
-        # --- AKTİVASİYA FORMASI ---
         if not user['is_active']:
             st.warning("🎉 KARTI AKTİVLƏŞDİRİN")
             with st.form("act"):
                 em = st.text_input("📧 Email")
                 dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
-                # QAYDALAR MƏTNİ (YENİLƏNMİŞ)
                 with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     **EMALATXANA COFFEE — İSTİFADƏÇİ RAZILAŞMASI**
@@ -299,7 +298,6 @@ if "id" in query_params:
                         st.balloons(); st.rerun()
             st.stop()
 
-        # DIGITAL CARD
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         if user['type'] == 'thermos': 
@@ -328,7 +326,6 @@ if "id" in query_params:
             
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # RƏY
         st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Rəy Bildir</h4>", unsafe_allow_html=True)
         with st.form("feed"):
@@ -357,15 +354,43 @@ else:
             st.image("emalatxana.png", width=150)
             st.markdown("<h3 style='text-align:center'>GİRİŞ</h3>", unsafe_allow_html=True)
             st.markdown("""<button class="js-button" onclick="window.location.reload();">🔄 Məcburi Yenilə</button>""", unsafe_allow_html=True)
+            
+            # --- SECURITY: BRUTE FORCE PROTECTION (NEW) ---
+            if 'login_attempts' not in st.session_state: st.session_state.login_attempts = 0
+            if 'lockout_time' not in st.session_state: st.session_state.lockout_time = None
+
+            if st.session_state.lockout_time:
+                if time.time() < st.session_state.lockout_time:
+                    wait_sec = int(st.session_state.lockout_time - time.time())
+                    st.error(f"⚠️ Çox sayda uğursuz cəhd! {wait_sec} saniyə gözləyin.")
+                    st.stop()
+                else:
+                    st.session_state.login_attempts = 0
+                    st.session_state.lockout_time = None
+
             with st.form("login"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
                 if st.form_submit_button("GİRİŞ", use_container_width=True):
                     udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u)", {"u":u})
                     if not udf.empty and verify_password(p, udf.iloc[0]['password']):
-                        st.session_state.logged_in = True; st.session_state.role = udf.iloc[0]['role']; st.session_state.user = u
+                        # SUCCESS: Reset attempts
+                        st.session_state.login_attempts = 0
+                        st.session_state.lockout_time = None
+                        st.session_state.logged_in = True
+                        st.session_state.role = udf.iloc[0]['role']
+                        st.session_state.user = u
                         st.rerun()
-                    else: st.error("Səhvdir")
+                    else:
+                        # FAIL: Increment attempts
+                        st.session_state.login_attempts += 1
+                        attempts_left = 5 - st.session_state.login_attempts
+                        if attempts_left <= 0:
+                            st.session_state.lockout_time = time.time() + 300 # 5 minutes block
+                            st.error("⛔ Limit doldu! 5 dəqiqə bloklandınız.")
+                            st.rerun()
+                        else:
+                            st.error(f"Şifrə səhvdir! Qalan cəhd: {attempts_left}")
     else:
         h1, h2, h3 = st.columns([2,6,1])
         with h1: 
@@ -392,7 +417,7 @@ else:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
-                # --- KATEQORİYA (YAŞIL) ---
+                # --- CATEGORY BUTTONS (GREEN) ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
@@ -424,7 +449,7 @@ else:
                                 show_size_selector(name, variants)
                         else:
                             item = variants[0]
-                            # Məhsullar Narıncı (default)
+                            # Products are Orange (default)
                             if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"s_{item['id']}", use_container_width=True):
                                 st.session_state.cart.append(item)
                                 st.rerun()
@@ -444,6 +469,7 @@ else:
                     if curr:
                         if curr['type'] == 'thermos': 
                             disc += sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']]) * 0.2
+                        # 9 stars + 1 logic
                         if curr['stars'] >= 9: 
                             c_items = [x for x in st.session_state.cart if x['is_coffee']]
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
@@ -454,7 +480,7 @@ else:
                     
                     pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pm")
                     
-                    # Təsdiq (Yaşıl)
+                    # Confirm is Green
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
@@ -462,6 +488,7 @@ else:
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
+                                # If free coffee used, reset
                                 if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
                                 else: ns += 1
                             run_action("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id", {"s":ns, "id":curr['card_id']})
@@ -472,11 +499,12 @@ else:
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "Admin", "QR"])
             with tabs[0]: render_pos()
             with tabs[1]:
+                # ANALYTICS (SECURE SQL FIX)
                 st.markdown("### 📊 Aylıq Satış")
                 today = datetime.date.today()
                 sel_date = st.date_input("Ay Seçin", today)
                 sel_month = sel_date.strftime("%Y-%m")
-                sales = run_query(f"SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = '{sel_month}' ORDER BY created_at DESC")
+                sales = run_query("SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = :m ORDER BY created_at DESC", {"m": sel_month})
                 if not sales.empty:
                     tot = sales['total'].sum()
                     cash = sales[sales['payment_method'] == 'Cash']['total'].sum()
@@ -493,7 +521,7 @@ else:
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 
-                # --- SİLMƏ HİSSƏSİ ---
+                # DELETE CUSTOMER (POPUP)
                 with st.expander("🗑️ Müştəri Sil"):
                     all_customers = run_query("SELECT card_id, email FROM customers")
                     if not all_customers.empty:
@@ -503,10 +531,8 @@ else:
                             id_to_delete = selected_option.split(" |")[0]
                             confirm_delete(id_to_delete)
                     else: st.info("Boşdur.")
-                
                 st.divider()
                 
-                # Mövcud CRM
                 m_df = run_query("SELECT card_id, email, birth_date FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
                     m_df['50% Endirim'] = False; m_df['Ad Günü'] = False
