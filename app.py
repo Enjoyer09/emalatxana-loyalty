@@ -36,7 +36,7 @@ st.markdown("""
     /* 1. ARTIQ ELEMENTLƏRİ GİZLƏT */
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI */
+    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI (Heartbeat Zoom) */
     @keyframes heartbeat-enter {
         0% { transform: scale(0.9); opacity: 0; }
         100% { transform: scale(1); opacity: 1; }
@@ -71,7 +71,7 @@ st.markdown("""
         border: 2px solid #2E7D32 !important; /* Emalatxana Yaşılı */
         color: #2E7D32 !important;
         font-size: 18px !important;
-        min-height: 60px !important;
+        min-height: 60px !important; /* Daha yığcam */
         box-shadow: 0 3px 0 #A5D6A7;
     }
     div.stButton > button[kind="primary"]:hover {
@@ -86,7 +86,7 @@ st.markdown("""
         margin-bottom: 25px; text-align: center; position: relative;
     }
     
-    /* 6. HƏYƏCANLI MƏTN */
+    /* 6. HƏYƏCANLI MƏTN (Ürək Döyüntüsü) */
     .heartbeat-text {
         color: #D32F2F !important; font-weight: bold; font-size: 22px;
         margin-top: 15px; text-align: center;
@@ -262,12 +262,14 @@ if "id" in query_params:
     if not df.empty:
         user = df.iloc[0]
         
+        # --- AKTİVASİYA FORMASI ---
         if not user['is_active']:
             st.warning("🎉 KARTI AKTİVLƏŞDİRİN")
             with st.form("act"):
                 em = st.text_input("📧 Email")
                 dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
+                # QAYDALAR MƏTNİ
                 with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     **EMALATXANA COFFEE — İSTİFADƏÇİ RAZILAŞMASI**
@@ -298,6 +300,7 @@ if "id" in query_params:
                         st.balloons(); st.rerun()
             st.stop()
 
+        # DIGITAL CARD
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         if user['type'] == 'thermos': 
@@ -326,6 +329,7 @@ if "id" in query_params:
             
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # RƏY
         st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Rəy Bildir</h4>", unsafe_allow_html=True)
         with st.form("feed"):
@@ -355,7 +359,7 @@ else:
             st.markdown("<h3 style='text-align:center'>GİRİŞ</h3>", unsafe_allow_html=True)
             st.markdown("""<button class="js-button" onclick="window.location.reload();">🔄 Məcburi Yenilə</button>""", unsafe_allow_html=True)
             
-            # --- SECURITY: BRUTE FORCE PROTECTION (NEW) ---
+            # --- SECURITY: BRUTE FORCE PROTECTION ---
             if 'login_attempts' not in st.session_state: st.session_state.login_attempts = 0
             if 'lockout_time' not in st.session_state: st.session_state.lockout_time = None
 
@@ -417,7 +421,7 @@ else:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
-                # --- CATEGORY BUTTONS (GREEN) ---
+                # --- CATEGORY BUTTONS (YAŞIL) ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
@@ -449,7 +453,7 @@ else:
                                 show_size_selector(name, variants)
                         else:
                             item = variants[0]
-                            # Products are Orange (default)
+                            # Məhsullar Narıncı (default)
                             if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"s_{item['id']}", use_container_width=True):
                                 st.session_state.cart.append(item)
                                 st.rerun()
@@ -480,7 +484,7 @@ else:
                     
                     pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pm")
                     
-                    # Confirm is Green
+                    # Təsdiq (Yaşıl)
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
@@ -488,7 +492,7 @@ else:
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
-                                # If free coffee used, reset
+                                # Əgər pulsuz kofe işlənibsə, sıfırla
                                 if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
                                 else: ns += 1
                             run_action("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id", {"s":ns, "id":curr['card_id']})
@@ -499,7 +503,6 @@ else:
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "Admin", "QR"])
             with tabs[0]: render_pos()
             with tabs[1]:
-                # ANALYTICS (SECURE SQL FIX)
                 st.markdown("### 📊 Aylıq Satış")
                 today = datetime.date.today()
                 sel_date = st.date_input("Ay Seçin", today)
@@ -521,7 +524,7 @@ else:
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 
-                # DELETE CUSTOMER (POPUP)
+                # --- SİLMƏ HİSSƏSİ ---
                 with st.expander("🗑️ Müştəri Sil"):
                     all_customers = run_query("SELECT card_id, email FROM customers")
                     if not all_customers.empty:
@@ -531,8 +534,8 @@ else:
                             id_to_delete = selected_option.split(" |")[0]
                             confirm_delete(id_to_delete)
                     else: st.info("Boşdur.")
-                st.divider()
                 
+                st.divider()
                 m_df = run_query("SELECT card_id, email, birth_date FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
                     m_df['50% Endirim'] = False; m_df['Ad Günü'] = False
@@ -559,7 +562,36 @@ else:
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 md = run_query("SELECT * FROM menu WHERE is_active=TRUE ORDER BY id")
                 st.dataframe(md)
-            with tabs[4]:
+            with tabs[4]: # ADMIN TAB
+                st.markdown("### 💾 Backup (Ehtiyat Nüsxə)")
+                
+                # --- BACKUP FUNKSİYASI ---
+                def convert_df_to_excel():
+                    output = BytesIO()
+                    # Bu funksiya üçün 'xlsxwriter' lazımdır!
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        run_query("SELECT * FROM customers").to_excel(writer, sheet_name='Müştərilər', index=False)
+                        run_query("SELECT * FROM sales").to_excel(writer, sheet_name='Satışlar', index=False)
+                        run_query("SELECT * FROM menu").to_excel(writer, sheet_name='Menyu', index=False)
+                        run_query("SELECT * FROM feedback").to_excel(writer, sheet_name='Rəylər', index=False)
+                    return output.getvalue()
+
+                if st.button("📥 BÜTÜN BAZANI YÜKLƏ (EXCEL)", type="primary"):
+                    try:
+                        excel_data = convert_df_to_excel()
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+                        st.download_button(
+                            label="⬇️ Faylı İndi Endir",
+                            data=excel_data,
+                            file_name=f"Emalatxana_Backup_{timestamp}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        st.success("Backup hazırdır! Yuxarıdakı düyməyə basıb endirin.")
+                    except Exception as e:
+                        st.error(f"Xəta: {e}. Zəhmət olmasa 'xlsxwriter' kitabxanasının yükləndiyindən əmin olun.")
+
+                st.divider()
+                
                 with st.expander("🔑 Şifrə Dəyiş"):
                     all_us = run_query("SELECT username FROM users")
                     target = st.selectbox("Seç:", all_us['username'].tolist())
