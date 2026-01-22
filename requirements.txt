@@ -6,3 +6,5 @@ bcrypt
 qrcode
 pillow
 stripe
+openpyxl
+xlsxwriter
