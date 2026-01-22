@@ -29,34 +29,91 @@ st.set_page_config(
 )
 
 # ==========================================
-# === DİZAYN KODLARI ===
+# === DİZAYN KODLARI (FINAL) ===
 # ==========================================
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
+    
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
-    @keyframes heartbeat-enter { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-    .stApp { animation: heartbeat-enter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
+    
+    @keyframes heartbeat-enter {
+        0% { transform: scale(0.9); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .stApp {
+        animation: heartbeat-enter 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+        font-family: 'Oswald', sans-serif !important;
+        background-color: #FAFAFA;
+    }
     .block-container { padding-top: 0rem !important; padding-bottom: 2rem !important; max-width: 100%; }
-    div.stButton > button { background-color: white; border: 2px solid #FF9800; color: #E65100 !important; font-size: 20px !important; font-weight: 700; border-radius: 15px; min-height: 85px; width: 100%; box-shadow: 0 4px 0 #FFCC80; transition: all 0.1s; margin-bottom: 8px; }
+
+    /* POS BUTTONS - PRODUCTS (ORANGE) */
+    div.stButton > button {
+        background-color: white;
+        border: 2px solid #FF9800; color: #E65100 !important;
+        font-size: 20px !important; font-weight: 700;
+        border-radius: 15px; min-height: 85px; width: 100%;
+        box-shadow: 0 4px 0 #FFCC80; transition: all 0.1s; margin-bottom: 8px;
+    }
     div.stButton > button:active { transform: translateY(4px); box-shadow: none; }
     div.stButton > button:hover { background-color: #FFF3E0; }
-    div.stButton > button[kind="primary"] { background-color: #F1F8E9; border: 2px solid #2E7D32 !important; color: #2E7D32 !important; font-size: 18px !important; min-height: 60px !important; box-shadow: 0 3px 0 #A5D6A7; }
+
+    /* POS BUTTONS - CATEGORIES (GREEN) */
+    div.stButton > button[kind="primary"] {
+        background-color: #F1F8E9;
+        border: 2px solid #2E7D32 !important; color: #2E7D32 !important;
+        font-size: 18px !important; min-height: 60px !important;
+        box-shadow: 0 3px 0 #A5D6A7;
+    }
     div.stButton > button[kind="primary"]:hover { background-color: #DCEDC8; }
-    .digital-card { background: white; border-radius: 25px; padding: 20px; box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1); border: 2px solid #E8F5E9; margin-bottom: 25px; text-align: center; position: relative; }
-    .heartbeat-text { color: #D32F2F !important; font-weight: bold; font-size: 22px; margin-top: 15px; text-align: center; animation: pulse-text 1.2s infinite; }
+
+    /* CARDS & UI */
+    .digital-card {
+        background: white; border-radius: 25px; padding: 20px;
+        box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1); border: 2px solid #E8F5E9;
+        margin-bottom: 25px; text-align: center; position: relative;
+    }
+    .heartbeat-text {
+        color: #D32F2F !important; font-weight: bold; font-size: 22px;
+        margin-top: 15px; text-align: center; animation: pulse-text 1.2s infinite;
+    }
     @keyframes pulse-text { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; justify-items: center; margin-top: 15px; }
+
+    .coffee-grid-container {
+        display: grid; grid-template-columns: repeat(5, 1fr); 
+        gap: 8px; justify-items: center; margin-top: 15px;
+    }
     .coffee-icon { width: 100%; max-width: 65px; transition: transform 0.2s; }
-    .inner-motivation { background-color: #FFF3E0; color: #E65100; padding: 10px; border-radius: 12px; font-size: 18px; font-style: italic; font-weight: bold; margin-bottom: 15px; border: 1px dashed #FFB74D; }
+    
+    .inner-motivation {
+        background-color: #FFF3E0; color: #E65100;
+        padding: 10px; border-radius: 12px;
+        font-size: 18px; font-style: italic; font-weight: bold;
+        margin-bottom: 15px; border: 1px dashed #FFB74D;
+    }
     .feedback-box { background: #fff; border: 2px solid #EEEEEE; border-radius: 15px; padding: 15px; margin-top: 15px; }
-    .js-button { display: inline-block; padding: 10px 20px; color: white; background-color: #2E7D32; border: none; border-radius: 8px; font-family: 'Oswald', sans-serif; font-size: 16px; text-decoration: none; text-align: center; cursor: pointer; width: 100%; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+
+    .js-button {
+        display: inline-block; padding: 10px 20px;
+        color: white; background-color: #2E7D32;
+        border: none; border-radius: 8px;
+        font-family: 'Oswald', sans-serif; font-size: 16px;
+        text-decoration: none; text-align: center; cursor: pointer;
+        width: 100%; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
     .vip-status-box { background: linear-gradient(135deg, #FF9800 0%, #EF6C00 100%); color: white; padding: 10px; border-radius: 10px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; }
     .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
     .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #FF9800); }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    .coupon-alert { background-color: #D1F2EB; border: 2px dashed #2E7D32; padding: 10px; border-radius: 10px; text-align: center; color: #145A32; font-weight: bold; font-size: 18px; margin-bottom: 10px; }
+    
+    .coupon-alert {
+        background-color: #D1F2EB; border: 2px dashed #2E7D32;
+        padding: 10px; border-radius: 10px; text-align: center;
+        color: #145A32; font-weight: bold; font-size: 18px; margin-bottom: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -138,66 +195,41 @@ def get_random_quote():
     quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"]
     return random.choice(quotes)
 
-# --- 🔥 AVTOMATİK AD GÜNÜ SİSTEMİ (NEW) ---
+# --- 🔥 AVTOMATİK AD GÜNÜ SİSTEMİ ---
 def check_and_send_birthday_emails():
     """Gündə 1 dəfə ad günlərini yoxlayır və hədiyyə göndərir"""
     try:
         today_str = datetime.date.today().strftime("%Y-%m-%d")
-        
-        # 1. Bazanı yoxla: Bu gün işləyibmi?
         with conn.session as s:
             res = s.execute(text("SELECT value FROM settings WHERE key = 'last_birthday_check'")).fetchone()
             last_run = res[0] if res else None
             
-            if last_run == today_str:
-                return # Artıq bu gün işləyib, dayan.
+            if last_run == today_str: return 
 
-            # 2. Bu gün ad günü olanları tap (Ay və Günə görə)
-            # PostgreSQL: RIGHT(birth_date, 5) -> 'MM-DD' götürür
             today_mm_dd = datetime.date.today().strftime("%m-%d")
+            birthdays = s.execute(text("SELECT card_id, email FROM customers WHERE RIGHT(birth_date, 5) = :td AND email IS NOT NULL AND is_active = TRUE"), {"td": today_mm_dd}).fetchall()
             
-            # Doğum tarixi formatı 'YYYY-MM-DD' olduğu üçün son 5 simvolu (MM-DD) yoxlayırıq
-            birthdays = s.execute(text(
-                "SELECT card_id, email FROM customers WHERE RIGHT(birth_date, 5) = :td AND email IS NOT NULL AND is_active = TRUE"
-            ), {"td": today_mm_dd}).fetchall()
-            
-            count = 0
             for user in birthdays:
-                card_id = user[0]
-                email = user[1]
-                
-                # Motivasiya Mesajı
+                card_id, email = user[0], user[1]
                 subject = "🎉 Ad Günün Mübarək! Kofen Bizdən! ☕"
                 body = (
                     f"Salam dəyərli dost! 🎂\n\n"
-                    f"Bu gün sənin günündür! Həyat enerjin heç vaxt bitməsin, üzündən gülüş əskik olmasın. "
-                    f"Emalatxana Coffee ailəsi olaraq səni təbrik edirik.\n\n"
+                    f"Bu gün sənin günündür! Həyat enerjin heç vaxt bitməsin.\n\n"
                     f"🎁 Sənə kiçik bir hədiyyəmiz var: 1 ədəd PULSUZ Kofe!\n"
                     f"Yaxınlaşanda şəxsiyyət vəsiqəni və QR kodunu göstərməyi unutma.\n\n"
                     f"Sevgilərlə,\nEmalatxana Coffee"
                 )
-                
-                # Email Göndər
                 if send_email(email, subject, body):
-                    # Bildiriş əlavə et
                     s.execute(text("INSERT INTO notifications (card_id, message) VALUES (:cid, '🎂 Ad Günün Mübarək! Hədiyyə Kofen Var!')"), {"cid": card_id})
-                    # Kupon əlavə et
                     s.execute(text("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:cid, 'birthday_gift')"), {"cid": card_id})
-                    count += 1
             
-            # 3. Tarixi yenilə ki, bu gün bir daha işləməsin
             s.execute(text("INSERT INTO settings (key, value) VALUES ('last_birthday_check', :val) ON CONFLICT (key) DO UPDATE SET value = :val"), {"val": today_str})
             s.commit()
-            print(f"--- BIRTHDAY CHECK: {count} emails sent ---")
+    except Exception as e: print(f"Birthday Error: {e}")
 
-    except Exception as e:
-        print(f"Birthday Check Error: {e}")
-
-# Arxa planda işə sal (Thread)
 if 'scheduler_started' not in st.session_state:
     st.session_state.scheduler_started = True
     threading.Thread(target=check_and_send_birthday_emails, daemon=True).start()
-
 
 # --- POPUP DIALOGS ---
 @st.dialog("📏 ÖLÇÜ SEÇİN")
@@ -271,19 +303,35 @@ if "id" in query_params:
             with st.form("act"):
                 em = st.text_input("📧 Email")
                 dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
-                with st.expander("📜 İstifadəçi Razılaşması"):
+                
+                # --- TAM HÜQUQİ MƏTN (BURA DÜZƏLDİLDİ) ---
+                with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     **EMALATXANA COFFEE — İSTİFADƏÇİ RAZILAŞMASI**
-                    1. **Məxfilik:** Məlumatlar qorunur.
-                    2. **Sadiqlik:** 9 ulduz = 1 Hədiyyə Kofe.
-                    3. **Termos:** Endirim var.
-                    4. **Ad Günü:** Hədiyyə üçün kassada **şəxsiyyət vəsiqəsi** təqdim edilməlidir.
-                    5. **Yenilənmə:** Dəyişikliklər E-mail ilə bildiriləcək.
+
+                    **1. Şəxsi Məlumatların Məxfiliyi**
+                    Qeydiyyat zamanı təqdim etdiyiniz **E-mail** və **Doğum Tarixi** məlumatları yalnız "Emalatxana Coffee" daxilində istifadə olunur. Bu məlumatlar vasitəsilə sizə endirim kuponları, ad günü hədiyyələri və elektron qəbzlər göndərilir. Məlumatlarınız heç bir halda üçüncü tərəflərlə paylaşılmır.
+
+                    **2. Sadiqlik Proqramı (Ulduz Sistemi)**
+                    Hər standart ölçülü kofe alışı sizə **1 ulduz** qazandırır. Balansınızda **9 ulduz** toplandıqda, sistem avtomatik olaraq növbəti (10-cu) kofeni sizə **ÖDƏNİŞSİZ (HƏDİYYƏ)** təklif edir.
+
+                    **3. VIP Termos Klubu**
+                    Əgər siz "VIP Termos Klubu" üzvüsünüzsə (öz termosunuzla yaxınlaşdıqda), kofe alışlarında sizə xüsusi endirim tətbiq olunur.
+
+                    **4. Ad Günü və Xüsusi Kampaniyalar**
+                    Ad günü münasibətilə göndərilən hədiyyəni (məsələn, pulsuz kofe) əldə etmək üçün, kassada **şəxsiyyət vəsiqənizi** təqdim etməyiniz mütləqdir. Şəxsiyyət vəsiqəsindəki doğum tarixi, sistemdə qeydiyyat zamanı daxil etdiyiniz tarixlə eyni olmalıdır. Sənəd təqdim edilmədikdə və ya tarixlər uyğun gəlmədikdə hədiyyə verilməyə bilər.
+
+                    **5. Qaydaların Yenilənməsi və Razılıq**
+                    Gələcəkdə qaydalara ediləcək dəyişikliklər barədə sizə E-mail vasitəsilə bildiriş göndəriləcək. Bildirişdən sonra etiraz etmədən istifadəyə davam etməyiniz, yeni şərtləri avtomatik qəbul etdiyiniz mənasına gəlir.
+
+                    **6. İmtina**
+                    Siz istənilən vaxt sistemdən çıxmaq və məlumatlarınızın bazadan tamamilə silinməsini tələb etmək hüququna maliksiniz.
                     """)
-                agree = st.checkbox("Razıyam")
+                
+                agree = st.checkbox("Qaydaları oxudum və qəbul edirəm")
                 if st.form_submit_button("Təsdiq"):
                     if not em: st.error("Email yazın")
-                    elif not agree: st.error("Razılaşmalısınız")
+                    elif not agree: st.error("Qaydaları qəbul etməlisiniz")
                     else:
                         run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
                         st.balloons(); st.rerun()
