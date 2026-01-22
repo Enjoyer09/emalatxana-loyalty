@@ -33,7 +33,6 @@ st.set_page_config(
 # ==========================================
 st.markdown("""
     <script>
-    // 1. HEARTBEAT: Hər 30 saniyədən bir serveri dürtükləyir ki, yatmasın
     function keepAlive() {
         var xhr = new XMLHttpRequest();
         xhr.open("GET", "/", true);
@@ -58,7 +57,7 @@ st.markdown("""
     }
     .block-container { padding-top: 0rem !important; padding-bottom: 4rem !important; max-width: 100%; }
 
-    /* FÖVQƏLADƏ YENİLƏ DÜYMƏSİ (FIXED FLOATING BUTTON) */
+    /* FÖVQƏLADƏ YENİLƏ DÜYMƏSİ (DÜZƏLDİLDİ - BUTTON TEQİ İLƏ) */
     .emergency-refresh {
         position: fixed;
         bottom: 20px;
@@ -76,8 +75,9 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: center;
-        text-decoration: none;
         transition: transform 0.2s;
+        padding: 0;
+        outline: none;
     }
     .emergency-refresh:active { transform: scale(0.9); }
     .emergency-refresh:hover { background-color: #B71C1C; }
@@ -150,7 +150,7 @@ st.markdown("""
     }
     </style>
     
-    <a href="javascript:window.location.reload();" class="emergency-refresh" title="Donarsa bas">🔄</a>
+    <button onclick="window.parent.location.reload();" class="emergency-refresh" title="Donarsa bas">🔄</button>
 """, unsafe_allow_html=True)
 
 # --- DATABASE CONNECTION ---
@@ -339,6 +339,7 @@ if "id" in query_params:
                 em = st.text_input("📧 Email")
                 dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
+                # --- TAM HÜQUQİ MƏTN ---
                 with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     **EMALATXANA COFFEE — İSTİFADƏÇİ RAZILAŞMASI**
