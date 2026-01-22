@@ -12,10 +12,10 @@ import bcrypt
 import requests
 import datetime
 
-# --- EMAIL AYARLARI (BREVO) ---
+# --- EMAIL AYARLARI ---
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY") or "xkeysib-..."
 SENDER_EMAIL = "info@emalatxana.az" 
-SENDER_NAME = "Emalatxana Loyalty"
+SENDER_NAME = "Emalatxana Coffee"
 APP_URL = "https://emalatxana-loyalty-production.up.railway.app" 
 
 # --- SƏHİFƏ AYARLARI ---
@@ -26,31 +26,38 @@ try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     if not db_url: st.error("URL yoxdur!"); st.stop()
     db_url = db_url.replace("postgres://", "postgresql+psycopg2://")
-    conn = st.connection("neon", type="sql", url=db_url)
+    conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
 # --- SCHEMA ---
 def ensure_schema_and_seed():
-    with conn.session as s:
-        s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
-        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
-        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
-        s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_coffee BOOLEAN DEFAULT FALSE, is_active BOOLEAN DEFAULT TRUE);"))
-        try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS is_coffee BOOLEAN DEFAULT FALSE;"))
-        except: pass
-        s.commit()
+    for _ in range(3):
+        try:
+            with conn.session as s:
+                s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+                s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+                s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+                s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
+                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;"))
+                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_date TEXT;"))
+                s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;"))
+                s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_coffee BOOLEAN DEFAULT FALSE, is_active BOOLEAN DEFAULT TRUE);"))
+                try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS is_coffee BOOLEAN DEFAULT FALSE;"))
+                except: pass
+                s.commit()
+            break
+        except exc.OperationalError: time.sleep(1)
+        except: break
 ensure_schema_and_seed()
 
 # --- HELPERS ---
 def hash_password(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 def verify_password(p, h): return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
+
 def run_query(q, p=None): 
     try: return conn.query(q, params=p, ttl=0)
     except: return pd.DataFrame()
+
 def run_action(q, p=None):
     try:
         with conn.session as s: s.execute(text(q), p); s.commit()
@@ -88,13 +95,8 @@ def check_manual_input_status():
     df = run_query("SELECT value FROM settings WHERE key = 'manual_input'")
     return df.iloc[0]['value'] == 'true' if not df.empty else True
 
-# --- DYNAMIC MOTIVATION ---
 def get_random_quote():
-    quotes = [
-        "Bu gün əla görünürsən! ☕", "Enerjini bərpa etmək vaxtıdır! ⚡", 
-        "Sən ən yaxşısına layiqsən! 💖", "Kofe ilə gün daha gözəldir! ☀️",
-        "Bir fincan xoşbəxtlik səni gözləyir! 😊", "Uğurlu gün sənin olsun! 🚀"
-    ]
+    quotes = ["Bu gün əla görünürsən! ☕", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! 💖", "Kofe ilə gün daha gözəldir! ☀️"]
     return random.choice(quotes)
 
 # --- POS DIALOG ---
@@ -110,24 +112,18 @@ def show_size_selector(base_name, variants):
                 st.session_state.cart.append(item)
                 st.rerun()
 
-# --- CSS STYLES (FIXED) ---
+# --- CSS STYLES ---
 st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* GLOBAL FONT */
-    html, body, .stApp {
-        font-family: 'Oswald', sans-serif !important;
-    }
-    
-    /* HIDE STREAMLIT UI */
+    html, body, .stApp { font-family: 'Oswald', sans-serif !important; }
     header[data-testid="stHeader"], footer, #MainMenu, div[data-testid="stStatusWidget"] { display: none !important; }
     .block-container { padding-top: 1rem !important; padding-bottom: 3rem !important; }
     
-    /* EMALATXANA GREEN THEME */
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
     
-    /* CUSTOMER CARD */
     .digital-card {
         background: linear-gradient(145deg, #ffffff, #f1f8e9); 
         border-radius: 20px; padding: 20px;
@@ -136,39 +132,26 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* 5-5 GRID LAYOUT */
     .coffee-grid-container {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 12px;
-        justify-items: center;
-        margin-top: 15px;
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+        justify-items: center; margin-top: 15px;
     }
-    .coffee-icon {
-        width: 100%;
-        max-width: 50px;
-        transition: all 0.3s ease;
-    }
-    
-    /* ANIMATIONS & STYLES */
+    .coffee-icon { width: 100%; max-width: 50px; transition: all 0.3s ease; }
     .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #2E7D32); }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    
     .orange-gift { filter: sepia(100%) saturate(500%) hue-rotate(320deg) brightness(100%) contrast(100%); }
     
-    /* POS BUTTONS */
     div.stButton > button {
-        min-height: 65px; font-size: 18px !important;
-        border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        font-weight: bold; border: 1px solid #2E7D32;
+        min-height: 65px; font-size: 18px !important; border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-weight: bold; border: 1px solid #2E7D32;
     }
-    div.stButton > button:hover {
-        background-color: #E8F5E9; border-color: #1B5E20;
-    }
+    div.stButton > button:hover { background-color: #E8F5E9; border-color: #1B5E20; }
     
-    /* TEXTS */
     .quote-text { text-align: center; color: #555 !important; font-style: italic; margin-bottom: 10px; font-size: 16px; }
     .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #2E7D32; }
+    
+    /* ANALYTICS METRIC */
+    div[data-testid="stMetricValue"] { font-size: 24px !important; color: #2E7D32 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -185,7 +168,6 @@ if "id" in query_params:
     c1, c2, c3 = st.columns([1,2,1])
     with c2: st.image("emalatxana.png", width=160)
     
-    # Bildirişlər
     notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
     with c3:
         if not notifs.empty: st.markdown(f"<div style='text-align:right'>🔔<span style='color:red; font-weight:bold'>{len(notifs)}</span></div>", unsafe_allow_html=True)
@@ -198,69 +180,68 @@ if "id" in query_params:
     if not df.empty:
         user = df.iloc[0]
         
-        # AKTIVASIYA
+        # --- AKTİVASİYA FORMASI ---
         if not user['is_active']:
             st.info("🎉 KARTI AKTİVLƏŞDİRİN")
+            st.markdown("Xoş gəlmisiniz! Endirimlər üçün qeydiyyatdan keçin.")
+            
             with st.form("act"):
-                em = st.text_input("📧 Email")
-                dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
-                if st.form_submit_button("Təsdiq"):
-                    if em:
+                em = st.text_input("📧 Email ünvanınız")
+                dob = st.date_input("🎂 Doğum Tarixiniz", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+                
+                # ŞƏRTLƏR (YENİLƏNDİ - 9 ULDUZ QAYDASI)
+                with st.expander("📜 Qaydalar və Şərtlər"):
+                    st.markdown("""
+                    * **Məxfilik:** Email və doğum tarixiniz yalnız endirim üçün istifadə olunur.
+                    * **Sadiqlik:** **9 ulduz toplandıqda, sistem avtomatik olaraq 1 (bir) ədəd standart ölçülü kofeni (10-cu kofeni) ödənişsiz (hədiyyə) təklif edir.**
+                    * **Termos:** Termosla gələnlərə 20% endirim.
+                    """)
+                
+                agree = st.checkbox("Qaydaları oxudum və qəbul edirəm")
+                
+                if st.form_submit_button("Təsdiq və Giriş"):
+                    if not em or "@" not in em:
+                        st.error("Düzgün email yazın.")
+                    elif not agree:
+                        st.error("Qaydaları qəbul etməlisiniz.")
+                    else:
                         run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", 
                                   {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
+                        st.balloons()
+                        st.success("Təbriklər! Kartınız hazırdır.")
+                        time.sleep(1.5)
                         st.rerun()
-                    else: st.error("Email yazın")
             st.stop()
 
-        # MOTIVASIYA
         st.markdown(f"<p class='quote-text'>{get_random_quote()}</p>", unsafe_allow_html=True)
-
-        # LOYALTY CARD
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         if user['type'] == 'thermos': st.info("⭐ VIP TERMOS KLUBU")
         
         st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
-        # --- 5x2 GRID LAYOUT ---
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            # Icon Selection
-            if i < 9: # Normal cups (1-9)
-                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
-                cls = ""
-            else: # 10th cup (Gift)
-                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png" 
-                cls = "orange-gift" 
+            if i < 9: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = ""
+            else: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = "orange-gift" 
             
-            # Logic
-            if i < user['stars']:
-                style = "opacity: 1;" # Dolu
-            else:
-                style = "opacity: 0.2; filter: grayscale(100%);" # Boş
+            if i < user['stars']: style = "opacity: 1;"
+            else: style = "opacity: 0.2; filter: grayscale(100%);"
             
-            # Animasiya (Növbəti hədəf)
-            if i == user['stars']:
-                style = "opacity: 0.6;"
-                cls += " pulse-anim"
-
+            # 9 ulduz varsa 10-cu stakan yanıb-sönür (Hədiyyəyə hazırdır)
+            if i == user['stars']: style = "opacity: 0.6;"; cls += " pulse-anim"
             html += f'<img src="{icon}" class="coffee-icon {cls}" style="{style}">'
         html += '</div>'
         st.markdown(html, unsafe_allow_html=True)
         
-        # Status Text
-        rem = 10 - user['stars']
-        if rem <= 0:
-            st.markdown("<h3 style='text-align:center; color:#FF9800 !important; margin-top:10px;'>🎉 TƏBRİKLƏR! 1 Kofe Bizdən!</h3>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<p style='text-align:center; margin-top:10px;'>🎁 Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
-            
+        rem = 9 - user['stars']
+        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#FF9800 !important; margin-top:10px;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
+        else: st.markdown(f"<p style='text-align:center; margin-top:10px;'>🎁 Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # RƏY
-        with st.expander("💬 Fikirləriniz Bizimçün Önəmlidir"):
+        with st.expander("💬 Rəy Bildir"):
             with st.form("feed"):
                 s = st.feedback("stars")
-                m = st.text_area("Qeydiniz")
+                m = st.text_area("Fikriniz")
                 if st.form_submit_button("Göndər"):
                     if s is not None:
                         run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:i,:r,:m)", {"i":card_id, "r":s+1, "m":m})
@@ -361,8 +342,12 @@ else:
                     
                     disc, curr = 0, st.session_state.current_customer
                     if curr:
-                        if curr['type'] == 'thermos': disc += sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']]) * 0.2
-                        if curr['stars'] >= 10: 
+                        # Termos Endirimi
+                        if curr['type'] == 'thermos': 
+                            disc += sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']]) * 0.2
+                        
+                        # Hədiyyə Kofe (9 Ulduz = 10-cu Pulsuz)
+                        if curr['stars'] >= 9: 
                             c_items = [x for x in st.session_state.cart if x['is_coffee']]
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
                     
@@ -370,31 +355,76 @@ else:
                     st.markdown(f"<div class='basket-total'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
+                    # Ödəniş Metodu (Aydın Seçim)
+                    pay_method = st.radio("Ödəniş Növü:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True)
+                    
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
+                        p_method_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
-                        run_action("INSERT INTO sales (items, total, payment_method) VALUES (:i, :t, 'Cash')", {"i":items_str, "t":final})
+                        
+                        run_action("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())", 
+                                  {"i":items_str, "t":final, "p":p_method_code})
+                        
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
-                                if curr['stars'] >= 10 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
-                                else: ns += 1
+                                # Əgər pulsuz kofe istifadə olunubsa (stars >= 9)
+                                if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): 
+                                    ns = 0 # Sıfırla
+                                else: 
+                                    ns += 1
                             run_action("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id", {"s":ns, "id":curr['card_id']})
-                        st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
+                        
+                        st.success("Satış Uğurlu!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
                 else: st.info("Səbət boşdur")
 
         if role == 'admin':
-            tabs = st.tabs(["🛒 POS", "📧 CRM", "📊 Analitika", "📋 Menyu", "👥 Admin", "🖨️ QR"])
+            tabs = st.tabs(["🛒 POS", "📊 Analitika", "📧 CRM", "📋 Menyu", "👥 Admin", "🖨️ QR"])
             with tabs[0]: render_pos()
-            with tabs[1]:
+            
+            with tabs[1]: # YENİLƏNMİŞ ANALİTİKA (AYLIQ)
+                st.markdown("### 📊 Satış Hesabatı")
+                
+                # Ay Seçimi
+                today = datetime.date.today()
+                selected_date = st.date_input("Ay Seçin (Günün fərqi yoxdur)", today)
+                selected_month_str = selected_date.strftime("%Y-%m")
+                
+                # Sorgular
+                sales_data = run_query(f"SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = '{selected_month_str}' ORDER BY created_at DESC")
+                
+                if not sales_data.empty:
+                    # Metrikalar
+                    total_sales = sales_data['total'].sum()
+                    cash_sales = sales_data[sales_data['payment_method'] == 'Cash']['total'].sum()
+                    card_sales = sales_data[sales_data['payment_method'] == 'Card']['total'].sum()
+                    
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Ümumi Satış", f"{total_sales:.2f} ₼")
+                    m2.metric("💵 Nağd", f"{cash_sales:.2f} ₼")
+                    m3.metric("💳 Kart", f"{card_sales:.2f} ₼")
+                    
+                    st.divider()
+                    
+                    # Qrafik (Günlük)
+                    sales_data['day'] = pd.to_datetime(sales_data['created_at']).dt.day
+                    daily_sales = sales_data.groupby('day')['total'].sum()
+                    st.markdown("##### 📈 Günlük Satış Dinamikası")
+                    st.bar_chart(daily_sales)
+                    
+                    with st.expander("📄 Satış Siyahısı (Detallı)"):
+                        st.dataframe(sales_data[['created_at', 'items', 'total', 'payment_method']])
+                else:
+                    st.info(f"{selected_month_str} ayı üçün satış yoxdur.")
+
+            with tabs[2]:
                 st.markdown("### 📧 CRM")
                 m_df = run_query("SELECT card_id, email FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
                     ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
                     if st.button("🚀 Hamıya Göndər", key="crm_s"): st.success("Test: Göndərildi!")
                 else: st.info("Müştəri yoxdur")
-            with tabs[2]:
-                sales = run_query("SELECT * FROM sales ORDER BY created_at DESC LIMIT 50")
-                st.dataframe(sales)
+            
             with tabs[3]:
                 with st.form("addm"):
                     c1,c2,c3 = st.columns(3)
@@ -404,6 +434,7 @@ else:
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 md = run_query("SELECT * FROM menu WHERE is_active=TRUE ORDER BY id")
                 st.dataframe(md)
+            
             with tabs[4]:
                 with st.expander("🔑 Şifrə Dəyiş"):
                     all_us = run_query("SELECT username FROM users")
@@ -415,6 +446,7 @@ else:
                     un = st.text_input("User"); ps = st.text_input("Pass", type="password")
                     if st.button("Yarat", key="crt_stf"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
+            
             with tabs[5]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
                 if st.button("Yarat", key="crt_qr"):
