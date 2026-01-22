@@ -189,7 +189,6 @@ if "id" in query_params:
                 em = st.text_input("📧 Email ünvanınız")
                 dob = st.date_input("🎂 Doğum Tarixiniz", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
-                # ŞƏRTLƏR (YENİLƏNDİ - 9 ULDUZ QAYDASI)
                 with st.expander("📜 Qaydalar və Şərtlər"):
                     st.markdown("""
                     * **Məxfilik:** Email və doğum tarixiniz yalnız endirim üçün istifadə olunur.
@@ -227,7 +226,6 @@ if "id" in query_params:
             if i < user['stars']: style = "opacity: 1;"
             else: style = "opacity: 0.2; filter: grayscale(100%);"
             
-            # 9 ulduz varsa 10-cu stakan yanıb-sönür (Hədiyyəyə hazırdır)
             if i == user['stars']: style = "opacity: 0.6;"; cls += " pulse-anim"
             html += f'<img src="{icon}" class="coffee-icon {cls}" style="{style}">'
         html += '</div>'
@@ -417,12 +415,36 @@ else:
                 else:
                     st.info(f"{selected_month_str} ayı üçün satış yoxdur.")
 
-            with tabs[2]:
+            with tabs[2]: # CRM (Tam Funksional)
                 st.markdown("### 📧 CRM")
-                m_df = run_query("SELECT card_id, email FROM customers WHERE email IS NOT NULL")
+                m_df = run_query("SELECT card_id, email, birth_date FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
+                    m_df['50% Endirim'] = False
+                    m_df['Ad Günü'] = False
+                    
                     ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    if st.button("🚀 Hamıya Göndər", key="crm_s"): st.success("Test: Göndərildi!")
+                    if st.button("🚀 Seçilənləri Göndər", key="crm_s"):
+                        count = 0
+                        for i, r in ed.iterrows():
+                            if r['50% Endirim']:
+                                send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!")
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim kuponu!')", {"id":r['card_id']})
+                                count += 1
+                            if r['Ad Günü']:
+                                send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!")
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']})
+                                count += 1
+                        st.success(f"{count} mesaj göndərildi!")
+                    
+                    st.divider()
+                    st.markdown("#### 📢 Ümumi Bildiriş (Hamıya)")
+                    with st.form("bulk"):
+                        txt = st.text_area("Mesaj Mətni")
+                        if st.form_submit_button("Göndər"):
+                            all_ids = run_query("SELECT card_id FROM customers")
+                            for _, r in all_ids.iterrows():
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt})
+                            st.success("Bildiriş hamıya göndərildi!")
                 else: st.info("Müştəri yoxdur")
             
             with tabs[3]:
@@ -446,7 +468,6 @@ else:
                     un = st.text_input("User"); ps = st.text_input("Pass", type="password")
                     if st.button("Yarat", key="crt_stf"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
-            
             with tabs[5]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
                 if st.button("Yarat", key="crt_qr"):
