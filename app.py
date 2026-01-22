@@ -36,42 +36,35 @@ st.markdown("""
     /* 1. GİZLƏDİLMƏLİ OLANLAR */
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI (Ürək Effekti) */
+    /* 2. SƏHİFƏ GİRİŞ ANİMASİYASI */
     @keyframes heartbeat-enter {
-        0% { transform: scale(0.5); opacity: 0; }
-        50% { transform: scale(1.05); opacity: 1; }
+        0% { transform: scale(0.9); opacity: 0; }
         100% { transform: scale(1); opacity: 1; }
     }
     .stApp {
-        animation: heartbeat-enter 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+        animation: heartbeat-enter 0.5s ease-out both;
         font-family: 'Oswald', sans-serif !important;
         background-color: #FAFAFA;
     }
     
-    /* 3. MÜŞTƏRİ KARTI (Sloqan İçəridə) */
+    /* 3. MÜŞTƏRİ KARTI */
     .digital-card {
         background: white;
         border-radius: 25px; 
         padding: 20px;
-        box-shadow: 0 10px 40px rgba(230, 81, 0, 0.15); /* Narıncı kölgə */
-        border: 2px solid #FFF3E0;
+        box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1); /* Yaşıl kölgə */
+        border: 2px solid #E8F5E9;
         margin-bottom: 25px;
         text-align: center;
         position: relative;
-        overflow: hidden;
     }
     
     /* Sloqan Stili */
     .inner-motivation {
-        background-color: #FFF3E0;
-        color: #E65100;
-        padding: 10px;
-        border-radius: 12px;
-        font-size: 18px;
-        font-style: italic;
-        font-weight: bold;
-        margin-bottom: 15px;
-        border: 1px dashed #FFB74D;
+        background-color: #FFF3E0; color: #E65100;
+        padding: 10px; border-radius: 12px;
+        font-size: 18px; font-style: italic; font-weight: bold;
+        margin-bottom: 15px; border: 1px dashed #FFB74D;
     }
 
     /* VIP Badge */
@@ -82,22 +75,22 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(239, 108, 0, 0.4);
     }
 
-    /* 4. POS KATEQORİYA DÜYMƏLƏRİ (KVADRAT) */
+    /* 4. POS DÜYMƏLƏRİ (YAŞIL VƏ KİÇİK) */
     div.stButton > button {
         background-color: white;
-        border: 2px solid #FF9800;
-        color: #E65100 !important;
-        font-size: 20px !important; 
+        border: 2px solid #2E7D32; /* Emalatxana Yaşılı */
+        color: #2E7D32 !important;
+        font-size: 18px !important; /* Bir az kiçik font */
         font-weight: 700;
-        border-radius: 15px; /* Kvadrat-vari */
-        min-height: 80px; 
+        border-radius: 12px;
+        min-height: 55px !important; /* Hündürlük azaldıldı */
         width: 100%;
-        box-shadow: 0 4px 0 #FFCC80;
+        box-shadow: 0 3px 0 #A5D6A7; /* Yaşıl 3D kölgə */
         transition: transform 0.1s;
+        margin-bottom: 8px;
     }
-    div.stButton > button:active { transform: translateY(4px); box-shadow: none; }
-    
-    /* Seçili Kateqoriya üçün Stil (Python tərəfindən idarə olunacaq) */
+    div.stButton > button:active { transform: translateY(3px); box-shadow: none; }
+    div.stButton > button:hover { background-color: #E8F5E9; }
     
     /* 5. KOFE GRID */
     .coffee-grid-container {
@@ -106,20 +99,30 @@ st.markdown("""
     }
     .coffee-icon { width: 100%; max-width: 65px; transition: transform 0.2s; }
     
-    /* 6. RƏY BÖLMƏSİ (Görünən) */
+    /* 6. HƏYƏCANLI MƏTN (Ürək Döyüntüsü) */
+    .heartbeat-text {
+        color: #D32F2F !important; /* Qırmızı */
+        font-weight: bold;
+        font-size: 20px;
+        margin-top: 15px;
+        text-align: center;
+        animation: pulse-text 1s infinite;
+    }
+    @keyframes pulse-text {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+
+    /* 7. RƏY BÖLMƏSİ */
     .feedback-box {
         background: #fff; border: 2px solid #EEEEEE;
         border-radius: 15px; padding: 15px; margin-top: 15px;
     }
 
-    /* Animasiyalar */
-    .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #FF9800); }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
-    
-    /* Ümumi Mətnlər */
+    /* Ümumi */
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
-    .basket-total { font-size: 28px; font-weight: bold; text-align: right; margin-top: 20px; color: #E65100; }
+    .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -200,7 +203,7 @@ def get_random_quote():
 # --- POS DIALOG ---
 @st.dialog("📏 ÖLÇÜ SEÇİN")
 def show_size_selector(base_name, variants):
-    st.markdown(f"<h3 style='text-align:center; color:#E65100'>{base_name}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='text-align:center; color:#2E7D32'>{base_name}</h3>", unsafe_allow_html=True)
     cols = st.columns(len(variants))
     for idx, item in enumerate(variants):
         name_parts = item['item_name'].split()
@@ -248,19 +251,14 @@ if "id" in query_params:
                     else: st.error("Email yazın")
             st.stop()
 
-        # --- DIGITAL CARD (YENİ DİZAYN) ---
+        # DIGITAL CARD
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
-        
-        # 1. Sloqan (İçəridə)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
-        
-        # 2. VIP Badge
         if user['type'] == 'thermos': 
             st.markdown('<div class="vip-status-box">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
-        # 3. 5-5 Grid
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             if i < 9: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = ""
@@ -269,17 +267,21 @@ if "id" in query_params:
             if i < user['stars']: style = "opacity: 1;"
             else: style = "opacity: 0.2; filter: grayscale(100%);"
             
-            if i == user['stars']: style = "opacity: 0.8;"; cls += " pulse-anim"
+            if i == user['stars']: style = "opacity: 0.8; animation: pulse 1s infinite;"; cls += " pulse-anim"
             html += f'<img src="{icon}" class="coffee-icon {cls}" style="{style}">'
         html += '</div>'
         st.markdown(html, unsafe_allow_html=True)
         
         rem = 9 - user['stars']
-        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#E65100 !important; margin-top:15px;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
-        else: st.markdown(f"<p style='text-align:center; margin-top:10px; color:#555'>Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
+        if rem <= 0: 
+            st.markdown("<h3 style='text-align:center; color:#E65100 !important;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
+        else: 
+            # YENİ HƏYƏCANLI YAZI
+            st.markdown(f"<div class='heartbeat-text'>❤️ Cəmi {rem} kofedən sonra qonağımızsan! ❤️</div>", unsafe_allow_html=True)
+            
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # --- RƏY (AÇIQ) ---
+        # RƏY
         st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Rəy Bildir</h4>", unsafe_allow_html=True)
         with st.form("feed"):
@@ -326,7 +328,6 @@ else:
 
         role = st.session_state.role
         
-        # --- POS RENDER (Kvadrat Kategoriyalar) ---
         def render_pos():
             left_col, right_col = st.columns([2, 1])
             with left_col:
@@ -344,14 +345,10 @@ else:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
-                # --- KATEQORİYA DÜYMƏLƏRİ (KVADRAT) ---
+                # --- KATEQORİYA DÜYMƏLƏRİ (Yaşıl və Kiçik) ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
-                # Düymə stilləri
-                def get_btn_type(cat_name):
-                    return "primary" if st.session_state.pos_category == cat_name else "secondary"
-
                 if cat_col1.button("Qəhvə", key="cat_coff", use_container_width=True): 
                     st.session_state.pos_category = "Qəhvə"; st.rerun()
                 if cat_col2.button("İçkilər", key="cat_drk", use_container_width=True): 
@@ -359,7 +356,6 @@ else:
                 if cat_col3.button("Desert", key="cat_dst", use_container_width=True): 
                     st.session_state.pos_category = "Desert"; st.rerun()
                 
-                # Menyu
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
                 grouped_items = {}
                 for _, row in menu_df.iterrows():
@@ -405,7 +401,7 @@ else:
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
                     
                     final = max(0, total - disc)
-                    st.markdown(f"<div class='basket-total'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:24px; font-weight:bold; text-align:right; color:#2E7D32'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
                     pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pm")
@@ -413,10 +409,7 @@ else:
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
-                        
-                        run_action("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())", 
-                                  {"i":items_str, "t":final, "p":p_code})
-                        
+                        run_action("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())", {"i":items_str, "t":final, "p":p_code})
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
