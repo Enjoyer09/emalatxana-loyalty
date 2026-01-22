@@ -27,13 +27,13 @@ st.set_page_config(
 )
 
 # ==========================================
-# === DİZAYN KODLARI (CSS) - FIX EDİLDİ ===
+# === DİZAYN KODLARI (CSS) ===
 # ==========================================
 custom_css = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&display=swap');
     
-    /* 1. EKRANDAKI ARTIQ HİSSƏLƏRİ GİZLƏT (Adam, Menu, Header) */
+    /* 1. EKRANDAKI ARTIQ HİSSƏLƏRİ GİZLƏT */
     #MainMenu {visibility: hidden; display: none;}
     header {visibility: hidden; display: none;}
     footer {visibility: hidden; display: none;}
@@ -47,7 +47,7 @@ custom_css = """
     /* Rənglər (Emalatxana Yaşılı) */
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
     
-    /* 3. MÜŞTƏRİ KARTI (Ağır və Şıq) */
+    /* 3. MÜŞTƏRİ KARTI */
     .digital-card {
         background: white;
         border-radius: 20px; 
@@ -59,7 +59,7 @@ custom_css = """
         position: relative;
     }
     
-    /* VIP STATUS (Cəlbedici Narıncı/Qızılı) */
+    /* VIP STATUS */
     .vip-status-box {
         background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
         color: white !important;
@@ -73,11 +73,11 @@ custom_css = """
         box-shadow: 0 4px 10px rgba(245, 124, 0, 0.3);
     }
     
-    /* 4. MOTIVASİYA SÖZÜ (Gözə çarpan) */
+    /* 4. MOTIVASİYA SÖZÜ */
     .motivation-header {
         font-size: 24px;
         font-weight: bold;
-        color: #EF6C00 !important; /* Tünd Narıncı */
+        color: #EF6C00 !important;
         text-align: center;
         margin-bottom: 20px;
         font-style: italic;
@@ -100,18 +100,18 @@ custom_css = """
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
     .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
     
-    /* 6. POS DÜYMƏLƏRİ (Böyük, Kvadrat, Touch-Friendly) */
+    /* 6. POS DÜYMƏLƏRİ */
     div.stButton > button {
         background-color: white;
-        border: 2px solid #FF9800; /* Narıncı haşiyə */
+        border: 2px solid #FF9800;
         color: #E65100 !important;
         font-size: 20px !important; 
         font-weight: 700;
         border-radius: 12px;
-        min-height: 85px; /* Barmaq üçün rahat */
+        min-height: 85px;
         width: 100%;
         margin-bottom: 10px;
-        box-shadow: 0 4px 0 #FFCC80; /* 3D effekt */
+        box-shadow: 0 4px 0 #FFCC80;
         transition: all 0.1s;
     }
     div.stButton > button:active {
@@ -123,7 +123,7 @@ custom_css = """
         border-color: #E65100;
     }
     
-    /* 7. RƏY BÖLMƏSİ (Açıq) */
+    /* 7. RƏY BÖLMƏSİ */
     .feedback-container {
         background-color: white;
         border: 1px solid #ddd;
@@ -243,7 +243,7 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]
     
-    # Header Logo (Mərkəzləşdirilmiş)
+    # Header Logo
     c1, c2, c3 = st.columns([1,2,1])
     with c2: st.image("emalatxana.png", width=180)
     
@@ -274,19 +274,17 @@ if "id" in query_params:
                     else: st.error("Email yazın")
             st.stop()
 
-        # --- MOTIVATION (Yuxarıda, Böyük, Narıncı) ---
+        # MOTIVATION
         st.markdown(f"<div class='motivation-header'>{get_random_quote()}</div>", unsafe_allow_html=True)
 
-        # --- VIP KART HISSƏSİ ---
+        # VIP KART
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
-        
-        # VIP Badge
         if user['type'] == 'thermos': 
             st.markdown('<div class="vip-status-box">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
-        # --- 5-5 COFFEE GRID ---
+        # 5-5 COFFEE GRID
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             if i < 9: 
@@ -309,7 +307,7 @@ if "id" in query_params:
         else: st.markdown(f"<p style='text-align:center; margin-top:10px; color:#555'>Hədiyyəyə <b>{rem}</b> kofe qaldı</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # --- RƏY (AÇIQ FORMA, Expander yoxdur) ---
+        # RƏY
         st.markdown("<div class='feedback-container'>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Bizə Rəy Bildirin</h4>", unsafe_allow_html=True)
         with st.form("feed"):
@@ -352,13 +350,13 @@ else:
     else:
         h1, h2, h3 = st.columns([2,6,1])
         with h1: 
-            if st.button("🔴 Çıxış"): st.session_state.logged_in = False; st.rerun()
+            if st.button("🔴 Çıxış", key="logout_btn"): st.session_state.logged_in = False; st.rerun()
         with h3:
             if st.button("🔄", key="mr"): st.rerun()
 
         role = st.session_state.role
         
-        # POS RENDER (Updated Buttons)
+        # POS RENDER
         def render_pos():
             left_col, right_col = st.columns([2, 1])
             with left_col:
@@ -377,7 +375,7 @@ else:
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
                 cats = ["Qəhvə", "İçkilər", "Desert"]
-                sel_cat = st.radio(" ", cats, horizontal=True, label_visibility="collapsed")
+                sel_cat = st.radio(" ", cats, horizontal=True, label_visibility="collapsed", key="pos_cat_radio")
                 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": sel_cat})
                 grouped_items = {}
@@ -427,7 +425,7 @@ else:
                     st.markdown(f"<div style='font-size:24px; font-weight:bold; text-align:right; color:#E65100'>YEKUN: {final:.2f} ₼</div>", unsafe_allow_html=True)
                     if disc > 0: st.caption(f"Endirim: -{disc:.2f}")
                     
-                    pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True)
+                    pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pay_method_radio")
                     
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
@@ -473,7 +471,7 @@ else:
                 if not m_df.empty:
                     m_df['50% Endirim'] = False; m_df['Ad Günü'] = False
                     ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    if st.button("🚀 Göndər"):
+                    if st.button("🚀 Göndər", key="crm_send_btn"):
                         cnt = 0
                         for i, r in ed.iterrows():
                             if r['50% Endirim']: send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"); run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']}); cnt+=1
@@ -500,15 +498,15 @@ else:
                     all_us = run_query("SELECT username FROM users")
                     target = st.selectbox("Seç:", all_us['username'].tolist())
                     np = st.text_input("Yeni Şifrə", type="password", key="np_adm")
-                    if st.button("Yenilə"):
+                    if st.button("Yenilə", key="pass_change_btn"):
                         run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(np), "u":target}); st.success("OK")
                 with st.expander("➕ Yeni İşçi"):
                     un = st.text_input("User"); ps = st.text_input("Pass", type="password")
-                    if st.button("Yarat"):
+                    if st.button("Yarat", key="create_staff_btn"):
                         run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, 'staff')", {"u":un, "p":hash_password(ps)}); st.success("OK")
             with tabs[5]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
-                if st.button("Yarat"):
+                if st.button("Yarat", key="create_qr_btn"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
                     for i in ids: run_action("INSERT INTO customers (card_id, stars, type) VALUES (:i, 0, :t)", {"i":i, "t":typ})
