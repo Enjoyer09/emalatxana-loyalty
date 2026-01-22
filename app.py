@@ -11,6 +11,7 @@ import os
 import bcrypt
 import requests
 import datetime
+import streamlit.components.v1 as components
 
 # --- EMAIL AYARLARI ---
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY") or "xkeysib-..."
@@ -27,7 +28,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# === DİZAYN KODLARI (FIXED SPACINGS & SIZES) ===
+# === DİZAYN KODLARI (SABİT) ===
 # ==========================================
 st.markdown("""
     <style>
@@ -36,32 +37,43 @@ st.markdown("""
     /* 1. GİZLƏDİLMƏLİ OLANLAR */
     #MainMenu, header, footer, div[data-testid="stStatusWidget"] { display: none !important; }
     
-    /* 2. SƏHİFƏ AYARLARI (Boşluq azaldıldı) */
-    @keyframes heartbeat-enter {
-        0% { transform: scale(0.9); opacity: 0; }
-        100% { transform: scale(1); opacity: 1; }
-    }
-    .stApp {
-        animation: heartbeat-enter 0.5s ease-out both;
-        font-family: 'Oswald', sans-serif !important;
-        background-color: #FAFAFA;
-    }
-    /* Logo üzərindəki boşluq 0-a endirildi */
-    .block-container { 
-        padding-top: 0rem !important; 
-        padding-bottom: 2rem !important; 
-        max-width: 100%; 
-    }
+    /* 2. GLOBAL FONT */
+    html, body, .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
+    .block-container { padding-top: 0rem !important; padding-bottom: 2rem !important; max-width: 100%; }
     
-    /* 3. POS DÜYMƏLƏRİ - MƏHSULLAR & AXTAR (NARINCI) */
+    /* 3. HARD REFRESH DÜYMƏLƏRİ (JS) STİLİ */
+    .js-button {
+        display: inline-block;
+        padding: 10px 20px;
+        color: white;
+        background-color: #2E7D32; /* Yaşıl */
+        border: none;
+        border-radius: 8px;
+        font-family: 'Oswald', sans-serif;
+        font-size: 16px;
+        text-decoration: none;
+        text-align: center;
+        cursor: pointer;
+        width: 100%;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .js-button:hover { background-color: #1B5E20; }
+    
+    .js-logout {
+        background-color: #D32F2F; /* Qırmızı */
+    }
+    .js-logout:hover { background-color: #B71C1C; }
+
+    /* 4. POS DÜYMƏLƏRİ - MƏHSULLAR (NARINCI) */
     div.stButton > button {
         background-color: white;
-        border: 2px solid #FF9800; /* Narıncı */
+        border: 2px solid #FF9800;
         color: #E65100 !important;
         font-size: 20px !important; 
         font-weight: 700;
         border-radius: 15px;
-        min-height: 85px; /* Standart İri Ölçü */
+        min-height: 85px;
         width: 100%;
         box-shadow: 0 4px 0 #FFCC80;
         transition: all 0.1s;
@@ -70,71 +82,57 @@ st.markdown("""
     div.stButton > button:active { transform: translateY(4px); box-shadow: none; }
     div.stButton > button:hover { background-color: #FFF3E0; }
 
-    /* 4. POS DÜYMƏLƏRİ - KATEQORİYALAR (YAŞIL) */
-    /* İndi bunlar da Axtar düyməsi ilə eyni boydadır (85px) */
+    /* 5. POS DÜYMƏLƏRİ - KATEQORİYALAR (YAŞIL) */
     div.stButton > button[kind="primary"] {
         background-color: #F1F8E9;
-        border: 2px solid #2E7D32 !important; /* Emalatxana Yaşılı */
+        border: 2px solid #2E7D32 !important;
         color: #2E7D32 !important;
-        font-size: 20px !important; /* Font böyüdüldü */
-        min-height: 85px !important; /* Axtar düyməsi ilə eyni */
+        font-size: 20px !important;
+        min-height: 85px !important;
         box-shadow: 0 4px 0 #A5D6A7;
     }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #DCEDC8;
-    }
+    div.stButton > button[kind="primary"]:hover { background-color: #DCEDC8; }
 
-    /* 5. MÜŞTƏRİ KARTI */
+    /* 6. MÜŞTƏRİ KARTI */
     .digital-card {
         background: white; border-radius: 25px; padding: 20px;
-        box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1);
-        border: 2px solid #E8F5E9;
+        box-shadow: 0 10px 40px rgba(46, 125, 50, 0.1); border: 2px solid #E8F5E9;
         margin-bottom: 25px; text-align: center; position: relative;
     }
     
-    /* 6. HƏYƏCANLI MƏTN */
+    /* 7. HƏYƏCANLI MƏTN */
     .heartbeat-text {
         color: #D32F2F !important; font-weight: bold; font-size: 22px;
         margin-top: 15px; text-align: center;
         animation: pulse-text 1.2s infinite;
     }
-    @keyframes pulse-text {
-        0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
-    }
+    @keyframes pulse-text { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-    /* 7. KOFE GRID */
+    /* 8. KOFE GRID */
     .coffee-grid-container {
         display: grid; grid-template-columns: repeat(5, 1fr); 
         gap: 8px; justify-items: center; margin-top: 15px;
     }
     .coffee-icon { width: 100%; max-width: 65px; transition: transform 0.2s; }
     
-    /* 8. RƏY & SLOQAN */
+    /* 9. RƏY & SLOQAN */
     .inner-motivation {
         background-color: #FFF3E0; color: #E65100;
         padding: 10px; border-radius: 12px;
         font-size: 18px; font-style: italic; font-weight: bold;
         margin-bottom: 15px; border: 1px dashed #FFB74D;
     }
-    .feedback-box {
-        background: #fff; border: 2px solid #EEEEEE;
-        border-radius: 15px; padding: 15px; margin-top: 15px;
-    }
+    .feedback-box { background: #fff; border: 2px solid #EEEEEE; border-radius: 15px; padding: 15px; margin-top: 15px; }
 
-    /* Ümumi */
     h1, h2, h3, h4, span { color: #2E7D32 !important; }
-    .vip-status-box {
-        background: linear-gradient(135deg, #FF9800 0%, #EF6C00 100%);
-        color: white; padding: 10px; border-radius: 10px;
-        font-weight: bold; margin-bottom: 10px; text-transform: uppercase;
-    }
+    .vip-status-box { background: linear-gradient(135deg, #FF9800 0%, #EF6C00 100%); color: white; padding: 10px; border-radius: 10px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; }
     .orange-gift { filter: sepia(100%) saturate(3000%) hue-rotate(330deg) brightness(100%) contrast(105%); }
     .pulse-anim { animation: pulse 1.5s infinite; filter: drop-shadow(0 0 5px #FF9800); }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATABASE CONNECTION ---
+# --- DATABASE CONNECTION (Keep-Alive) ---
 try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
     if not db_url: st.error("URL yoxdur!"); st.stop()
@@ -259,7 +257,6 @@ if "id" in query_params:
                     else: st.error("Email yazın")
             st.stop()
 
-        # DIGITAL CARD
         st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         if user['type'] == 'thermos': 
@@ -284,12 +281,10 @@ if "id" in query_params:
         if rem <= 0: 
             st.markdown("<h3 style='text-align:center; color:#E65100 !important;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
         else: 
-            # DÖYÜNƏN MƏTN
             st.markdown(f"<div class='heartbeat-text'>❤️ Cəmi {rem} kofedən sonra qonağımızsan! ❤️</div>", unsafe_allow_html=True)
             
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # RƏY
         st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Rəy Bildir</h4>", unsafe_allow_html=True)
         with st.form("feed"):
@@ -317,7 +312,13 @@ else:
         with c2: 
             st.image("emalatxana.png", width=150)
             st.markdown("<h3 style='text-align:center'>GİRİŞ</h3>", unsafe_allow_html=True)
-            if st.button("🔄 Yenilə", key="lr"): st.rerun()
+            
+            # --- MƏCBURİ YENİLƏ (HARD REFRESH) BUTTON ---
+            # Python donsa belə bu düymə işləyir
+            st.markdown("""
+                <button class="js-button" onclick="window.location.reload();">🔄 Məcburi Yenilə</button>
+            """, unsafe_allow_html=True)
+            
             with st.form("login"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
@@ -330,9 +331,13 @@ else:
     else:
         h1, h2, h3 = st.columns([2,6,1])
         with h1: 
+            # JS ÇIXIŞ DÜYMƏSİ (DONMA OLARSA)
             if st.button("🔴 Çıxış", key="out"): st.session_state.logged_in = False; st.rerun()
         with h3:
-            if st.button("🔄", key="ref"): st.rerun()
+            # JS YENİLƏ DÜYMƏSİ (TOP RIGHT)
+            st.markdown("""
+                <button style="background:none; border:none; font-size:24px; cursor:pointer;" onclick="window.location.reload();">🔄</button>
+            """, unsafe_allow_html=True)
 
         role = st.session_state.role
         
@@ -353,11 +358,10 @@ else:
                         st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                         if st.button("❌ Ləğv", key="pcl"): st.session_state.current_customer = None; st.rerun()
                 
-                # --- KATEQORİYA DÜYMƏLƏRİ (Yaşıl və Kvadrat) ---
                 st.markdown("<br>", unsafe_allow_html=True)
                 cat_col1, cat_col2, cat_col3 = st.columns(3)
                 
-                # 'type="primary"' CSS-də Yaşıl və Kvadrat kimi təyin edilib
+                # --- CATEGORY BUTTONS (YAŞIL) ---
                 if cat_col1.button("Qəhvə", key="cat_coff", type="primary", use_container_width=True): 
                     st.session_state.pos_category = "Qəhvə"; st.rerun()
                 if cat_col2.button("İçkilər", key="cat_drk", type="primary", use_container_width=True): 
@@ -386,7 +390,7 @@ else:
                                 show_size_selector(name, variants)
                         else:
                             item = variants[0]
-                            # Məhsul düymələri 'secondary' (default) qalır -> Narıncı
+                            # Məhsullar Narıncı (default)
                             if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"s_{item['id']}", use_container_width=True):
                                 st.session_state.cart.append(item)
                                 st.rerun()
@@ -406,7 +410,7 @@ else:
                     if curr:
                         if curr['type'] == 'thermos': 
                             disc += sum([float(x['price']) for x in st.session_state.cart if x['is_coffee']]) * 0.2
-                        # 9 kofedən sonra 10-cu pulsuz
+                        # 9 ulduzdan sonra (10-cu pulsuz)
                         if curr['stars'] >= 9: 
                             c_items = [x for x in st.session_state.cart if x['is_coffee']]
                             if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
@@ -417,7 +421,7 @@ else:
                     
                     pay_method = st.radio("Ödəniş:", ["Nəğd (Cash)", "Kart (Card)"], horizontal=True, key="pm")
                     
-                    # 'type="primary"' olduğu üçün TƏSDİQLƏ düyməsi də Yaşıl olacaq
+                    # Təsdiq düyməsi də Yaşıl (Primary)
                     if st.button("✅ TƏSDİQLƏ", type="primary", use_container_width=True, key="py"):
                         p_code = "Cash" if "Nəğd" in pay_method else "Card"
                         items_str = ", ".join([x['item_name'] for x in st.session_state.cart])
@@ -425,7 +429,7 @@ else:
                         if curr:
                             ns = curr['stars']
                             if coffs > 0:
-                                # Əgər 9+ ulduz varsa və pulsuz kofe işlənibsə, sıfırla
+                                # Əgər pulsuz kofe işlənibsə, sıfırla
                                 if curr['stars'] >= 9 and any(x['is_coffee'] for x in st.session_state.cart): ns = 0
                                 else: ns += 1
                             run_action("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id", {"s":ns, "id":curr['card_id']})
