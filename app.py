@@ -50,58 +50,41 @@ st.markdown("""
     .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
     .block-container { padding-top: 1rem !important; padding-bottom: 4rem !important; max-width: 100%; }
 
-    /* --- BUTON DİZAYNLARI (YENİ) --- */
+    /* --- YENİLƏNMİŞ POS DÜYMƏLƏRİ (NARINCI KONTUR & BOLD) --- */
     
-    /* 1. ÜMUMİ MƏHSUL DÜYMƏLƏRİ (NARINCI KONTUR, AĞ İÇ) */
+    /* 1. Məhsul Düymələri */
     div.stButton > button {
         background-color: #FFFFFF !important;
         color: #E65100 !important; /* Narıncı Yazı */
-        border: 2px solid #E65100 !important; /* Narıncı Çərçivə */
+        border: 3px solid #E65100 !important; /* Narıncı Çərçivə */
         border-radius: 12px !important;
         font-family: 'Oswald', sans-serif !important;
-        font-weight: 700 !important;
-        font-size: 20px !important;
+        font-weight: 900 !important; /* BOLD */
+        font-size: 22px !important;
         min-height: 80px !important;
         width: 100% !important;
-        transition: none !important; /* Hover effektini söndür */
-        box-shadow: none !important;
+        transition: 0.1s;
     }
-    
-    /* Hover zamanı dəyişiklik OLMASIN */
-    div.stButton > button:hover {
-        background-color: #FFFFFF !important;
-        color: #E65100 !important;
-        border-color: #E65100 !important;
-    }
-    
-    /* Klikləyəndə yüngül reaksiya */
     div.stButton > button:active {
-        background-color: #FFF3E0 !important; /* Çox açıq narıncı */
+        background-color: #FFF3E0 !important;
         transform: translateY(2px);
     }
 
-    /* 2. KATEQORİYA DÜYMƏLƏRİ (SECONDARY - YAŞIL KONTUR, AĞ İÇ) */
+    /* 2. Kateqoriya Düymələri (Yaşıl Kontur) */
     div.stButton > button[kind="secondary"] {
         background-color: #FFFFFF !important;
-        color: #2E7D32 !important; /* Logo Yaşılı */
-        border: 2px solid #2E7D32 !important; /* Yaşıl Çərçivə */
+        color: #2E7D32 !important;
+        border: 3px solid #2E7D32 !important;
         border-radius: 10px !important;
         height: 60px !important;
-        font-size: 18px !important;
+        font-size: 20px !important;
+        font-weight: 700 !important;
     }
-    
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #FFFFFF !important;
-        color: #2E7D32 !important;
-        border-color: #2E7D32 !important;
-    }
-    
     div.stButton > button[kind="secondary"]:active {
-        background-color: #E8F5E9 !important; /* Çox açıq yaşıl */
+        background-color: #E8F5E9 !important;
     }
 
-    /* 3. PRIMARY DÜYMƏLƏR (Məs: Backup, Ödəniş - DOLU RƏNG) */
-    /* Şəkildəki Backup düyməsinə bənzər dolu narıncı */
+    /* 3. Primary Düymələr (Dolu Rəng - Məs: Ödəniş, Backup) */
     div.stButton > button[kind="primary"] {
         background-color: #E65100 !important;
         color: white !important;
@@ -112,7 +95,7 @@ st.markdown("""
         background-color: #EF6C00 !important;
     }
 
-    /* --- MÜŞTƏRİ EKRANI ELEMENTLƏRİ --- */
+    /* --- MÜŞTƏRİ EKRANI --- */
     .digital-card {
         background: white; border-radius: 20px; padding: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #eee;
@@ -228,7 +211,6 @@ def process_logo_upload(uploaded_file):
     return None
 
 def clean_df_for_excel(df):
-    """Excel timezone xətasını düzəltmək üçün datetime-ları string-ə çevirir"""
     for col in df.select_dtypes(include=['datetime64[ns, UTC]', 'datetime64[ns]']).columns:
         df[col] = df[col].astype(str)
     return df
@@ -468,7 +450,7 @@ else:
                                 if st.session_state.active_coupon: s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
                             s.execute(text("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())"), {"i":items_str, "t":final, "p":p_code})
                             s.commit()
-                        st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
+                        st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
 
             # --- SAĞ: GRID ---
@@ -493,7 +475,7 @@ else:
 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
                 
-                # QRUPLAŞDIRMA (Eyni adlı məhsullar üçün)
+                # QRUPLAŞDIRMA
                 groups = {}
                 for idx, row in enumerate(menu_df.to_dict('records')):
                     name = row['item_name']
@@ -520,23 +502,94 @@ else:
         if role == 'admin':
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
             with tabs[0]: render_pos()
+            
+            # --- BƏRPA OLUNMUŞ ANALİTİKA ---
             with tabs[1]:
-                st.markdown("### 📊 Satış")
-                sales = run_query("SELECT * FROM sales ORDER BY created_at DESC LIMIT 50")
+                st.markdown("### 📊 Satış Analitikası")
+                today = datetime.date.today()
+                sel_date = st.date_input("Ay Seçin", today)
+                sel_month = sel_date.strftime("%Y-%m")
+                
+                sales = run_query("SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = :m ORDER BY created_at DESC", {"m": sel_month})
+                
                 if not sales.empty:
-                    st.metric("Cəm", f"{sales['total'].sum():.2f}")
-                    st.dataframe(sales)
+                    tot = sales['total'].sum()
+                    cash = sales[sales['payment_method'] == 'Cash']['total'].sum()
+                    card = sales[sales['payment_method'] == 'Card']['total'].sum()
+                    
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Ümumi", f"{tot:.2f}")
+                    m2.metric("💵 Nağd", f"{cash:.2f}")
+                    m3.metric("💳 Kart", f"{card:.2f}")
+                    
+                    sales['day'] = pd.to_datetime(sales['created_at']).dt.day
+                    daily = sales.groupby('day')['total'].sum()
+                    st.bar_chart(daily)
+                    
+                    with st.expander("Siyahı"):
+                        st.dataframe(sales)
+                else: st.info("Satış yoxdur.")
+
+            # --- BƏRPA OLUNMUŞ CRM ---
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
+                
                 if not m_df.empty:
-                    ed = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    if st.button("🚀 Hamıya Göndər"):
-                        for _, r in m_df.iterrows(): send_email(r['email'], "Xüsusi Təklif", "Sizi gözləyirik!")
-                        st.success("Göndərildi!")
+                    if 'crm_selections' not in st.session_state: st.session_state.crm_selections = [False] * len(m_df)
+                    
+                    c_all, c_none = st.columns(2)
+                    if c_all.button("✅ Hamısını Seç"): st.session_state.crm_selections = [True] * len(m_df); st.rerun()
+                    if c_none.button("❌ Sıfırla"): st.session_state.crm_selections = [False] * len(m_df); st.rerun()
+                    
+                    m_df['Seç'] = st.session_state.crm_selections
+                    edited = st.data_editor(m_df, hide_index=True, use_container_width=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)})
+                    
+                    st.divider()
+                    st.markdown("#### 📢 Kampaniya Göndər")
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("🎁 50% Endirim"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            if r['Seç']:
+                                send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!")
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']})
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, '50_percent')", {"id":r['card_id']}); cnt+=1
+                        st.success(f"{cnt} nəfərə göndərildi!")
+
+                    if c2.button("🎂 Ad Günü"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            if r['Seç']:
+                                send_email(r['email'], "Ad Gününüz Mübarək!", "Hədiyyə kofeniz var!")
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']})
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, 'birthday_gift')", {"id":r['card_id']}); cnt+=1
+                        st.success(f"{cnt} nəfərə göndərildi!")
+
+                    if c3.button("🍪 Peceniya"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            if r['Seç']:
+                                send_email(r['email'], "Şirin Hədiyyə!", "Kofe alana Peceniya bizdən!")
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Pulsuz Peceniya!')", {"id":r['card_id']})
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, 'free_cookie')", {"id":r['card_id']}); cnt+=1
+                        st.success(f"{cnt} nəfərə göndərildi!")
+                    
+                    st.divider()
+                    with st.form("custom_crm"):
+                        txt = st.text_area("Xüsusi Mesaj")
+                        if st.form_submit_button("Seçilənlərə Göndər"):
+                            cnt = 0
+                            for i, r in edited.iterrows():
+                                if r['Seç']:
+                                    send_email(r['email'], "Emalatxana Coffee", txt)
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt}); cnt+=1
+                            st.success(f"{cnt} mesaj göndərildi!")
+                else: st.info("Müştəri yoxdur")
+
             with tabs[3]:
                 with st.form("add"):
-                    c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofe?")
+                    c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofedir?")
                     if st.form_submit_button("Əlavə Et"):
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 st.dataframe(run_query("SELECT * FROM menu"))
