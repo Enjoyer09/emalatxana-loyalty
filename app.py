@@ -114,10 +114,11 @@ st.markdown("""
         0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
     
+    /* Motivasiya Yazısı - BOLD + LOGO YAŞILI */
     .inner-motivation {
-        font-size: 24px; color: #E65100; font-family: 'Oswald', sans-serif;
-        font-weight: bold; font-style: italic; margin-bottom: 20px; text-align: center;
-        background: #FFF3E0; padding: 15px; border-radius: 15px; border: 2px dashed #FF9800;
+        font-size: 24px; color: #2E7D32; font-family: 'Oswald', sans-serif;
+        font-weight: 900; font-style: italic; margin-bottom: 20px; text-align: center;
+        background: #F1F8E9; padding: 15px; border-radius: 15px; border: 2px dashed #E65100; /* Narıncı Kontur */
     }
 
     .feedback-box {
