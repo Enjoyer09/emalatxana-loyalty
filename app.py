@@ -115,8 +115,9 @@ st.markdown("""
     }
     
     .inner-motivation {
-        font-size: 16px; color: #E65100; font-family: 'Oswald', sans-serif;
-        font-style: italic; margin-bottom: 10px; text-align: center;
+        font-size: 24px; color: #E65100; font-family: 'Oswald', sans-serif;
+        font-weight: bold; font-style: italic; margin-bottom: 20px; text-align: center;
+        background: #FFF3E0; padding: 15px; border-radius: 15px; border: 2px dashed #FF9800;
     }
 
     .feedback-box {
@@ -256,7 +257,32 @@ def generate_custom_qr(data, center_text):
     buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 
 def get_random_quote():
-    return random.choice(["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"])
+    quotes = [
+        "Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨",
+        "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊", "Uğur cəsarət edənlərindir! 🚀",
+        "Həyat bir qurtum kofe kimidir! ☕", "Pozitiv ol, möcüzələr baş verir! 🌟"
+    ]
+    return random.choice(quotes)
+
+# --- CRM MOTIVATION LIST ---
+CRM_QUOTES = [
+    "Səni görmək çox xoşdur! ☕", "Həftəsonun əla keçsin! 🎉", "Yeni həftəyə enerji ilə başla! 🚀",
+    "Sənin üçün darıxdıq! ❤️", "Bu gün özünə bir yaxşılıq et! 🍰", "Kofe ətri səni çağırır! ☕",
+    "Dostlarınla gözəl vaxt keçir! 👯", "Emalatxana səni sevir! 🧡", "Hava soyuqdur, kofe istidir! ❄️",
+    "Gülüşünlə ətrafı işıqlandır! ✨", "Uğurlu bir gün olsun! 💼", "Sən bizim üçün dəyərlisən! 💎",
+    "Kiçik xoşbəxtliklər böyükdür! 🎈", "Özünə vaxt ayır! ⏳", "Dadlı bir fasilə ver! 🥐",
+    "Hər qurtumda ləzzət! 😋", "Bu gün möcüzəvidir! 🌟", "Sən özəl birisən! 🎁", "Həyat gözəldir, dadını çıxar! 🌈",
+    "Bizimlə olduğun üçün təşəkkürlər! 🙏", "Kofe sənin haqqındır! ☕", "Ulduzun parlasın! ⭐",
+    "Xoşbəxtlik bir fincan uzaqlıqdadır! 💖", "Enerjini bizimlə bərpa et! 🔋", "Günün aydın olsun! ☀️",
+    "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️",
+    "Gözəl anlar birikdir! 📸", "Sən bir dənəsən! 💎", "Dadlı kofe, şirin söhbət! 🍰",
+    "Həyat qısadır, kofeni soyutma! ⏳", "Yeni dadlar kəşf et! 🌍", "Səni yenidən gözləyirik! 👋",
+    "Bu gün sənin şans günündür! 🍀", "Hər şey qaydasındadır! 👌", "Rahatla və həzz al! 🛋️",
+    "Sevgi ilə hazırlanmış kofe! ❤️", "Dostluq kofe ilə başlayar! 🤝", "Günəş kimi parla! 🌞",
+    "Sənin enerjin bizə ilham verir! 💡", "Möhtəşəm görünürsən! 😎", "Uğurlu başlanğıclar! 🌱",
+    "Xəyallarını gerçəkləşdir! 🌠", "Kofe əhvalını qaldıracaq! 🚀", "Sadəcə gülümsə! 😄",
+    "Özünə güvən! 💪", "Bu anın dadını çıxar! 🕰️", "Sən bacararsan! 🏆", "Emalatxana sənin evindir! 🏠"
+]
 
 # --- BIRTHDAY CHECKER ---
 def check_and_send_birthday_emails():
@@ -313,27 +339,30 @@ if "id" in query_params:
                     st.balloons(); st.rerun()
             st.stop()
 
-        st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 9</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
+        st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
         
+        # 0/10 STARS LOGIC
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; style = "opacity: 1;" if i < user['stars'] else "opacity: 0.2; filter: grayscale(100%);"
-            if i == 9: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; style += " filter: hue-rotate(45deg);" 
+            if i == 9: # 10-cu stəkan (Index 9)
+                icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" # Hədiyyə qutusu
+            else:
+                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+            
+            style = "opacity: 1;" if i < user['stars'] else "opacity: 0.2; filter: grayscale(100%);"
             html += f'<img src="{icon}" class="coffee-icon" style="{style}">'
         html += '</div>'; st.markdown(html, unsafe_allow_html=True)
         
-        rem = 9 - user['stars']
-        if rem <= 0: st.success("🎉 TƏBRİKLƏR! Pulsuz Kofeniz Hazırdır!")
-        else: st.markdown(f"<div class='heartbeat-text'>❤️ Cəmi {rem} kofedən sonra qonağımızsan! ❤️</div>", unsafe_allow_html=True)
+        rem = 10 - user['stars']
+        if rem <= 1: st.success("🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!")
+        else: st.markdown(f"<div class='heartbeat-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE", {"id": card_id})
-        if not my_coupons.empty:
-            for _, cp in my_coupons.iterrows():
-                name = "🎁 Xüsusi Hədiyyə"
-                if cp['coupon_type'] == 'birthday_gift': name = "🎂 Ad Günü: 1 Pulsuz Kofe"
-                elif cp['coupon_type'] == '50_percent': name = "🏷️ 50% Endirim Kuponu"
-                st.markdown(f"<div class='coupon-alert'>{name}</div>", unsafe_allow_html=True)
+        for _, cp in my_coupons.iterrows():
+            name = "🎁 Hədiyyə"
+            if cp['coupon_type'] == 'birthday_gift': name = "🎂 Ad Günü Hədiyyəsi!"
+            st.markdown(f"<div class='coupon-alert'>{name}</div>", unsafe_allow_html=True)
 
         last_fb_star = int(user['last_feedback_star']) if user['last_feedback_star'] is not None else -1
         current_stars = int(user['stars'])
@@ -547,37 +576,13 @@ else:
                     
                     st.divider()
                     st.markdown("#### 📢 Kampaniya Göndər")
-                    c1, c2, c3 = st.columns(3)
-                    if c1.button("🎁 50% Endirim"):
-                        cnt = 0
-                        for i, r in edited.iterrows():
-                            if r['Seç']:
-                                send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!")
-                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']})
-                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, '50_percent')", {"id":r['card_id']}); cnt+=1
-                        st.success(f"{cnt} nəfərə göndərildi!")
-
-                    if c2.button("🎂 Ad Günü"):
-                        cnt = 0
-                        for i, r in edited.iterrows():
-                            if r['Seç']:
-                                send_email(r['email'], "Ad Gününüz Mübarək!", "Hədiyyə kofeniz var!")
-                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']})
-                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, 'birthday_gift')", {"id":r['card_id']}); cnt+=1
-                        st.success(f"{cnt} nəfərə göndərildi!")
-
-                    if c3.button("🍪 Peceniya"):
-                        cnt = 0
-                        for i, r in edited.iterrows():
-                            if r['Seç']:
-                                send_email(r['email'], "Şirin Hədiyyə!", "Kofe alana Peceniya bizdən!")
-                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Pulsuz Peceniya!')", {"id":r['card_id']})
-                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, 'free_cookie')", {"id":r['card_id']}); cnt+=1
-                        st.success(f"{cnt} nəfərə göndərildi!")
                     
-                    st.divider()
+                    # Hazır Motivasiya Seçimi
+                    sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
+                    custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
+                    
                     with st.form("custom_crm"):
-                        txt = st.text_area("Xüsusi Mesaj")
+                        txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
                         if st.form_submit_button("Seçilənlərə Göndər"):
                             cnt = 0
                             for i, r in edited.iterrows():
