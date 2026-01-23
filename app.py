@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import os, io, zipfile, datetime, secrets
-import bcrypt, requests, qrcode
-from PIL import Image
+import os, io, zipfile, secrets
+import bcrypt, qrcode
 from sqlalchemy import text
 
 # ======================================================
@@ -23,7 +22,7 @@ button { font-weight:600; }
 """, unsafe_allow_html=True)
 
 # ======================================================
-# DATABASE CONNECTION (CRITICAL — EXACT AS REQUESTED)
+# DATABASE CONNECTION (RAILWAY SAFE — EXACT PATTERN)
 # ======================================================
 try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL")
@@ -70,7 +69,6 @@ def ensure_schema():
         stars INTEGER DEFAULT 0,
         type TEXT DEFAULT 'standard',
         email TEXT,
-        birth_date DATE,
         is_active BOOLEAN DEFAULT FALSE,
         secret_token TEXT,
         last_feedback_star INTEGER
@@ -100,13 +98,6 @@ def ensure_schema():
         is_used BOOLEAN DEFAULT FALSE
     );
 
-    CREATE TABLE IF NOT EXISTS notifications (
-        id SERIAL PRIMARY KEY,
-        card_id TEXT,
-        message TEXT,
-        is_read BOOLEAN DEFAULT FALSE
-    );
-
     CREATE TABLE IF NOT EXISTS feedback (
         id SERIAL PRIMARY KEY,
         card_id TEXT,
@@ -123,58 +114,47 @@ def ensure_schema():
 ensure_schema()
 
 # ======================================================
-# UTILITIES
+# AUTH HELPERS
 # ======================================================
 def hash_pw(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
 def verify_pw(pw: str, hashed: str) -> bool:
-    if not hashed.startswith("$2"):
-        return pw == hashed
     return bcrypt.checkpw(pw.encode(), hashed.encode())
 
-def get_setting(key, default=""):
-    df = q("SELECT value FROM settings WHERE key=:k", {"k": key})
-    return df.iloc[0]["value"] if not df.empty else default
-
-def set_setting(key, value):
+# ======================================================
+# BOOTSTRAP ADMIN (CRITICAL)
+# ======================================================
+admin_check = q("SELECT * FROM users WHERE role='admin'")
+if admin_check.empty:
     exec_sql(
-        """INSERT INTO settings(key,value)
-           VALUES(:k,:v)
-           ON CONFLICT(key) DO UPDATE SET value=:v""",
-        {"k": key, "v": value}
+        "INSERT INTO users(username,password,role) VALUES(:u,:p,'admin')",
+        {
+            "u": "admin",
+            "p": hash_pw("admin123")
+        }
     )
-
-def generate_qr(data: str) -> bytes:
-    img = qrcode.make(data)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 # ======================================================
 # SESSION STATE
 # ======================================================
-defaults = {
+for k, v in {
     "logged_in": False,
     "role": None,
     "cart": [],
-    "current_customer": None
-}
-
-for k, v in defaults.items():
+}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ======================================================
-# ROLE 1 — CUSTOMER (QR PUBLIC VIEW)
+# CUSTOMER VIEW (QR)
 # ======================================================
 params = st.query_params
-
 if "id" in params:
-    card_id = params["id"]
+    cid = params["id"]
     token = params.get("t")
 
-    df = q("SELECT * FROM customers WHERE card_id=:c", {"c": card_id})
+    df = q("SELECT * FROM customers WHERE card_id=:c", {"c": cid})
     if df.empty:
         st.error("Invalid card")
         st.stop()
@@ -185,7 +165,7 @@ if "id" in params:
         st.error("Unauthorized")
         st.stop()
 
-    st.title(get_setting("shop_name", "Emalatxana Coffee"))
+    st.title("Emalatxana Coffee Loyalty")
 
     if not cust["is_active"]:
         with st.form("activate"):
@@ -195,7 +175,7 @@ if "id" in params:
             if st.form_submit_button("Activate") and agree:
                 exec_sql(
                     "UPDATE customers SET is_active=TRUE,email=:e WHERE card_id=:c",
-                    {"e": email, "c": card_id}
+                    {"e": email, "c": cid}
                 )
                 st.rerun()
 
@@ -211,19 +191,18 @@ if "id" in params:
             if st.form_submit_button("Send"):
                 exec_sql(
                     "INSERT INTO feedback(card_id,rating,message) VALUES(:c,:r,:m)",
-                    {"c": card_id, "r": int(r), "m": m}
+                    {"c": cid, "r": int(r), "m": m}
                 )
                 exec_sql(
                     "UPDATE customers SET last_feedback_star=:r WHERE card_id=:c",
-                    {"r": int(r), "c": card_id}
+                    {"r": int(r), "c": cid}
                 )
                 st.success("Thanks!")
 
-    st.download_button(
-        "Download QR",
-        generate_qr(f"?id={card_id}&t={cust['secret_token']}"),
-        f"{card_id}.png"
-    )
+    qr = qrcode.make(f"?id={cid}&t={cust['secret_token']}")
+    buf = io.BytesIO()
+    qr.save(buf, format="PNG")
+    st.download_button("Download QR", buf.getvalue(), f"{cid}.png")
 
     st.stop()
 
@@ -231,7 +210,7 @@ if "id" in params:
 # LOGIN
 # ======================================================
 if not st.session_state.logged_in:
-    st.title("Staff Login")
+    st.title("Staff / Admin Login")
     with st.form("login"):
         u = st.text_input("Username")
         p = st.text_input("Password", type="password")
@@ -253,14 +232,8 @@ def render_pos():
 
     with left:
         st.subheader("Cart")
-        cid = st.text_input("Customer QR")
-        if cid:
-            df = q("SELECT * FROM customers WHERE card_id=:c", {"c": cid})
-            if not df.empty:
-                st.session_state.current_customer = df.iloc[0]
-
         total = 0
-        for i, item in enumerate(st.session_state.cart):
+        for item in st.session_state.cart:
             st.write(f"{item['item_name']} — {item['price']}₼")
             total += float(item["price"])
 
@@ -297,16 +270,12 @@ def render_pos():
 # ADMIN
 # ======================================================
 if st.session_state.role == "admin":
-    tabs = st.tabs(["POS", "Analytics", "Menu", "Users", "QR"])
+    tabs = st.tabs(["POS", "Menu", "Users", "QR"])
+
     with tabs[0]:
         render_pos()
 
     with tabs[1]:
-        df = q("SELECT * FROM sales")
-        st.metric("Total Revenue", f"{df['total'].sum():.2f} ₼")
-        st.bar_chart(df["total"])
-
-    with tabs[2]:
         with st.form("menu"):
             n = st.text_input("Name")
             p = st.number_input("Price")
@@ -319,7 +288,7 @@ if st.session_state.role == "admin":
                 )
                 st.success("Added")
 
-    with tabs[3]:
+    with tabs[2]:
         with st.form("user"):
             u = st.text_input("Username")
             p = st.text_input("Password")
@@ -331,7 +300,7 @@ if st.session_state.role == "admin":
                 )
                 st.success("User added")
 
-    with tabs[4]:
+    with tabs[3]:
         count = st.number_input("Cards", 1, 50)
         if st.button("Generate"):
             buf = io.BytesIO()
@@ -343,7 +312,10 @@ if st.session_state.role == "admin":
                         "INSERT INTO customers(card_id,secret_token) VALUES(:c,:t)",
                         {"c": cid, "t": token}
                     )
-                    z.writestr(f"{cid}.png", generate_qr(f"?id={cid}&t={token}"))
+                    qr = qrcode.make(f"?id={cid}&t={token}")
+                    b = io.BytesIO()
+                    qr.save(b, format="PNG")
+                    z.writestr(f"{cid}.png", b.getvalue())
             st.download_button("Download ZIP", buf.getvalue(), "cards.zip")
 
 else:
