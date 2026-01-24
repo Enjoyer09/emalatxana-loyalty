@@ -117,22 +117,16 @@ st.markdown("""
         font-weight: 700; margin-bottom: 10px; text-align: center;
     }
 
-    /* INSTAGRAM ICON STYLE */
     .insta-link {
         display: inline-block;
         margin-top: 10px;
         transition: transform 0.2s;
         animation: pulse-insta 2s infinite;
     }
-    .insta-link img {
-        width: 40px;
-        height: 40px;
-    }
+    .insta-link img { width: 40px; height: 40px; }
     .insta-link:hover { transform: scale(1.1); }
     @keyframes pulse-insta {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.1); }
-        100% { transform: scale(1); }
+        0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
 
     .refresh-btn {
@@ -164,6 +158,8 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT);"))
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star INTEGER DEFAULT -1;"))
+        except: pass
+        try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
         except: pass
         s.commit()
 ensure_schema()
@@ -225,17 +221,8 @@ def render_header():
     with c2:
         if LOGO_BASE64: st.markdown(f'<div style="text-align:center"><img src="data:image/png;base64,{LOGO_BASE64}" width="150"></div>', unsafe_allow_html=True)
         else: st.markdown(f"<h1 style='text-align:center; color:#2E7D32'>{SHOP_NAME}</h1>", unsafe_allow_html=True)
-        
-        # --- MÜŞTƏRİ HEADER DƏYİŞİKLİYİ ---
-        # Ünvan silindi, yalnız Instagram ikonu qaldı
         if INSTAGRAM_LINK:
-            st.markdown(f"""
-            <div style="text-align:center;">
-                <a href="{INSTAGRAM_LINK}" target="_blank" class="insta-link">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/2048px-Instagram_logo_2016.svg.png" alt="Instagram">
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div style="text-align:center;"><a href="{INSTAGRAM_LINK}" target="_blank" class="insta-link"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/2048px-Instagram_logo_2016.svg.png" alt="Instagram"></a></div>""", unsafe_allow_html=True)
 
 # --- EMAIL SYSTEM ---
 def send_email(to_email, subject, body):
@@ -287,7 +274,7 @@ def check_and_send_birthday_emails():
             for user in birthdays:
                 if send_email(user[1], f"🎉 {SHOP_NAME}: Ad Günün Mübarək!", "Sənə 1 pulsuz kofe hədiyyə!"):
                     s.execute(text("INSERT INTO notifications (card_id, message) VALUES (:cid, '🎂 Ad Günün Mübarək!')"), {"cid": user[0]})
-                    s.execute(text("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:cid, 'disc_100_coffee')"), {"cid": user[0]})
+                    s.execute(text("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:cid, 'disc_100_coffee', NOW() + INTERVAL '1 day')"), {"cid": user[0]})
             s.execute(text("INSERT INTO settings (key, value) VALUES ('last_birthday_check', :val) ON CONFLICT (key) DO UPDATE SET value = :val"), {"val": today_str})
             s.commit()
     except: pass
@@ -323,10 +310,40 @@ if "id" in query_params:
             st.warning(f"🎉 {SHOP_NAME}-a Xoş Gəldiniz!")
             with st.form("act"):
                 em = st.text_input("📧 Email"); dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
-                st.markdown("### 📜 Qaydalar"); st.info("1. Məlumatlar məxfidir.\n2. 9 Ulduz = 1 Hədiyyə.")
+                
+                # --- YENİLƏNMİŞ QAYDALAR ---
+                with st.expander("📜 İstifadəçi Razılaşması və Qaydalar (Oxumaq üçün basın)"):
+                    st.markdown("""
+                    <div style="font-family: sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+                        <b>1. Məxfilik və Məlumatların Qorunması</b><br>
+                        Təqdim etdiyiniz məlumatlar (E-mail ünvanı və Doğum tarixi) yalnız "{SHOP_NAME}" tərəfindən sizə özəl kampaniyalar, endirimlər və ad günü təbrikləri göndərmək üçün istifadə olunur. Sizin məlumatlarınız heç bir halda üçüncü tərəflərlə paylaşılmır.<br><br>
+                        
+                        <b>2. Sadiqlik Proqramı (Bonuslar)</b><br>
+                        Hər kofe alışı sizə <b>1 Ulduz</b> qazandırır. 9 ulduz topladıqdan sonra növbəti (10-cu) kofe standart ölçüdə bizdən <b>HƏDİYYƏ</b> olunur.<br><br>
+                        
+                        <b>3. "Yaşıl Dünya" (Termos) Endirimi</b><br>
+                        Təbiəti qorumaq məqsədilə, öz termosu ilə yaxınlaşan müştərilərə kofe alışlarında daimi endirim tətbiq olunur.<br><br>
+                        
+                        <b>4. Endirimlərin Hesablanması</b><br>
+                        Eyni anda bir neçə endirim növü (məsələn: Termos endirimi + 50% Kupon) mövcud olduqda, sistem avtomatik olaraq <b>SİZİN ÜÇÜN ƏN YÜKSƏK</b> (ən sərfəli) endirimi hesablayır və tətbiq edir. Endirimlər üst-üstə toplanmır.<br><br>
+                        
+                        <b>5. Kuponların Etibarlılıq Müddəti</b><br>
+                        • <b>Kampaniya Kuponları:</b> Yaradıldığı tarixdən etibarən <b>7 gün</b> ərzində keçərlidir.<br>
+                        • <b>Ad Günü Hədiyyəsi:</b> Yalnız doğum gününüzdə (24 saat ərzində) keçərlidir. Hədiyyəni almaq üçün kassada şəxsiyyət vəsiqəsi təqdim edilməlidir.<br><br>
+                        
+                        <b>6. Qaydaların Dəyişdirilməsi</b><br>
+                        "{SHOP_NAME}" bu qaydalara əvvəlcədən xəbərdarlıq etməklə və ya etmədən dəyişiklik etmək hüququnu özündə saxlayır.
+                    </div>
+                    """.replace("{SHOP_NAME}", SHOP_NAME), unsafe_allow_html=True)
+                
+                agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
+                
                 if st.form_submit_button("Qeydiyyatı Tamamla"):
-                    run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
-                    st.balloons(); st.rerun()
+                    if agree and em:
+                        run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
+                        st.balloons(); st.rerun()
+                    elif not agree: st.error("Qaydaları qəbul etməlisiniz.")
+                    else: st.error("Email daxil edin.")
             st.stop()
 
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
@@ -351,8 +368,8 @@ if "id" in query_params:
         if rem <= 0: st.markdown("<div class='progress-text'>🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!</div>", unsafe_allow_html=True)
         else: st.markdown(f"<div class='progress-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
-        # FANCY PROMO CARDS
-        my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE", {"id": card_id})
+        # ACTIVE COUPONS (ONLY VALID ONES)
+        my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in my_coupons.iterrows():
             name = "🎁 Xüsusi Kupon"
             if cp['coupon_type'] == 'disc_20': name = "🏷️ 20% Endirim!"
@@ -415,7 +432,7 @@ else:
                 curr = st.session_state.current_customer
                 if curr:
                     st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
-                    cps = run_query("SELECT * FROM customer_coupons WHERE card_id=:id AND is_used=FALSE", {"id": curr['card_id']})
+                    cps = run_query("SELECT * FROM customer_coupons WHERE card_id=:id AND is_used=FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": curr['card_id']})
                     if not cps.empty:
                         cp_map = {"disc_20": "20% Endirim", "disc_30": "30% Endirim", "disc_50": "50% Endirim", "disc_100_coffee": "Ad Günü (Pulsuz Kofe)"}
                         cp_ops = {f"{cp_map.get(r['coupon_type'], r['coupon_type'])}": r['id'] for _, r in cps.iterrows()}
@@ -439,20 +456,17 @@ else:
                 else: st.info("Səbət boşdur")
                 st.markdown("</div>", unsafe_allow_html=True)
                 
-                # --- SMART DISCOUNT LOGIC ---
+                # --- MAX DISCOUNT LOGIC ---
                 final_discount = 0
                 candidate_discounts = [] 
 
                 if curr:
-                    if curr['type'] == 'thermos':
-                        coffee_total = sum([float(x['price']) for x in st.session_state.cart if x.get('is_coffee')])
-                        if coffee_total > 0: candidate_discounts.append(coffee_total * 0.2) 
+                    coffee_total = sum([float(x['price']) for x in st.session_state.cart if x.get('is_coffee')])
+                    if curr['type'] == 'thermos' and coffee_total > 0: candidate_discounts.append(coffee_total * 0.2)
                     
                     if curr['stars'] >= 9:
                         c_items = [x for x in st.session_state.cart if x.get('is_coffee')]
-                        if c_items:
-                            cheapest = float(min(c_items, key=lambda x: float(x['price']))['price'])
-                            candidate_discounts.append(cheapest)
+                        if c_items: candidate_discounts.append(float(min(c_items, key=lambda x: float(x['price']))['price']))
                     
                     if st.session_state.active_coupon:
                         cp = st.session_state.active_coupon['type']
@@ -477,9 +491,11 @@ else:
                     try:
                         with conn.session as s:
                             if curr:
+                                # Logic: If max discount was from loyalty (stars >= 9), reset stars.
+                                # Simple implementation: If stars >= 9 and coffee bought, reset.
                                 ns = int(curr['stars'])
                                 if coffs > 0:
-                                    if ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
+                                    if ns >= 9: ns = 0
                                     else: ns += 1
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
                                 if st.session_state.active_coupon: s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
@@ -584,7 +600,8 @@ else:
                                     send_email(r['email'], "Emalatxana Coffee: Xüsusi Təklif!", txt)
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt})
                                     if db_code:
-                                        run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, :ct)", {"id":r['card_id'], "ct":db_code})
+                                        # COUPON EXPIRATION LOGIC (7 DAYS)
+                                        run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":r['card_id'], "ct":db_code})
                                     cnt+=1
                             st.success(f"{cnt} mesaj və kupon göndərildi!")
                 else: st.info("Müştəri yoxdur")
@@ -599,13 +616,11 @@ else:
             with tabs[4]:
                 st.markdown("### ⚙️ Ayarlar")
                 with st.expander("📍 Əlaqə və Sosial Media"):
-                    # Ünvan, Telefon və Sosial Linklər üçün sahələr
                     new_addr = st.text_input("Ünvan", value=SHOP_ADDRESS)
                     new_phone = st.text_input("Telefon", value=SHOP_PHONE)
                     new_insta = st.text_input("Instagram Link", value=INSTAGRAM_LINK)
                     new_fb = st.text_input("Facebook Link", value=FACEBOOK_LINK)
                     new_yt = st.text_input("YouTube Link", value=YOUTUBE_LINK)
-                    
                     if st.button("Məlumatları Yadda Saxla"):
                         set_config("shop_address", new_addr)
                         set_config("shop_phone", new_phone)
