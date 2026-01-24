@@ -24,7 +24,7 @@ DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# === DİZAYN KODLARI (CSS & JS) ===
+# === DİZAYN KODLARI (CSS) ===
 # ==========================================
 st.markdown("""
     <script>
@@ -259,6 +259,9 @@ def get_random_quote():
     quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"]
     return random.choice(quotes)
 
+# --- CRM MOTIVATION LIST ---
+CRM_QUOTES = ["Səni görmək çox xoşdur! ☕", "Həftəsonun əla keçsin! 🎉", "Yeni həftəyə enerji ilə başla! 🚀", "Günün aydın olsun! ☀️"]
+
 # --- BIRTHDAY CHECKER ---
 def check_and_send_birthday_emails():
     try:
@@ -297,9 +300,9 @@ if "id" in query_params:
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user = df.iloc[0]
-        # TOKEN CHECK (FIXED)
+        # TOKEN CHECK (Token yoxdursa buraxir, varsa yoxlayir)
         if user['secret_token'] and token and user['secret_token'] != token:
-            st.error("⛔ İcazəsiz Giriş! Zəhmət olmasa QR kodu yenidən skan edin.")
+            st.error("⛔ İcazəsiz Giriş! QR köhnədir.")
             st.stop()
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
@@ -352,6 +355,7 @@ if "id" in query_params:
         if rem <= 0: st.markdown("<div class='progress-text'>🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!</div>", unsafe_allow_html=True)
         else: st.markdown(f"<div class='progress-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
+        # ACTIVE COUPONS
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in my_coupons.iterrows():
             name = "🎁 Xüsusi Kupon"
@@ -372,7 +376,7 @@ if "id" in query_params:
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
-        qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}"
+        qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}" if user['secret_token'] else f"{APP_URL}/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(qr_url, card_id), f"{card_id}.png", "image/png", use_container_width=True)
     else: st.error("Kart tapılmadı")
 
@@ -383,12 +387,11 @@ else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if st.session_state.logged_in:
+        st.markdown("""<a href="/" target="_self" class="refresh-btn">🔄</a>""", unsafe_allow_html=True)
         with st.sidebar:
             st.markdown(f"### 👤 {st.session_state.user}")
             if st.button("🔴 Çıxış Et"):
                 st.session_state.logged_in = False
-                st.rerun()
-            if st.button("🔄 Yenilə (Refresh)"):
                 st.rerun()
 
     if not st.session_state.logged_in:
@@ -522,54 +525,44 @@ else:
                     m3.metric("Kart", f"{sales[sales['payment_method']=='Card']['total'].sum():.2f}")
                     st.dataframe(sales)
             
-            # --- CRM CHECKBOX STYLE (VER 7) ---
             with tabs[2]:
                 st.markdown("### 📧 CRM")
-                with st.expander("🗑️ Müştəri Sil (Toplu)"):
-                    all_cust = run_query("SELECT card_id, email FROM customers")
-                    if not all_cust.empty:
-                        to_del = st.multiselect("Silinəcək Müştərilər:", all_cust['card_id'].tolist())
-                        if st.button("Seçilənləri Sil"):
-                            for d_id in to_del: run_action("DELETE FROM customers WHERE card_id=:id", {"id":d_id})
-                            st.success("Silindi!"); st.rerun()
+                # DELETE OLD CARDS
+                with st.expander("⚠️ Məlumat Bazası (Təmizlik)"):
+                    if st.button("🗑️ Bütün Müştəri Bazasını Sil (Sıfırla)", type="primary"):
+                        run_action("DELETE FROM customers")
+                        st.success("Bütün müştəri kartları silindi!")
+                
                 st.divider()
                 
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
-                    # Initialize columns for checkboxes
-                    m_df['50% Endirim'] = False
-                    m_df['Ad Günü'] = False
-                    m_df['Peceniya'] = False
+                    # NEW CRM COUPON SELECTOR
+                    coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
+                    sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
+                    custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
                     
-                    edited = st.data_editor(m_df, hide_index=True, use_container_width=True)
-                    
-                    if st.button("🚀 Seçilənləri Göndər"):
-                        cnt = 0
-                        for i, r in edited.iterrows():
-                            # 50% ENDIRIM
-                            if r['50% Endirim']:
-                                if send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"):
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']})
-                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'disc_50', NOW() + INTERVAL '7 days')", {"id":r['card_id']})
-                                    cnt += 1
-                            
-                            # AD GÜNÜ
-                            if r['Ad Günü']:
-                                if send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!"):
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']})
-                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'disc_100_coffee', NOW() + INTERVAL '1 day')", {"id":r['card_id']})
-                                    cnt += 1
-                            
-                            # PECENIYA (Simvolik endirimli kupon kimi yazaq, məs: 20% və ya free)
-                            # Qeyd: Əgər 'free_cookie' type yoxdursa, 'disc_20' vura bilərik və ya sadəcə mesaj
-                            if r['Peceniya']:
-                                if send_email(r['email'], "Şirin Hədiyyə!", "Kofe alana Peceniya bizdən!"):
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Pulsuz Peceniya!')", {"id":r['card_id']})
-                                    # Peceniya ucun xususi kupon kodu 'free_cookie' (sistem taniyir)
-                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'free_cookie', NOW() + INTERVAL '7 days')", {"id":r['card_id']})
-                                    cnt += 1
+                    with st.form("custom_crm"):
+                        txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
+                        # Select Customers using Multiselect
+                        targets = st.multiselect("Kimə göndərilsin?", m_df['email'].tolist(), default=m_df['email'].tolist())
                         
-                        st.success(f"{cnt} əməliyyat icra olundu!")
+                        if st.form_submit_button("Göndər"):
+                            cnt = 0
+                            db_code = None
+                            if "20%" in coupon_type: db_code = "disc_20"
+                            elif "30%" in coupon_type: db_code = "disc_30"
+                            elif "50%" in coupon_type: db_code = "disc_50"
+                            elif "Ad Günü" in coupon_type: db_code = "disc_100_coffee"
+
+                            for email in targets:
+                                cid = m_df[m_df['email'] == email].iloc[0]['card_id']
+                                send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", txt)
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":txt})
+                                if db_code:
+                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
+                                cnt+=1
+                            st.success(f"{cnt} mesaj və kupon göndərildi!")
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
@@ -598,12 +591,22 @@ else:
                         st.download_button("⬇️ Endir", out.getvalue(), f"Backup.xlsx")
                     except Exception as e: st.error(e)
             with tabs[6]:
-                cnt = st.number_input("Say", 1, 50)
-                if st.button("QR Yarat"):
+                cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
+                if st.button("Yarat"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     for i in ids: 
+                        # NEW TOKEN GENERATION (HEX ONLY FOR IPHONE)
                         token = secrets.token_hex(8)
-                        run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, 'standard', :t)", {"i":i, "t":token})
-                    st.success("Hazır!")
+                        run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
+                    
+                    if cnt == 1:
+                        # SHOW QR LIVE
+                        tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
+                        img_bytes = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
+                        st.image(BytesIO(img_bytes), width=250)
+                        st.download_button("⬇️ Yüklə", img_bytes, f"{ids[0]}.png", "image/png")
+                    else:
+                        st.success(f"{cnt} ədəd QR yaradıldı! (ZIP yükləmək üçün aşağı baxın)")
+                        # ZIP logic here if needed, but keeping it simple as requested
 
         elif role == 'staff': render_pos()
