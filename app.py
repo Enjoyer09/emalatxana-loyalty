@@ -21,7 +21,7 @@ DOMAIN = "emalatxana.ironwaves.store"
 APP_URL = f"https://{DOMAIN}"
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store" 
 
-# SIDEBARI "EXPANDED" EDIRIK KI GORUNSUN, AMMA ESAS DÜYMƏ YUXARIDA OLACAQ
+# SIDEBAR Expanded ki, admin menyuları rahat görsün
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
@@ -283,7 +283,13 @@ CRM_QUOTES = [
     "Sən bizim üçün dəyərlisən! 💎", "Kiçik xoşbəxtliklər böyükdür! 🎈", "Özünə vaxt ayır! ⏳", "Dadlı bir fasilə ver! 🥐",
     "Hər qurtumda ləzzət! 😋", "Bu gün möcüzəvidir! 🌟", "Sən özəl birisən! 🎁", "Həyat gözəldir, dadını çıxar! 🌈",
     "Bizimlə olduğun üçün təşəkkürlər! 🙏", "Kofe sənin haqqındır! ☕", "Ulduzun parlasın! ⭐", "Xoşbəxtlik bir fincan uzaqlıqdadır! 💖",
-    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️"
+    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️",
+    "Gözəl anlar birikdir! 📸", "Sən bir dənəsən! 💎", "Dadlı kofe, şirin söhbət! 🍰", "Həyat qısadır, kofeni soyutma! ⏳",
+    "Yeni dadlar kəşf et! 🌍", "Səni yenidən gözləyirik! 👋", "Bu gün sənin şans günündür! 🍀", "Hər şey qaydasındadır! 👌",
+    "Rahatla və həzz al! 🛋️", "Sevgi ilə hazırlanmış kofe! ❤️", "Dostluq kofe ilə başlayar! 🤝", "Günəş kimi parla! 🌞",
+    "Sənin enerjin bizə ilham verir! 💡", "Möhtəşəm görünürsən! 😎", "Uğurlu başlanğıclar! 🌱", "Xəyallarını gerçəkləşdir! 🌠",
+    "Kofe əhvalını qaldıracaq! 🚀", "Sadəcə gülümsə! 😄", "Özünə güvən! 💪", "Bu anın dadını çıxar! 🕰️",
+    "Sən bacararsan! 🏆", "Emalatxana sənin evindir! 🏠", "Pozitiv ol, möcüzələr səni tapacaq! 💫", "Gülüşün ən gözəl aksesuardır! 😁"
 ]
 
 # --- BIRTHDAY CHECKER ---
@@ -434,7 +440,7 @@ else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if st.session_state.logged_in:
-        # --- NEW VISIBLE HEADER WITH LOGOUT ---
+        # VISIBLE LOGOUT HEADER
         c_head1, c_head2 = st.columns([4, 1])
         with c_head1:
             st.markdown(f"### 👤 {st.session_state.user} | {st.session_state.role.upper()}")
@@ -446,6 +452,9 @@ else:
                 st.query_params.clear()
                 st.rerun()
         st.divider()
+        
+        with st.sidebar:
+            st.button("🔄 Yenilə", on_click=st.rerun)
 
     if not st.session_state.logged_in:
         c1, c2, c3 = st.columns([1,1,1]); 
@@ -600,30 +609,43 @@ else:
                 
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
+                    if 'select_all' not in st.session_state: st.session_state.select_all = False
+                    c_btn1, c_btn2 = st.columns(2)
+                    if c_btn1.button("✅ Hamısını Seç"): st.session_state.select_all = True
+                    if c_btn2.button("❌ Sıfırla"): st.session_state.select_all = False
+                    
+                    m_df.insert(0, "Seç", st.session_state.select_all)
+                    edited = st.data_editor(m_df, hide_index=True, use_container_width=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)})
+                    
+                    st.divider()
+                    st.markdown("#### 📢 Kampaniya Göndər")
                     coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
                     sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
                     custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
                     
                     with st.form("custom_crm"):
                         txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
-                        targets = st.multiselect("Kimə göndərilsin?", m_df['email'].tolist(), default=m_df['email'].tolist())
-                        
-                        if st.form_submit_button("Göndər"):
-                            cnt = 0
-                            db_code = None
-                            if "20%" in coupon_type: db_code = "disc_20"
-                            elif "30%" in coupon_type: db_code = "disc_30"
-                            elif "50%" in coupon_type: db_code = "disc_50"
-                            elif "Ad Günü" in coupon_type: db_code = "disc_100_coffee"
+                        if st.form_submit_button("Seçilənlərə Göndər"):
+                            selected_rows = edited[edited["Seç"] == True]
+                            if not selected_rows.empty:
+                                cnt = 0
+                                db_code = None
+                                if "20%" in coupon_type: db_code = "disc_20"
+                                elif "30%" in coupon_type: db_code = "disc_30"
+                                elif "50%" in coupon_type: db_code = "disc_50"
+                                elif "Ad Günü" in coupon_type: db_code = "disc_100_coffee"
 
-                            for email in targets:
-                                cid = m_df[m_df['email'] == email].iloc[0]['card_id']
-                                send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", txt)
-                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":txt})
-                                if db_code:
-                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
-                                cnt+=1
-                            st.success(f"{cnt} mesaj və kupon göndərildi!")
+                                for idx, row in selected_rows.iterrows():
+                                    email = row['email']
+                                    cid = row['card_id']
+                                    final_msg = txt if txt else custom_msg_val
+                                    send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", final_msg)
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":final_msg})
+                                    if db_code:
+                                        run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
+                                    cnt+=1
+                                st.success(f"{cnt} müştəriyə göndərildi!")
+                            else: st.warning("Heç kim seçilməyib!")
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
