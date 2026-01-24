@@ -310,7 +310,6 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 if 'current_customer' not in st.session_state: st.session_state.current_customer = None
 if 'pos_category' not in st.session_state: st.session_state.pos_category = "Qəhvə"
 if 'active_coupon' not in st.session_state: st.session_state.active_coupon = None
-if 'scan_input' not in st.session_state: st.session_state.scan_input = ""
 
 # ===========================
 # === 1. MÜŞTƏRİ EKRANI ===
@@ -321,16 +320,14 @@ if "id" in query_params:
     token = query_params.get("t")
     render_header()
     
-    # DB QUERY SAFEGUARD
+    # DB QUERY
     try:
         df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
-    except Exception as e:
-        st.error("Sistem xətası. Yenidən cəhd edin.")
-        st.stop()
+    except: st.stop()
 
     if not df.empty:
         user = df.iloc[0]
-        # SAFE TOKEN CHECK (No Auto Update to prevent 'Access Denied')
+        # SAFE TOKEN CHECK
         if user['secret_token'] and token and user['secret_token'] != token:
             st.error("⛔ İcazəsiz Giriş! QR kod yenilənib. Zəhmət olmasa kassadan yeni çek isteyin.")
             st.stop()
@@ -366,7 +363,7 @@ if "id" in query_params:
 
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         
-        # THERMOS VIP BADGE (UPDATED TEXT)
+        # THERMOS VIP BADGE
         if user['type'] == 'thermos':
             st.markdown("""
             <div class="thermos-vip">
@@ -457,10 +454,12 @@ else:
                 st.markdown("<h3 style='text-align:center; background:#4CAF50; color:white; padding:10px; border-radius:5px;'>SATIŞ</h3>", unsafe_allow_html=True)
                 c1, c2 = st.columns([3, 1])
                 
-                # --- ROBUST SCAN HANDLER ---
-                def on_scan():
-                    val = st.session_state.scan_input
-                    if val:
+                # --- FIXED: FORM-BASED SCANNER (NO WHITE SCREEN) ---
+                with st.form("scan_form", clear_on_submit=True):
+                    val = st.text_input("QR Skan (Enter)", key="pos_qr", placeholder="Skan et...")
+                    submitted = st.form_submit_button("Axtar", use_container_width=True)
+                    
+                    if submitted and val:
                         clean_id = val.strip()
                         if "http" in val or "id=" in val:
                             try: clean_id = val.split("id=")[1].split("&")[0]
@@ -470,13 +469,10 @@ else:
                             c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":clean_id})
                             if not c_df.empty:
                                 st.session_state.current_customer = c_df.iloc[0].to_dict()
-                                st.session_state.scan_input = "" 
                             else:
                                 st.error("Tapılmadı")
                         except: st.error("Xəta")
 
-                st.text_input("QR Skan", key="scan_input", on_change=on_scan, label_visibility="collapsed", placeholder="Skan et...")
-                
                 curr = st.session_state.current_customer
                 if curr:
                     st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
@@ -490,6 +486,7 @@ else:
                             st.session_state.active_coupon = {"id": cp_ops[sel_cp], "type": raw_type}
                         else: st.session_state.active_coupon = None
                     if st.button("Ləğv Et", key="pcl"): st.session_state.current_customer = None; st.rerun()
+                
                 st.markdown("<div style='background:white; height:60vh; overflow-y:scroll; border:1px solid #ddd; padding:10px;'>", unsafe_allow_html=True)
                 total = 0; coffs = 0
                 if st.session_state.cart:
@@ -594,7 +591,6 @@ else:
                 
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
-                    # CRM COUPON SELECTOR
                     coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
                     sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
                     custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
