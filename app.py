@@ -77,10 +77,10 @@ st.markdown("""
     }
     
     div.stButton > button[kind="primary"] {
-        background-color: #E65100 !important;
+        background-color: #D32F2F !important;
         color: white !important;
         border: none !important;
-        box-shadow: 0 4px 10px rgba(230, 81, 0, 0.4) !important;
+        box-shadow: 0 4px 10px rgba(211, 47, 47, 0.4) !important;
     }
 
     /* --- MÜŞTƏRİ EKRANI --- */
@@ -171,9 +171,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT);"))
-        # SESSION TABLE (NEW FOR PERSISTENCE)
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star INTEGER DEFAULT -1;"))
         except: pass
         try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
@@ -308,7 +306,7 @@ if 'scheduler_started' not in st.session_state:
     st.session_state.scheduler_started = True
     threading.Thread(target=check_and_send_birthday_emails, daemon=True).start()
 
-# --- SESSION & REFRESH LOGIC (CRITICAL UPDATE) ---
+# --- SESSION & REFRESH LOGIC ---
 def check_session_token():
     query_params = st.query_params
     token = query_params.get("token")
@@ -338,9 +336,7 @@ if "id" in query_params:
     token = query_params.get("t")
     render_header()
     
-    # DB QUERY
-    try:
-        df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    try: df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     except: st.stop()
 
     if not df.empty:
@@ -401,6 +397,7 @@ if "id" in query_params:
         if rem <= 0: st.markdown("<div class='progress-text'>🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!</div>", unsafe_allow_html=True)
         else: st.markdown(f"<div class='progress-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
+        # ACTIVE COUPONS
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in my_coupons.iterrows():
             name = "🎁 Xüsusi Kupon"
@@ -423,6 +420,11 @@ if "id" in query_params:
         st.divider()
         qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(qr_url, card_id), f"{card_id}.png", "image/png", use_container_width=True)
+        
+        if st.button("🔴 Hesabdan Çıx", type="primary"):
+            st.query_params.clear()
+            st.rerun()
+
     else: st.error("Kart tapılmadı")
 
 # ========================
@@ -434,14 +436,14 @@ else:
     if st.session_state.logged_in:
         with st.sidebar:
             st.markdown(f"### 👤 {st.session_state.user}")
-            if st.button("🔄 Məlumatları Yenilə"):
+            if st.button("🔄 Məlumatları Yenilə", use_container_width=True):
                 st.rerun()
             st.divider()
-            if st.button("🔴 Çıxış Et"):
-                # Clear session
+            if st.button("🔴 Çıxış Et", type="primary", use_container_width=True):
+                token = st.query_params.get("token")
+                if token: run_action("DELETE FROM active_sessions WHERE token=:t", {"t":token})
                 st.session_state.logged_in = False
                 st.query_params.clear()
-                run_action("DELETE FROM active_sessions WHERE username=:u", {"u":st.session_state.user})
                 st.rerun()
 
     if not st.session_state.logged_in:
@@ -455,7 +457,6 @@ else:
                     udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u)", {"u":u})
                     if not udf.empty and verify_password(p, udf.iloc[0]['password']):
                         st.session_state.logged_in = True; st.session_state.role = udf.iloc[0]['role']; st.session_state.user = u
-                        # CREATE PERSISTENT SESSION
                         s_token = secrets.token_urlsafe(16)
                         run_action("INSERT INTO active_sessions (token, username, role) VALUES (:t, :u, :r)", {"t":s_token, "u":u, "r":udf.iloc[0]['role']})
                         st.query_params["token"] = s_token
@@ -586,7 +587,7 @@ else:
                     st.dataframe(sales)
             
             with tabs[2]:
-                st.markdown("### 📧 CRM - Müştəri Bazası")
+                st.markdown("### 📧 CRM")
                 with st.expander("🗑️ Müştəri Sil (Toplu)"):
                     all_cust = run_query("SELECT card_id, email FROM customers")
                     if not all_cust.empty:
@@ -596,62 +597,32 @@ else:
                             st.success("Silindi!"); st.rerun()
                 st.divider()
                 
-                # --- NEW CRM TABLE (CHECKBOX SELECTION) ---
-                m_df = run_query("SELECT card_id, email, stars, type, last_visit FROM customers WHERE email IS NOT NULL ORDER BY last_visit DESC")
-                
+                m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
-                    # Initialize 'Select' column
-                    if 'select_all' not in st.session_state: st.session_state.select_all = False
-                    
-                    c_btn1, c_btn2 = st.columns(2)
-                    if c_btn1.button("✅ Hamısını Seç"): st.session_state.select_all = True
-                    if c_btn2.button("❌ Sıfırla"): st.session_state.select_all = False
-                    
-                    m_df.insert(0, "Seç", st.session_state.select_all)
-                    
-                    edited = st.data_editor(
-                        m_df, 
-                        hide_index=True, 
-                        use_container_width=True, 
-                        column_config={"Seç": st.column_config.CheckboxColumn(required=True)}
-                    )
-                    
-                    st.divider()
-                    st.markdown("#### 📢 Kampaniya Göndər")
-                    
                     coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
                     sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
                     custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
                     
                     with st.form("custom_crm"):
                         txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
+                        targets = st.multiselect("Kimə göndərilsin?", m_df['email'].tolist(), default=m_df['email'].tolist())
                         
-                        if st.form_submit_button("Seçilənlərə Göndər"):
-                            # Get Selected Rows
-                            selected_rows = edited[edited["Seç"] == True]
-                            
-                            if not selected_rows.empty:
-                                cnt = 0
-                                db_code = None
-                                if "20%" in coupon_type: db_code = "disc_20"
-                                elif "30%" in coupon_type: db_code = "disc_30"
-                                elif "50%" in coupon_type: db_code = "disc_50"
-                                elif "Ad Günü" in coupon_type: db_code = "disc_100_coffee"
+                        if st.form_submit_button("Göndər"):
+                            cnt = 0
+                            db_code = None
+                            if "20%" in coupon_type: db_code = "disc_20"
+                            elif "30%" in coupon_type: db_code = "disc_30"
+                            elif "50%" in coupon_type: db_code = "disc_50"
+                            elif "Ad Günü" in coupon_type: db_code = "disc_100_coffee"
 
-                                for idx, row in selected_rows.iterrows():
-                                    email = row['email']
-                                    cid = row['card_id']
-                                    # Send Logic (Prefer txt over selector if txt is modified)
-                                    final_msg = txt if txt else custom_msg_val
-                                    
-                                    send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", final_msg)
-                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":final_msg})
-                                    if db_code:
-                                        run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
-                                    cnt+=1
-                                st.success(f"{cnt} müştəriyə göndərildi!")
-                            else:
-                                st.warning("Heç kim seçilməyib!")
+                            for email in targets:
+                                cid = m_df[m_df['email'] == email].iloc[0]['card_id']
+                                send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", txt)
+                                run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":txt})
+                                if db_code:
+                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
+                                cnt+=1
+                            st.success(f"{cnt} mesaj və kupon göndərildi!")
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
