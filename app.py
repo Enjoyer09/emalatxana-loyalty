@@ -24,17 +24,12 @@ DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# === DİZAYN KODLARI (CSS & JS) ===
+# === DİZAYN KODLARI (CSS) ===
 # ==========================================
 st.markdown("""
     <script>
-    // Serveri oyaq saxlamaq üçün gücləndirilmiş skript (Hər 30 saniyədən bir)
-    function keepAlive() { 
-        var xhr = new XMLHttpRequest(); 
-        xhr.open("GET", "/", true); 
-        xhr.send(); 
-    }
-    setInterval(keepAlive, 30000);
+    function keepAlive() { var xhr = new XMLHttpRequest(); xhr.open("GET", "/", true); xhr.send(); }
+    setInterval(keepAlive, 30000); 
     </script>
 
     <style>
@@ -54,6 +49,7 @@ st.markdown("""
         font-size: 20px !important;
         font-weight: 700 !important;
         box-shadow: 0 4px 0 rgba(46, 125, 50, 0.2) !important;
+        transition: all 0.1s !important;
     }
     div.stButton > button[kind="secondary"]:active {
         transform: translateY(4px) !important;
@@ -94,25 +90,19 @@ st.markdown("""
         text-align: center; margin-bottom: 20px;
     }
     
-    /* THERMOS MÜŞTƏRİSİ ÜÇÜN XÜSUSİ DİZAYN */
+    /* YENİ THERMOS DİZAYNI */
     .thermos-vip {
-        background: linear-gradient(135deg, #43A047, #66BB6A);
+        background: linear-gradient(135deg, #2E7D32, #66BB6A);
         color: white;
         padding: 15px;
         border-radius: 15px;
         text-align: center;
-        font-weight: bold;
-        font-size: 24px;
         margin-bottom: 15px;
-        box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
-        animation: pulse-green 2s infinite;
-        border: 3px solid #A5D6A7;
+        box-shadow: 0 5px 15px rgba(46, 125, 50, 0.4);
+        border: 2px dashed #A5D6A7;
     }
-    @keyframes pulse-green {
-        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
-        70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
-        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
-    }
+    .thermos-title { font-size: 24px; font-weight: bold; font-family: 'Oswald'; }
+    .thermos-sub { font-size: 14px; font-style: italic; opacity: 0.9; }
     
     .coffee-grid-container {
         display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; 
@@ -153,8 +143,12 @@ st.markdown("""
         0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
 
-    /* Sidebardakı Yenilə düyməsi */
-    .stButton button { width: 100%; }
+    .refresh-btn {
+        position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+        background: #333; color: white; border-radius: 50%;
+        width: 50px; height: 50px; border: none; font-size: 24px;
+        cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; text-decoration: none;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -287,13 +281,7 @@ CRM_QUOTES = [
     "Sən bizim üçün dəyərlisən! 💎", "Kiçik xoşbəxtliklər böyükdür! 🎈", "Özünə vaxt ayır! ⏳", "Dadlı bir fasilə ver! 🥐",
     "Hər qurtumda ləzzət! 😋", "Bu gün möcüzəvidir! 🌟", "Sən özəl birisən! 🎁", "Həyat gözəldir, dadını çıxar! 🌈",
     "Bizimlə olduğun üçün təşəkkürlər! 🙏", "Kofe sənin haqqındır! ☕", "Ulduzun parlasın! ⭐", "Xoşbəxtlik bir fincan uzaqlıqdadır! 💖",
-    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️",
-    "Gözəl anlar birikdir! 📸", "Sən bir dənəsən! 💎", "Dadlı kofe, şirin söhbət! 🍰", "Həyat qısadır, kofeni soyutma! ⏳",
-    "Yeni dadlar kəşf et! 🌍", "Səni yenidən gözləyirik! 👋", "Bu gün sənin şans günündür! 🍀", "Hər şey qaydasındadır! 👌",
-    "Rahatla və həzz al! 🛋️", "Sevgi ilə hazırlanmış kofe! ❤️", "Dostluq kofe ilə başlayar! 🤝", "Günəş kimi parla! 🌞",
-    "Sənin enerjin bizə ilham verir! 💡", "Möhtəşəm görünürsən! 😎", "Uğurlu başlanğıclar! 🌱", "Xəyallarını gerçəkləşdir! 🌠",
-    "Kofe əhvalını qaldıracaq! 🚀", "Sadəcə gülümsə! 😄", "Özünə güvən! 💪", "Bu anın dadını çıxar! 🕰️",
-    "Sən bacararsan! 🏆", "Emalatxana sənin evindir! 🏠", "Pozitiv ol, möcüzələr səni tapacaq! 💫", "Gülüşün ən gözəl aksesuardır! 😁"
+    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️"
 ]
 
 # --- BIRTHDAY CHECKER ---
@@ -332,11 +320,19 @@ if "id" in query_params:
     card_id = query_params["id"]
     token = query_params.get("t")
     render_header()
-    df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    
+    # DB QUERY SAFEGUARD
+    try:
+        df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    except Exception as e:
+        st.error("Sistem xətası. Yenidən cəhd edin.")
+        st.stop()
+
     if not df.empty:
         user = df.iloc[0]
+        # SAFE TOKEN CHECK (No Auto Update to prevent 'Access Denied')
         if user['secret_token'] and token and user['secret_token'] != token:
-            st.error("⛔ İcazəsiz Giriş! Zəhmət olmasa QR kodu yenidən skan edin.")
+            st.error("⛔ İcazəsiz Giriş! QR kod yenilənib. Zəhmət olmasa kassadan yeni çek isteyin.")
             st.stop()
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
@@ -370,9 +366,13 @@ if "id" in query_params:
 
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         
-        # THERMOS VIP BADGE
+        # THERMOS VIP BADGE (UPDATED TEXT)
         if user['type'] == 'thermos':
-            st.markdown("""<div class="thermos-vip">🌿 EKO QƏHRƏMAN (VIP) 🌿<br><span style="font-size:16px">Öz Termosu ilə Təbiəti Qoruyan</span></div>""", unsafe_allow_html=True)
+            st.markdown("""
+            <div class="thermos-vip">
+                <div class="thermos-title">♻️ EKO-TERM KLUBU (VIP) ♻️</div>
+                <div class="thermos-sub">Təbiəti Qoruduğun Üçün Təşəkkürlər!</div>
+            </div>""", unsafe_allow_html=True)
 
         st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
         
@@ -457,22 +457,24 @@ else:
                 st.markdown("<h3 style='text-align:center; background:#4CAF50; color:white; padding:10px; border-radius:5px;'>SATIŞ</h3>", unsafe_allow_html=True)
                 c1, c2 = st.columns([3, 1])
                 
-                # --- AUTO-CLEAR INPUT LOGIC ---
+                # --- ROBUST SCAN HANDLER ---
                 def on_scan():
                     val = st.session_state.scan_input
                     if val:
-                        clean_id = val
-                        if "id=" in val:
+                        clean_id = val.strip()
+                        if "http" in val or "id=" in val:
                             try: clean_id = val.split("id=")[1].split("&")[0]
                             except: pass
                         
-                        c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":clean_id})
-                        if not c_df.empty:
-                            st.session_state.current_customer = c_df.iloc[0].to_dict()
-                            st.session_state.scan_input = "" # Clear input
-                        else:
-                            st.error("Tapılmadı")
-                
+                        try:
+                            c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":clean_id})
+                            if not c_df.empty:
+                                st.session_state.current_customer = c_df.iloc[0].to_dict()
+                                st.session_state.scan_input = "" 
+                            else:
+                                st.error("Tapılmadı")
+                        except: st.error("Xəta")
+
                 st.text_input("QR Skan", key="scan_input", on_change=on_scan, label_visibility="collapsed", placeholder="Skan et...")
                 
                 curr = st.session_state.current_customer
