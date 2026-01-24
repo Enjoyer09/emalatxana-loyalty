@@ -259,7 +259,7 @@ def get_random_quote():
     quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"]
     return random.choice(quotes)
 
-# --- CRM MOTIVATION LIST (50+) ---
+# --- CRM MOTIVATION LIST ---
 CRM_QUOTES = [
     "Səni görmək çox xoşdur! ☕", "Həftəsonun əla keçsin! 🎉", "Yeni həftəyə enerji ilə başla! 🚀", "Günün aydın olsun! ☀️",
     "Sənin üçün darıxdıq! ❤️", "Bu gün özünə bir yaxşılıq et! 🍰", "Kofe ətri səni çağırır! ☕", "Dostlarınla gözəl vaxt keçir! 👯",
@@ -390,7 +390,7 @@ if "id" in query_params:
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
-        qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}"
+        qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}" if user['secret_token'] else f"{APP_URL}/?id={card_id}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(qr_url, card_id), f"{card_id}.png", "image/png", use_container_width=True)
     else: st.error("Kart tapılmadı")
 
@@ -432,9 +432,16 @@ else:
                 scan_val = c1.text_input("QR", label_visibility="collapsed", placeholder="Müştəri Kartı...")
                 if c2.button("🔍"):
                     if scan_val:
-                        c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":scan_val})
+                        # URL CLEANER (Fix for scanning URLs)
+                        clean_id = scan_val
+                        if "id=" in scan_val:
+                            try: clean_id = scan_val.split("id=")[1].split("&")[0]
+                            except: pass
+                        
+                        c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":clean_id})
                         if not c_df.empty: st.session_state.current_customer = c_df.iloc[0].to_dict(); st.rerun()
                         else: st.error("Yoxdur")
+                
                 curr = st.session_state.current_customer
                 if curr:
                     st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
@@ -552,14 +559,13 @@ else:
                 
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
-                    # NEW CRM COUPON SELECTOR
+                    # CRM COUPON SELECTOR
                     coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
                     sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
                     custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
                     
                     with st.form("custom_crm"):
                         txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
-                        # Select Customers using Multiselect
                         targets = st.multiselect("Kimə göndərilsin?", m_df['email'].tolist(), default=m_df['email'].tolist())
                         
                         if st.form_submit_button("Göndər"):
@@ -575,7 +581,6 @@ else:
                                 send_email(email, "Emalatxana Coffee: Xüsusi Təklif!", txt)
                                 run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":cid, "m":txt})
                                 if db_code:
-                                    # COUPON EXPIRATION LOGIC (7 DAYS)
                                     run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":cid, "ct":db_code})
                                 cnt+=1
                             st.success(f"{cnt} mesaj və kupon göndərildi!")
@@ -611,18 +616,12 @@ else:
                 if st.button("Yarat"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     for i in ids: 
-                        # NEW TOKEN GENERATION (HEX ONLY FOR IPHONE)
                         token = secrets.token_hex(8)
                         run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
-                    
                     if cnt == 1:
-                        # SHOW QR LIVE
                         tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
-                        img_bytes = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
-                        st.image(BytesIO(img_bytes), width=250)
-                        st.download_button("⬇️ Yüklə", img_bytes, f"{ids[0]}.png", "image/png")
-                    else:
-                        st.success(f"{cnt} ədəd QR yaradıldı! (ZIP yükləmək üçün aşağı baxın)")
-                        # ZIP logic here if needed, but keeping it simple as requested
+                        d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
+                        st.image(BytesIO(d), width=200); st.download_button("⬇️", d, f"{ids[0]}.png", "image/png")
+                    else: st.success("Hazır!")
 
         elif role == 'staff': render_pos()
