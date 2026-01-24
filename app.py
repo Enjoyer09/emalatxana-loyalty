@@ -27,11 +27,6 @@ st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", 
 # === DİZAYN KODLARI (CSS & JS) ===
 # ==========================================
 st.markdown("""
-    <script>
-    function keepAlive() { var xhr = new XMLHttpRequest(); xhr.open("GET", "/", true); xhr.send(); }
-    setInterval(keepAlive, 30000); 
-    </script>
-
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     
@@ -161,6 +156,12 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
         except: pass
+        
+        # --- CRITICAL FIX FOR IPHONE: UPDATE OLD TOKENS ---
+        # Köhnə 'urlsafe' tokenləri (tərkibində - və _ olanlar) hex formatına çevrilir ki, xəta verməsin.
+        try: s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token LIKE '%-%' OR secret_token LIKE '%_%';"))
+        except: pass
+        
         s.commit()
 ensure_schema()
 
@@ -311,8 +312,8 @@ if "id" in query_params:
             with st.form("act"):
                 em = st.text_input("📧 Email"); dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
-                # --- YENİLƏNMİŞ QAYDALAR ---
-                with st.expander("📜 İstifadəçi Razılaşması və Qaydalar (Oxumaq üçün basın)"):
+                # --- TAM HÜQUQİ MƏTN ---
+                with st.expander("📜 İstifadəçi Razılaşmasını Oxu"):
                     st.markdown("""
                     <div style="font-family: sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
                         <b>1. Məxfilik və Məlumatların Qorunması</b><br>
@@ -337,38 +338,35 @@ if "id" in query_params:
                     """.replace("{SHOP_NAME}", SHOP_NAME), unsafe_allow_html=True)
                 
                 agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
-                
-                if st.form_submit_button("Qeydiyyatı Tamamla"):
-                    if agree and em:
+                if st.form_submit_button("Təsdiq"):
+                    if not em: st.error("Email yazın")
+                    elif not agree: st.error("Qaydaları qəbul etməlisiniz")
+                    else:
                         run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
                         st.balloons(); st.rerun()
-                    elif not agree: st.error("Qaydaları qəbul etməlisiniz.")
-                    else: st.error("Email daxil edin.")
             st.stop()
 
+        st.markdown('<div class="digital-card">', unsafe_allow_html=True)
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
-        st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
+        if user['type'] == 'thermos': st.markdown('<div class="vip-status-box">⭐ VIP TERMOS KLUBU</div>', unsafe_allow_html=True)
+        st.markdown(f"<h2 style='text-align:center; margin:0; color:#2E7D32'>BALANS: {user['stars']}/10</h2>", unsafe_allow_html=True)
         
-        # 0/10 STARS LOGIC
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            if i == 9: 
-                icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" 
-                if user['stars'] >= 9: cls = "gift-box-anim"; style = "opacity: 1;"
-                else: cls = "coffee-icon"; style = "opacity: 0.3; filter: grayscale(100%);"
-            else: 
-                icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
-                cls = "coffee-icon"
-                if i < user['stars']: style = "opacity: 1;"
-                else: style = "opacity: 0.2; filter: grayscale(100%);"
-            html += f'<img src="{icon}" class="{cls}" style="{style}">'
-        html += '</div>'; st.markdown(html, unsafe_allow_html=True)
+            if i < 9: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = ""
+            else: icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; cls = "orange-gift" 
+            if i < user['stars']: style = "opacity: 1;"
+            else: style = "opacity: 0.2; filter: grayscale(100%);"
+            if i == user['stars']: style = "opacity: 0.8; animation: pulse 1s infinite;"; cls += " pulse-anim"
+            html += f'<img src="{icon}" class="coffee-icon {cls}" style="{style}">'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
         
         rem = 9 - user['stars']
-        if rem <= 0: st.markdown("<div class='progress-text'>🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!</div>", unsafe_allow_html=True)
-        else: st.markdown(f"<div class='progress-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
+        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#E65100 !important;'>🎉 TƏBRİKLƏR! 10-cu Kofe Bizdən!</h3>", unsafe_allow_html=True)
+        else: st.markdown(f"<div class='heartbeat-text'>❤️ Cəmi {rem} kofedən sonra qonağımızsan! ❤️</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        # ACTIVE COUPONS (ONLY VALID ONES)
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in my_coupons.iterrows():
             name = "🎁 Xüsusi Kupon"
@@ -383,6 +381,18 @@ if "id" in query_params:
                 <div style="font-size:18px;">{name}</div>
             </div>
             """, unsafe_allow_html=True)
+
+        st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align:center; margin:0; color:#2E7D32'>💌 Rəy Bildir</h4>", unsafe_allow_html=True)
+        with st.form("feed"):
+            s = st.feedback("stars")
+            m = st.text_input("Fikriniz", placeholder="Necə idi?")
+            if st.form_submit_button("Göndər"):
+                if s is not None:
+                    run_action("INSERT INTO feedback (card_id, rating, message) VALUES (:i,:r,:m)", {"i":card_id, "r":s+1, "m":m})
+                    st.success("Təşəkkürlər!")
+                else: st.warning("Ulduz seçin")
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
         qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}" if user['secret_token'] else f"{APP_URL}/?id={card_id}"
@@ -491,11 +501,9 @@ else:
                     try:
                         with conn.session as s:
                             if curr:
-                                # Logic: If max discount was from loyalty (stars >= 9), reset stars.
-                                # Simple implementation: If stars >= 9 and coffee bought, reset.
                                 ns = int(curr['stars'])
                                 if coffs > 0:
-                                    if ns >= 9: ns = 0
+                                    if ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
                                     else: ns += 1
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
                                 if st.session_state.active_coupon: s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
@@ -600,7 +608,6 @@ else:
                                     send_email(r['email'], "Emalatxana Coffee: Xüsusi Təklif!", txt)
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt})
                                     if db_code:
-                                        # COUPON EXPIRATION LOGIC (7 DAYS)
                                         run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, :ct, NOW() + INTERVAL '7 days')", {"id":r['card_id'], "ct":db_code})
                                     cnt+=1
                             st.success(f"{cnt} mesaj və kupon göndərildi!")
@@ -640,7 +647,7 @@ else:
                 with st.expander("🔐 Təhlükəsizlik (Token Reset)"):
                     card_to_reset = st.text_input("Kart ID (Token Yenilə)")
                     if st.button("Tokeni Yenilə"):
-                        new_t = secrets.token_urlsafe(8)
+                        new_t = secrets.token_hex(8)
                         run_action("UPDATE customers SET secret_token=:t WHERE card_id=:i", {"t":new_t, "i":card_to_reset})
                         st.success("Yeniləndi!")
 
@@ -693,7 +700,7 @@ else:
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
                     typ = "thermos" if is_th else "standard"
                     for i in ids: 
-                        token = secrets.token_urlsafe(8)
+                        token = secrets.token_hex(8)
                         run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":typ, "st":token})
                     if cnt == 1:
                         tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
