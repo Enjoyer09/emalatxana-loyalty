@@ -24,12 +24,17 @@ DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# === DİZAYN KODLARI (CSS) ===
+# === DİZAYN KODLARI (CSS & JS) ===
 # ==========================================
 st.markdown("""
     <script>
-    function keepAlive() { var xhr = new XMLHttpRequest(); xhr.open("GET", "/", true); xhr.send(); }
-    setInterval(keepAlive, 30000); 
+    // Serveri oyaq saxlamaq üçün gücləndirilmiş skript (Hər 30 saniyədən bir)
+    function keepAlive() { 
+        var xhr = new XMLHttpRequest(); 
+        xhr.open("GET", "/", true); 
+        xhr.send(); 
+    }
+    setInterval(keepAlive, 30000);
     </script>
 
     <style>
@@ -49,7 +54,6 @@ st.markdown("""
         font-size: 20px !important;
         font-weight: 700 !important;
         box-shadow: 0 4px 0 rgba(46, 125, 50, 0.2) !important;
-        transition: all 0.1s !important;
     }
     div.stButton > button[kind="secondary"]:active {
         transform: translateY(4px) !important;
@@ -88,6 +92,26 @@ st.markdown("""
         background: white; border-radius: 20px; padding: 20px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #eee;
         text-align: center; margin-bottom: 20px;
+    }
+    
+    /* THERMOS MÜŞTƏRİSİ ÜÇÜN XÜSUSİ DİZAYN */
+    .thermos-vip {
+        background: linear-gradient(135deg, #43A047, #66BB6A);
+        color: white;
+        padding: 15px;
+        border-radius: 15px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 24px;
+        margin-bottom: 15px;
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
+        animation: pulse-green 2s infinite;
+        border: 3px solid #A5D6A7;
+    }
+    @keyframes pulse-green {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+        70% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
     }
     
     .coffee-grid-container {
@@ -129,12 +153,8 @@ st.markdown("""
         0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
 
-    .refresh-btn {
-        position: fixed; bottom: 20px; right: 20px; z-index: 9999;
-        background: #333; color: white; border-radius: 50%;
-        width: 50px; height: 50px; border: none; font-size: 24px;
-        cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; text-decoration: none;
-    }
+    /* Sidebardakı Yenilə düyməsi */
+    .stButton button { width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -302,6 +322,7 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 if 'current_customer' not in st.session_state: st.session_state.current_customer = None
 if 'pos_category' not in st.session_state: st.session_state.pos_category = "Qəhvə"
 if 'active_coupon' not in st.session_state: st.session_state.active_coupon = None
+if 'scan_input' not in st.session_state: st.session_state.scan_input = ""
 
 # ===========================
 # === 1. MÜŞTƏRİ EKRANI ===
@@ -314,7 +335,6 @@ if "id" in query_params:
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user = df.iloc[0]
-        # TOKEN CHECK (CRITICAL FIX: NO AUTO UPDATE OF TOKENS)
         if user['secret_token'] and token and user['secret_token'] != token:
             st.error("⛔ İcazəsiz Giriş! Zəhmət olmasa QR kodu yenidən skan edin.")
             st.stop()
@@ -349,6 +369,11 @@ if "id" in query_params:
             st.stop()
 
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
+        
+        # THERMOS VIP BADGE
+        if user['type'] == 'thermos':
+            st.markdown("""<div class="thermos-vip">🌿 EKO QƏHRƏMAN (VIP) 🌿<br><span style="font-size:16px">Öz Termosu ilə Təbiəti Qoruyan</span></div>""", unsafe_allow_html=True)
+
         st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
         
         html = '<div class="coffee-grid-container">'
@@ -401,9 +426,11 @@ else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if st.session_state.logged_in:
-        st.markdown("""<a href="/" target="_self" class="refresh-btn">🔄</a>""", unsafe_allow_html=True)
         with st.sidebar:
             st.markdown(f"### 👤 {st.session_state.user}")
+            if st.button("🔄 Məlumatları Yenilə"):
+                st.rerun()
+            st.divider()
             if st.button("🔴 Çıxış Et"):
                 st.session_state.logged_in = False
                 st.rerun()
@@ -429,18 +456,24 @@ else:
             with layout_col1:
                 st.markdown("<h3 style='text-align:center; background:#4CAF50; color:white; padding:10px; border-radius:5px;'>SATIŞ</h3>", unsafe_allow_html=True)
                 c1, c2 = st.columns([3, 1])
-                scan_val = c1.text_input("QR", label_visibility="collapsed", placeholder="Müştəri Kartı...")
-                if c2.button("🔍"):
-                    if scan_val:
-                        # URL CLEANER (Fix for scanning URLs)
-                        clean_id = scan_val
-                        if "id=" in scan_val:
-                            try: clean_id = scan_val.split("id=")[1].split("&")[0]
+                
+                # --- AUTO-CLEAR INPUT LOGIC ---
+                def on_scan():
+                    val = st.session_state.scan_input
+                    if val:
+                        clean_id = val
+                        if "id=" in val:
+                            try: clean_id = val.split("id=")[1].split("&")[0]
                             except: pass
                         
                         c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":clean_id})
-                        if not c_df.empty: st.session_state.current_customer = c_df.iloc[0].to_dict(); st.rerun()
-                        else: st.error("Yoxdur")
+                        if not c_df.empty:
+                            st.session_state.current_customer = c_df.iloc[0].to_dict()
+                            st.session_state.scan_input = "" # Clear input
+                        else:
+                            st.error("Tapılmadı")
+                
+                st.text_input("QR Skan", key="scan_input", on_change=on_scan, label_visibility="collapsed", placeholder="Skan et...")
                 
                 curr = st.session_state.current_customer
                 if curr:
@@ -621,7 +654,7 @@ else:
                     if cnt == 1:
                         tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
                         d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
-                        st.image(BytesIO(d), width=200); st.download_button("⬇️", d, f"{ids[0]}.png", "image/png")
+                        st.image(BytesIO(d), width=250); st.download_button("⬇️ Yüklə", d, f"{ids[0]}.png", "image/png")
                     else: st.success("Hazır!")
 
         elif role == 'staff': render_pos()
