@@ -50,49 +50,70 @@ st.markdown("""
     .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
     .block-container { padding-top: 1rem !important; padding-bottom: 4rem !important; max-width: 100%; }
 
-    /* --- YENİLƏNMİŞ POS DÜYMƏLƏRİ (NARINCI KONTUR & BOLD) --- */
+    /* --- BUTON DİZAYNLARI (YENİ) --- */
     
-    /* 1. Məhsul Düymələri */
+    /* 1. MƏHSUL DÜYMƏLƏRİ (NARINCI KONTUR, AĞ İÇ - Default Button) */
     div.stButton > button {
         background-color: #FFFFFF !important;
         color: #E65100 !important; /* Narıncı Yazı */
         border: 3px solid #E65100 !important; /* Narıncı Çərçivə */
-        border-radius: 12px !important;
+        border-radius: 15px !important;
         font-family: 'Oswald', sans-serif !important;
-        font-weight: 900 !important; /* BOLD */
+        font-weight: 700 !important; /* BOLD */
         font-size: 22px !important;
-        min-height: 80px !important;
+        min-height: 90px !important; /* Touch screen üçün böyük */
         width: 100% !important;
-        transition: 0.1s;
+        transition: transform 0.1s !important;
+        box-shadow: 0 4px 0 rgba(230, 81, 0, 0.2) !important; /* Yüngül kölgə */
     }
+    
+    /* Hover zamanı rəng dəyişməsin, sadəcə yüngül effekt */
+    div.stButton > button:hover {
+        background-color: #FAFAFA !important;
+        border-color: #E65100 !important;
+        color: #E65100 !important;
+    }
+    
+    /* Basanda Klaviatura Effekti (Aşağı enir) */
     div.stButton > button:active {
+        transform: translateY(4px) !important;
+        box-shadow: none !important;
         background-color: #FFF3E0 !important;
+    }
+
+    /* 2. KATEQORİYA DÜYMƏLƏRİ (YAŞIL KONTUR, AĞ İÇ - Secondary Button) */
+    div.stButton > button[kind="secondary"] {
+        background-color: #FFFFFF !important;
+        color: #2E7D32 !important; /* Logo Yaşılı */
+        border: 2px solid #2E7D32 !important; 
+        border-radius: 12px !important;
+        height: 60px !important;
+        font-size: 18px !important;
+        font-weight: bold !important;
+        box-shadow: none !important;
+    }
+    
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #F1F8E9 !important;
+        border-color: #2E7D32 !important;
+    }
+    
+    div.stButton > button[kind="secondary"]:active {
+        background-color: #C8E6C9 !important;
         transform: translateY(2px);
     }
 
-    /* 2. Kateqoriya Düymələri (Yaşıl Kontur) */
-    div.stButton > button[kind="secondary"] {
-        background-color: #FFFFFF !important;
-        color: #2E7D32 !important;
-        border: 3px solid #2E7D32 !important;
-        border-radius: 10px !important;
-        height: 60px !important;
-        font-size: 20px !important;
-        font-weight: 700 !important;
-    }
-    div.stButton > button[kind="secondary"]:active {
-        background-color: #E8F5E9 !important;
-    }
-
-    /* 3. Primary Düymələr (Dolu Rəng - Məs: Ödəniş, Backup) */
+    /* 3. AKSİYA DÜYMƏLƏRİ (DOLU RƏNG - Primary Button) */
+    /* Ödəniş, Backup və s. */
     div.stButton > button[kind="primary"] {
         background-color: #E65100 !important;
         color: white !important;
         border: none !important;
-        font-weight: bold !important;
+        box-shadow: 0 4px 10px rgba(230, 81, 0, 0.4) !important;
     }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #EF6C00 !important;
+    div.stButton > button[kind="primary"]:active {
+        transform: translateY(2px);
+        box-shadow: none !important;
     }
 
     /* --- MÜŞTƏRİ EKRANI --- */
@@ -101,39 +122,66 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #eee;
         text-align: center; margin-bottom: 20px;
     }
+    
+    /* 10 Stəkan Qridi */
     .coffee-grid-container {
-        display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 20px;
+        display: grid; 
+        grid-template-columns: repeat(5, 1fr); /* 5 sütun (2 sətir olacaq) */
+        gap: 10px; 
+        justify-items: center; 
+        margin-top: 20px;
     }
     .coffee-icon { width: 50px; height: 50px; transition: all 0.3s ease; }
     
-    .heartbeat-text {
-        font-size: 20px; font-weight: bold; color: #D32F2F; text-align: center;
-        animation: heartbeat 1.5s infinite; margin-top: 20px;
+    /* Hədiyyə Qutusu Animasiyası */
+    .gift-box-anim {
+        width: 60px; height: 60px;
+        animation: bounce 2s infinite;
+        filter: drop-shadow(0 0 5px gold);
     }
-    @keyframes heartbeat {
-        0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
+    @keyframes bounce {
+        0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+        40% {transform: translateY(-10px);}
+        60% {transform: translateY(-5px);}
     }
     
-    /* Motivasiya Yazısı - BOLD + LOGO YAŞILI */
+    /* PROMOSİYA KARTI (Fancy) */
+    .promo-card {
+        background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+        border: 2px dashed #ff9800;
+        border-radius: 15px;
+        padding: 20px;
+        text-align: center;
+        margin: 20px 0;
+        box-shadow: 0 8px 15px rgba(255, 152, 0, 0.2);
+        animation: pulse-border 2s infinite;
+    }
+    .promo-title {
+        color: #e65100; font-family: 'Oswald', sans-serif; 
+        font-size: 24px; font-weight: bold; margin-bottom: 5px;
+        text-transform: uppercase;
+    }
+    .promo-desc {
+        color: #bf360c; font-size: 18px;
+    }
+    @keyframes pulse-border {
+        0% { border-color: #ff9800; }
+        50% { border-color: #ffcc80; }
+        100% { border-color: #ff9800; }
+    }
+
+    /* Motivasiya Yazısı */
     .inner-motivation {
-        font-size: 24px; color: #2E7D32; font-family: 'Oswald', sans-serif;
-        font-weight: 900; font-style: italic; margin-bottom: 20px; text-align: center;
-        background: #F1F8E9; padding: 15px; border-radius: 15px; border: 2px dashed #E65100; /* Narıncı Kontur */
+        font-size: 22px; color: #2E7D32; font-family: 'Oswald', sans-serif;
+        font-weight: 700; font-style: italic; margin-bottom: 20px; text-align: center;
+        background: #F1F8E9; padding: 15px; border-radius: 15px;
+        border-left: 5px solid #2E7D32;
     }
 
     .feedback-box {
         margin-top: 30px; padding: 15px; border: 1px dashed #ccc;
         border-radius: 10px; background-color: #fff;
     }
-    
-    .coupon-alert {
-        background-color: #E8F5E9; border: 2px dashed #2E7D32;
-        padding: 15px; border-radius: 15px; text-align: center;
-        color: #1B5E20; font-weight: bold; font-size: 20px;
-        margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(46, 125, 50, 0); } 100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); } }
 
     .emergency-refresh {
         position: fixed; bottom: 20px; right: 20px; z-index: 9999;
@@ -261,7 +309,7 @@ def get_random_quote():
     quotes = [
         "Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨",
         "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊", "Uğur cəsarət edənlərindir! 🚀",
-        "Həyat bir qurtum kofe kimidir! ☕", "Pozitiv ol, möcüzələr baş verir! 🌟"
+        "Həyat bir qurtum kofe kimidir! ☕", "Pozitiv ol, möcüzələr baş verir! 🌟", "Sevgini paylaş! ❤️"
     ]
     return random.choice(quotes)
 
@@ -343,27 +391,44 @@ if "id" in query_params:
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
         st.markdown(f"""<div class="digital-card"><h3 style="margin-top:0">{SHOP_NAME} BONUS</h3><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p style="color:#777">Balansınız</p></div>""", unsafe_allow_html=True)
         
-        # 0/10 STARS LOGIC
+        # 0/10 STARS LOGIC (10-cu HƏDİYYƏ)
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            if i == 9: # 10-cu stəkan (Index 9)
-                icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" # Hədiyyə qutusu
-            else:
+            if i == 9: # 10-cu element (Hədiyyə Qutusu)
+                icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" 
+                if user['stars'] >= 10: # Əgər 10 ulduz varsa aktivləşsin
+                    cls = "gift-box-anim"
+                    style = "opacity: 1;"
+                else:
+                    cls = "coffee-icon"
+                    style = "opacity: 0.3; filter: grayscale(100%);"
+            else: # Adi Kofe
                 icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+                cls = "coffee-icon"
+                if i < user['stars']: style = "opacity: 1;"
+                else: style = "opacity: 0.2; filter: grayscale(100%);"
             
-            style = "opacity: 1;" if i < user['stars'] else "opacity: 0.2; filter: grayscale(100%);"
-            html += f'<img src="{icon}" class="coffee-icon" style="{style}">'
+            html += f'<img src="{icon}" class="{cls}" style="{style}">'
         html += '</div>'; st.markdown(html, unsafe_allow_html=True)
         
         rem = 10 - user['stars']
-        if rem <= 1: st.success("🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!")
+        if rem <= 0: st.markdown("<h3 style='text-align:center; color:#E65100 !important;'>🎉 TƏBRİKLƏR! Hədiyyə Kofeniz Hazırdır!</h3>", unsafe_allow_html=True)
         else: st.markdown(f"<div class='heartbeat-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
+        # PROMOSİYA KARTI (FANCY)
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE", {"id": card_id})
         for _, cp in my_coupons.iterrows():
-            name = "🎁 Hədiyyə"
+            name = "🎁 Xüsusi Hədiyyə"
             if cp['coupon_type'] == 'birthday_gift': name = "🎂 Ad Günü Hədiyyəsi!"
-            st.markdown(f"<div class='coupon-alert'>{name}</div>", unsafe_allow_html=True)
+            elif cp['coupon_type'] == '50_percent': name = "🏷️ 50% Endirim!"
+            elif cp['coupon_type'] == 'free_cookie': name = "🍪 Pulsuz Peceniya"
+            
+            st.markdown(f"""
+            <div class='promo-card'>
+                <div class='promo-title'>TƏBRİKLƏR!</div>
+                <div class='promo-desc'>{name}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         last_fb_star = int(user['last_feedback_star']) if user['last_feedback_star'] is not None else -1
         current_stars = int(user['stars'])
@@ -454,7 +519,7 @@ else:
                 disc, coupon_disc = 0, 0
                 if curr:
                     if curr['type'] == 'thermos': disc += sum([float(x['price']) for x in st.session_state.cart if x.get('is_coffee')]) * 0.2
-                    if curr['stars'] >= 9:
+                    if curr['stars'] >= 10: # 10-cu pulsuz
                         c_items = [x for x in st.session_state.cart if x.get('is_coffee')]
                         if c_items: disc += float(min(c_items, key=lambda x: float(x['price']))['price'])
                     if st.session_state.active_coupon:
@@ -474,13 +539,13 @@ else:
                             if curr:
                                 ns = int(curr['stars'])
                                 if coffs > 0:
-                                    if ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
+                                    if ns >= 10 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
                                     else: ns += 1
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
                                 if st.session_state.active_coupon: s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
                             s.execute(text("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())"), {"i":items_str, "t":final, "p":p_code})
                             s.commit()
-                        st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; time.sleep(1); st.rerun()
+                        st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
 
             # --- SAĞ: GRID ---
@@ -533,7 +598,7 @@ else:
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
             with tabs[0]: render_pos()
             
-            # --- BƏRPA OLUNMUŞ ANALİTİKA ---
+            # --- ANALİTİKA ---
             with tabs[1]:
                 st.markdown("### 📊 Satış Analitikası")
                 today = datetime.date.today()
@@ -560,7 +625,7 @@ else:
                         st.dataframe(sales)
                 else: st.info("Satış yoxdur.")
 
-            # --- BƏRPA OLUNMUŞ CRM ---
+            # --- CRM ---
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
@@ -591,6 +656,25 @@ else:
                                     send_email(r['email'], "Emalatxana Coffee", txt)
                                     run_action("INSERT INTO notifications (card_id, message) VALUES (:id, :m)", {"id":r['card_id'], "m":txt}); cnt+=1
                             st.success(f"{cnt} mesaj göndərildi!")
+                    
+                    st.markdown("#### 🎁 Xüsusi Kuponlar")
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("🏷️ 50% Endirim"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            if r['Seç']:
+                                send_email(r['email'], "50% Endirim!", "Sizə özəl!")
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, '50_percent')", {"id":r['card_id']}); cnt+=1
+                        st.success(f"{cnt} göndərildi")
+                    
+                    if c2.button("🎂 Ad Günü"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            if r['Seç']:
+                                send_email(r['email'], "Ad Gününüz Mübarək!", "Hədiyyə!")
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:id, 'birthday_gift')", {"id":r['card_id']}); cnt+=1
+                        st.success(f"{cnt} göndərildi")
+
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
