@@ -50,9 +50,7 @@ st.markdown("""
     .stApp { font-family: 'Oswald', sans-serif !important; background-color: #FAFAFA; }
     .block-container { padding-top: 1rem !important; padding-bottom: 4rem !important; max-width: 100%; }
 
-    /* --- BUTON DİZAYNLARI (YENİ) --- */
-    
-    /* 1. MƏHSUL DÜYMƏLƏRİ (NARINCI KONTUR, AĞ İÇ - Default Button) */
+    /* --- POS DÜYMƏLƏRİ (NARINCI KONTUR & BOLD) --- */
     div.stButton > button {
         background-color: #FFFFFF !important;
         color: #E65100 !important; /* Narıncı Yazı */
@@ -60,60 +58,37 @@ st.markdown("""
         border-radius: 15px !important;
         font-family: 'Oswald', sans-serif !important;
         font-weight: 700 !important; /* BOLD */
-        font-size: 22px !important;
-        min-height: 90px !important; /* Touch screen üçün böyük */
+        font-size: 20px !important;
+        min-height: 90px !important; /* Touch screen üçün hündür */
         width: 100% !important;
         transition: transform 0.1s !important;
-        box-shadow: 0 4px 0 rgba(230, 81, 0, 0.2) !important; /* Yüngül kölgə */
+        box-shadow: 0 4px 0 rgba(230, 81, 0, 0.1) !important;
     }
     
-    /* Hover zamanı rəng dəyişməsin, sadəcə yüngül effekt */
-    div.stButton > button:hover {
-        background-color: #FAFAFA !important;
-        border-color: #E65100 !important;
-        color: #E65100 !important;
-    }
-    
-    /* Basanda Klaviatura Effekti (Aşağı enir) */
     div.stButton > button:active {
         transform: translateY(4px) !important;
         box-shadow: none !important;
         background-color: #FFF3E0 !important;
     }
 
-    /* 2. KATEQORİYA DÜYMƏLƏRİ (YAŞIL KONTUR, AĞ İÇ - Secondary Button) */
-    div.stButton > button[kind="secondary"] {
-        background-color: #FFFFFF !important;
-        color: #2E7D32 !important; /* Logo Yaşılı */
-        border: 2px solid #2E7D32 !important; 
-        border-radius: 12px !important;
-        height: 60px !important;
-        font-size: 18px !important;
+    /* Expander Header Style (Kateqoriyalar üçün) */
+    .streamlit-expanderHeader {
+        font-family: 'Oswald', sans-serif;
+        font-size: 22px !important;
         font-weight: bold !important;
-        box-shadow: none !important;
-    }
-    
-    div.stButton > button[kind="secondary"]:hover {
+        color: #2E7D32 !important; /* Yaşıl */
         background-color: #F1F8E9 !important;
-        border-color: #2E7D32 !important;
-    }
-    
-    div.stButton > button[kind="secondary"]:active {
-        background-color: #C8E6C9 !important;
-        transform: translateY(2px);
+        border-radius: 10px;
+        border: 1px solid #2E7D32;
+        margin-bottom: 10px;
     }
 
-    /* 3. AKSİYA DÜYMƏLƏRİ (DOLU RƏNG - Primary Button) */
-    /* Ödəniş, Backup və s. */
+    /* Primary Düymələr (Ödəniş, Backup) */
     div.stButton > button[kind="primary"] {
         background-color: #E65100 !important;
         color: white !important;
         border: none !important;
         box-shadow: 0 4px 10px rgba(230, 81, 0, 0.4) !important;
-    }
-    div.stButton > button[kind="primary"]:active {
-        transform: translateY(2px);
-        box-shadow: none !important;
     }
 
     /* --- MÜŞTƏRİ EKRANI --- */
@@ -126,56 +101,51 @@ st.markdown("""
     /* 10 Stəkan Qridi */
     .coffee-grid-container {
         display: grid; 
-        grid-template-columns: repeat(5, 1fr); /* 5 sütun (2 sətir olacaq) */
-        gap: 10px; 
+        grid-template-columns: repeat(5, 1fr); 
+        gap: 12px; 
         justify-items: center; 
-        margin-top: 20px;
+        margin-top: 25px;
     }
     .coffee-icon { width: 50px; height: 50px; transition: all 0.3s ease; }
     
-    /* Hədiyyə Qutusu Animasiyası */
+    /* Hədiyyə Qutusu Animasiyası (10-cu stəkan) */
     .gift-box-anim {
         width: 60px; height: 60px;
         animation: bounce 2s infinite;
-        filter: drop-shadow(0 0 5px gold);
+        filter: drop-shadow(0 0 8px gold);
     }
     @keyframes bounce {
         0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
-        40% {transform: translateY(-10px);}
-        60% {transform: translateY(-5px);}
+        40% {transform: translateY(-15px);}
+        60% {transform: translateY(-7px);}
     }
     
-    /* PROMOSİYA KARTI (Fancy) */
+    /* PROMOSİYA KARTI (FANCY) */
     .promo-card {
-        background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-        border: 2px dashed #ff9800;
+        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
         border-radius: 15px;
         padding: 20px;
         text-align: center;
         margin: 20px 0;
-        box-shadow: 0 8px 15px rgba(255, 152, 0, 0.2);
+        box-shadow: 0 10px 20px rgba(245, 124, 0, 0.3);
+        color: white;
         animation: pulse-border 2s infinite;
     }
     .promo-title {
-        color: #e65100; font-family: 'Oswald', sans-serif; 
-        font-size: 24px; font-weight: bold; margin-bottom: 5px;
-        text-transform: uppercase;
+        font-family: 'Oswald', sans-serif; 
+        font-size: 26px; font-weight: bold; margin-bottom: 5px;
+        text-transform: uppercase; text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
     }
     .promo-desc {
-        color: #bf360c; font-size: 18px;
-    }
-    @keyframes pulse-border {
-        0% { border-color: #ff9800; }
-        50% { border-color: #ffcc80; }
-        100% { border-color: #ff9800; }
+        font-size: 18px; font-weight: 500;
     }
 
     /* Motivasiya Yazısı */
     .inner-motivation {
-        font-size: 22px; color: #2E7D32; font-family: 'Oswald', sans-serif;
+        font-size: 24px; color: #2E7D32; font-family: 'Oswald', sans-serif;
         font-weight: 700; font-style: italic; margin-bottom: 20px; text-align: center;
         background: #F1F8E9; padding: 15px; border-radius: 15px;
-        border-left: 5px solid #2E7D32;
+        border: 2px dashed #2E7D32;
     }
 
     .feedback-box {
@@ -309,7 +279,7 @@ def get_random_quote():
     quotes = [
         "Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨",
         "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊", "Uğur cəsarət edənlərindir! 🚀",
-        "Həyat bir qurtum kofe kimidir! ☕", "Pozitiv ol, möcüzələr baş verir! 🌟", "Sevgini paylaş! ❤️"
+        "Həyat bir qurtum kofe kimidir! ☕", "Pozitiv ol, möcüzələr baş verir! 🌟"
     ]
     return random.choice(quotes)
 
@@ -548,14 +518,8 @@ else:
                         st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
 
-            # --- SAĞ: GRID ---
+            # --- SAĞ: EXPANDERS (GİZLİ KATEQORİYALAR) ---
             with layout_col2:
-                # KATEQORİYA DÜYMƏLƏRİ (Yaşıl Kontur)
-                c1, c2, c3 = st.columns(3)
-                if c1.button("Qəhvə", key="cat_coff", type="secondary", use_container_width=True): st.session_state.pos_category = "Qəhvə"; st.rerun()
-                if c2.button("İçkilər", key="cat_drk", type="secondary", use_container_width=True): st.session_state.pos_category = "İçkilər"; st.rerun()
-                if c3.button("Desert", key="cat_dst", type="secondary", use_container_width=True): st.session_state.pos_category = "Desert"; st.rerun()
-                
                 # POPUP MƏNTİQİ
                 @st.dialog("Ölçü Seçimi")
                 def show_variants(base_name, items):
@@ -568,37 +532,54 @@ else:
                                 st.session_state.cart.append(item)
                                 st.rerun()
 
-                menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
-                
-                # QRUPLAŞDIRMA
-                groups = {}
-                for idx, row in enumerate(menu_df.to_dict('records')):
-                    name = row['item_name']
-                    parts = name.split()
-                    if parts[-1] in ['S', 'M', 'L', 'XL']: 
-                        base = " ".join(parts[:-1])
-                        if base not in groups: groups[base] = []
-                        groups[base].append(row)
-                    else:
-                        groups[name] = [row]
+                # MENU DATA
+                menu_coffee = run_query("SELECT * FROM menu WHERE category='Qəhvə' AND is_active=TRUE ORDER BY item_name")
+                menu_drinks = run_query("SELECT * FROM menu WHERE category='İçkilər' AND is_active=TRUE ORDER BY item_name")
+                menu_desert = run_query("SELECT * FROM menu WHERE category='Desert' AND is_active=TRUE ORDER BY item_name")
 
-                # GRID RENDER
-                cols = st.columns(4)
-                for i, (base_name, items) in enumerate(groups.items()):
-                    with cols[i % 4]:
-                        if len(items) > 1:
-                            if st.button(f"{base_name}\n(Seçim)", key=f"grp_{i}"):
-                                show_variants(base_name, items)
+                # HELPER FOR RENDERING BUTTONS INSIDE EXPANDER
+                def render_grid(dataframe, key_prefix):
+                    if dataframe.empty:
+                        st.info("Məhsul yoxdur")
+                        return
+                        
+                    groups = {}
+                    for idx, row in enumerate(dataframe.to_dict('records')):
+                        name = row['item_name']
+                        parts = name.split()
+                        if parts[-1] in ['S', 'M', 'L', 'XL']: 
+                            base = " ".join(parts[:-1])
+                            if base not in groups: groups[base] = []
+                            groups[base].append(row)
                         else:
-                            item = items[0]
-                            if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"itm_{item['id']}"):
-                                st.session_state.cart.append(item); st.rerun()
+                            groups[name] = [row]
+
+                    cols = st.columns(4)
+                    for i, (base_name, items) in enumerate(groups.items()):
+                        with cols[i % 4]:
+                            if len(items) > 1:
+                                if st.button(f"{base_name}\n(Seçim)", key=f"{key_prefix}_grp_{i}"):
+                                    show_variants(base_name, items)
+                            else:
+                                item = items[0]
+                                if st.button(f"{item['item_name']}\n{item['price']}₼", key=f"{key_prefix}_itm_{item['id']}"):
+                                    st.session_state.cart.append(item); st.rerun()
+
+                # EXPANDERLƏR
+                with st.expander("☕ Qəhvə", expanded=False):
+                    render_grid(menu_coffee, "cof")
+                
+                with st.expander("🥤 İçkilər", expanded=False):
+                    render_grid(menu_drinks, "drk")
+                
+                with st.expander("🍰 Desert", expanded=False):
+                    render_grid(menu_desert, "dst")
 
         if role == 'admin':
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
             with tabs[0]: render_pos()
             
-            # --- ANALİTİKA ---
+            # --- BƏRPA OLUNMUŞ ANALİTİKA ---
             with tabs[1]:
                 st.markdown("### 📊 Satış Analitikası")
                 today = datetime.date.today()
@@ -625,7 +606,7 @@ else:
                         st.dataframe(sales)
                 else: st.info("Satış yoxdur.")
 
-            # --- CRM ---
+            # --- BƏRPA OLUNMUŞ CRM ---
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
