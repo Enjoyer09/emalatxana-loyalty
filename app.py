@@ -117,6 +117,24 @@ st.markdown("""
         font-weight: 700; margin-bottom: 10px; text-align: center;
     }
 
+    /* INSTAGRAM ICON STYLE */
+    .insta-link {
+        display: inline-block;
+        margin-top: 10px;
+        transition: transform 0.2s;
+        animation: pulse-insta 2s infinite;
+    }
+    .insta-link img {
+        width: 40px;
+        height: 40px;
+    }
+    .insta-link:hover { transform: scale(1.1); }
+    @keyframes pulse-insta {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+
     .refresh-btn {
         position: fixed; bottom: 20px; right: 20px; z-index: 9999;
         background: #333; color: white; border-radius: 50%;
@@ -165,7 +183,10 @@ def set_config(key, value):
 
 SHOP_NAME = get_config("shop_name", "Emalatxana Coffee")
 SHOP_ADDRESS = get_config("shop_address", "Bakı şəhəri")
+SHOP_PHONE = get_config("shop_phone", "+994 50 000 00 00")
 INSTAGRAM_LINK = get_config("instagram_link", "https://instagram.com")
+FACEBOOK_LINK = get_config("facebook_link", "")
+YOUTUBE_LINK = get_config("youtube_link", "")
 LOGO_BASE64 = get_config("shop_logo_base64", "")
 
 # --- HELPERS ---
@@ -204,8 +225,17 @@ def render_header():
     with c2:
         if LOGO_BASE64: st.markdown(f'<div style="text-align:center"><img src="data:image/png;base64,{LOGO_BASE64}" width="150"></div>', unsafe_allow_html=True)
         else: st.markdown(f"<h1 style='text-align:center; color:#2E7D32'>{SHOP_NAME}</h1>", unsafe_allow_html=True)
-        st.markdown(f"<div class='shop-info'>📍 {SHOP_ADDRESS}</div>", unsafe_allow_html=True)
-        st.markdown(f"""<div class="social-links"><a href="{INSTAGRAM_LINK}" target="_blank">Instagram</a></div>""", unsafe_allow_html=True)
+        
+        # --- MÜŞTƏRİ HEADER DƏYİŞİKLİYİ ---
+        # Ünvan silindi, yalnız Instagram ikonu qaldı
+        if INSTAGRAM_LINK:
+            st.markdown(f"""
+            <div style="text-align:center;">
+                <a href="{INSTAGRAM_LINK}" target="_blank" class="insta-link">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Instagram_logo_2016.svg/2048px-Instagram_logo_2016.svg.png" alt="Instagram">
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
 
 # --- EMAIL SYSTEM ---
 def send_email(to_email, subject, body):
@@ -387,13 +417,10 @@ else:
                     st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                     cps = run_query("SELECT * FROM customer_coupons WHERE card_id=:id AND is_used=FALSE", {"id": curr['card_id']})
                     if not cps.empty:
-                        # MAPPING FOR READABILITY
                         cp_map = {"disc_20": "20% Endirim", "disc_30": "30% Endirim", "disc_50": "50% Endirim", "disc_100_coffee": "Ad Günü (Pulsuz Kofe)"}
                         cp_ops = {f"{cp_map.get(r['coupon_type'], r['coupon_type'])}": r['id'] for _, r in cps.iterrows()}
-                        
                         sel_cp = st.selectbox("Kupon:", ["Yox"] + list(cp_ops.keys()))
                         if sel_cp != "Yox": 
-                            # Find original type from map or raw
                             raw_type = next((k for k, v in cp_map.items() if v == sel_cp), sel_cp)
                             st.session_state.active_coupon = {"id": cp_ops[sel_cp], "type": raw_type}
                         else: st.session_state.active_coupon = None
@@ -412,24 +439,21 @@ else:
                 else: st.info("Səbət boşdur")
                 st.markdown("</div>", unsafe_allow_html=True)
                 
-                # --- SMART DISCOUNT LOGIC (ONLY ONE) ---
+                # --- SMART DISCOUNT LOGIC ---
                 final_discount = 0
                 candidate_discounts = [] 
 
                 if curr:
-                    # 1. Thermos (20% on Coffee)
                     if curr['type'] == 'thermos':
                         coffee_total = sum([float(x['price']) for x in st.session_state.cart if x.get('is_coffee')])
                         if coffee_total > 0: candidate_discounts.append(coffee_total * 0.2) 
                     
-                    # 2. Loyalty (9+ stars -> 1 free coffee)
                     if curr['stars'] >= 9:
                         c_items = [x for x in st.session_state.cart if x.get('is_coffee')]
                         if c_items:
                             cheapest = float(min(c_items, key=lambda x: float(x['price']))['price'])
                             candidate_discounts.append(cheapest)
                     
-                    # 3. Coupons
                     if st.session_state.active_coupon:
                         cp = st.session_state.active_coupon['type']
                         if cp == 'disc_20': candidate_discounts.append(total * 0.2)
@@ -455,9 +479,6 @@ else:
                             if curr:
                                 ns = int(curr['stars'])
                                 if coffs > 0:
-                                    # If loyalty was used (max discount was from loyalty), reset stars
-                                    # Logic simplified: if they had 9 stars and bought coffee, reset. 
-                                    # Ideally we track WHICH discount won, but simplified rule: 9 stars + coffee = reset
                                     if ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
                                     else: ns += 1
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
@@ -468,7 +489,6 @@ else:
                     except Exception as e: st.error(f"Xəta: {e}")
 
             with layout_col2:
-                # KATEQORIYA TABLARI
                 c1, c2, c3 = st.columns(3)
                 if c1.button("☕ Qəhvə", key="cat_coff", type="secondary", use_container_width=True): st.session_state.pos_category = "Qəhvə"; st.rerun()
                 if c2.button("🥤 İçkilər", key="cat_drk", type="secondary", use_container_width=True): st.session_state.pos_category = "İçkilər"; st.rerun()
@@ -486,7 +506,6 @@ else:
                                 st.rerun()
 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
-                
                 groups = {}
                 for idx, row in enumerate(menu_df.to_dict('records')):
                     name = row['item_name']
@@ -546,9 +565,7 @@ else:
                     st.divider()
                     
                     st.markdown("#### 📢 Kupon Göndər")
-                    # NEW CRM COUPON SELECTOR
                     coupon_type = st.selectbox("Kupon Seç:", ["Yoxdur", "20% Endirim", "30% Endirim", "50% Endirim", "Ad Günü (1 Pulsuz Kofe)"])
-                    
                     sel_quote = st.selectbox("Motivasiya Seç:", ["(Özün Yaz)"] + CRM_QUOTES)
                     custom_msg_val = sel_quote if sel_quote != "(Özün Yaz)" else ""
                     
@@ -556,7 +573,6 @@ else:
                         txt = st.text_area("Mesaj Mətni", value=custom_msg_val)
                         if st.form_submit_button("Seçilənlərə Göndər"):
                             cnt = 0
-                            # Map UI selection to DB codes
                             db_code = None
                             if "20%" in coupon_type: db_code = "disc_20"
                             elif "30%" in coupon_type: db_code = "disc_30"
@@ -582,6 +598,22 @@ else:
             
             with tabs[4]:
                 st.markdown("### ⚙️ Ayarlar")
+                with st.expander("📍 Əlaqə və Sosial Media"):
+                    # Ünvan, Telefon və Sosial Linklər üçün sahələr
+                    new_addr = st.text_input("Ünvan", value=SHOP_ADDRESS)
+                    new_phone = st.text_input("Telefon", value=SHOP_PHONE)
+                    new_insta = st.text_input("Instagram Link", value=INSTAGRAM_LINK)
+                    new_fb = st.text_input("Facebook Link", value=FACEBOOK_LINK)
+                    new_yt = st.text_input("YouTube Link", value=YOUTUBE_LINK)
+                    
+                    if st.button("Məlumatları Yadda Saxla"):
+                        set_config("shop_address", new_addr)
+                        set_config("shop_phone", new_phone)
+                        set_config("instagram_link", new_insta)
+                        set_config("facebook_link", new_fb)
+                        set_config("youtube_link", new_yt)
+                        st.success("Yeniləndi!")
+
                 with st.expander("🖼️ Logo və Ad"):
                     new_name = st.text_input("Mağaza Adı", value=SHOP_NAME)
                     uploaded_logo = st.file_uploader("Logo Yüklə", type=['png', 'jpg'])
