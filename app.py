@@ -21,7 +21,6 @@ DOMAIN = "emalatxana.ironwaves.store"
 APP_URL = f"https://{DOMAIN}"
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store" 
 
-# SIDEBAR Expanded ki, admin menyuları rahat görsün
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
@@ -173,9 +172,20 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS feedback (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # MIGRATIONS
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star INTEGER DEFAULT -1;"))
         except: pass
         try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
+        except: pass
+        # NEW: Gender & Cashier
+        try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT;"))
+        except: pass
+        try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS cashier TEXT;"))
+        except: pass
+        
+        # OLD TOKEN FIX
+        try: s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token LIKE '%-%' OR secret_token LIKE '%_%';"))
         except: pass
         s.commit()
 ensure_schema()
@@ -283,13 +293,7 @@ CRM_QUOTES = [
     "Sən bizim üçün dəyərlisən! 💎", "Kiçik xoşbəxtliklər böyükdür! 🎈", "Özünə vaxt ayır! ⏳", "Dadlı bir fasilə ver! 🥐",
     "Hər qurtumda ləzzət! 😋", "Bu gün möcüzəvidir! 🌟", "Sən özəl birisən! 🎁", "Həyat gözəldir, dadını çıxar! 🌈",
     "Bizimlə olduğun üçün təşəkkürlər! 🙏", "Kofe sənin haqqındır! ☕", "Ulduzun parlasın! ⭐", "Xoşbəxtlik bir fincan uzaqlıqdadır! 💖",
-    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️",
-    "Gözəl anlar birikdir! 📸", "Sən bir dənəsən! 💎", "Dadlı kofe, şirin söhbət! 🍰", "Həyat qısadır, kofeni soyutma! ⏳",
-    "Yeni dadlar kəşf et! 🌍", "Səni yenidən gözləyirik! 👋", "Bu gün sənin şans günündür! 🍀", "Hər şey qaydasındadır! 👌",
-    "Rahatla və həzz al! 🛋️", "Sevgi ilə hazırlanmış kofe! ❤️", "Dostluq kofe ilə başlayar! 🤝", "Günəş kimi parla! 🌞",
-    "Sənin enerjin bizə ilham verir! 💡", "Möhtəşəm görünürsən! 😎", "Uğurlu başlanğıclar! 🌱", "Xəyallarını gerçəkləşdir! 🌠",
-    "Kofe əhvalını qaldıracaq! 🚀", "Sadəcə gülümsə! 😄", "Özünə güvən! 💪", "Bu anın dadını çıxar! 🕰️",
-    "Sən bacararsan! 🏆", "Emalatxana sənin evindir! 🏠", "Pozitiv ol, möcüzələr səni tapacaq! 💫", "Gülüşün ən gözəl aksesuardır! 😁"
+    "Enerjini bizimlə bərpa et! 🔋", "Həmişə belə gülümsə! 😊", "Sənə uğurlar arzulayırıq! 👍", "Kofe bəhanə, söhbət şahanə! 🗣️"
 ]
 
 # --- BIRTHDAY CHECKER ---
@@ -360,7 +364,11 @@ if "id" in query_params:
         if not user['is_active']:
             st.warning(f"🎉 {SHOP_NAME}-a Xoş Gəldiniz!")
             with st.form("act"):
-                em = st.text_input("📧 Email"); dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+                em = st.text_input("📧 Email")
+                dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+                # NEW GENDER FIELD
+                gender = st.radio("Cinsiyyət:", ["Kişi", "Qadın", "Qeyd etmirəm"], horizontal=True)
+                
                 with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
                     st.markdown("""
                     <div style="font-size:14px; color:#333;">
@@ -376,7 +384,10 @@ if "id" in query_params:
                 agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
                 if st.form_submit_button("Qeydiyyatı Tamamla"):
                     if agree and em:
-                        run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id})
+                        # SAVE GENDER
+                        g_code = "M" if gender=="Kişi" else "F" if gender=="Qadın" else "U"
+                        run_action("UPDATE customers SET email=:e, birth_date=:b, gender=:g, is_active=TRUE WHERE card_id=:i", 
+                                   {"e":em, "b":dob.strftime("%Y-%m-%d"), "g":g_code, "i":card_id})
                         st.balloons(); st.rerun()
             st.stop()
 
@@ -404,6 +415,7 @@ if "id" in query_params:
         if rem <= 0: st.markdown("<div class='progress-text'>🎉 TƏBRİKLƏR! Növbəti Kofe Bizdən!</div>", unsafe_allow_html=True)
         else: st.markdown(f"<div class='progress-text'>🎁 Hədiyyəyə {rem} kofe qaldı!</div>", unsafe_allow_html=True)
         
+        # ACTIVE COUPONS
         my_coupons = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in my_coupons.iterrows():
             name = "🎁 Xüsusi Kupon"
@@ -411,6 +423,8 @@ if "id" in query_params:
             elif cp['coupon_type'] == 'disc_30': name = "🏷️ 30% Endirim!"
             elif cp['coupon_type'] == 'disc_50': name = "🏷️ 50% Endirim!"
             elif cp['coupon_type'] == 'disc_100_coffee': name = "🎂 Ad Günü: 1 Pulsuz Kofe!"
+            elif cp['coupon_type'] == 'thermos_welcome': name = "♻️ Xoşgəldin: İLK KOFE BİZDƏN!"
+            
             st.markdown(f"""<div style="background:linear-gradient(135deg, #FFD700 0%, #FF8C00 100%); border-radius:15px; padding:15px; margin:15px 0; color:white; text-align:center; box-shadow:0 5px 15px rgba(255, 215, 0, 0.4); animation: pulse 2s infinite;"><div style="font-size:22px; font-weight:bold; font-family:'Oswald';">TƏBRİKLƏR!</div><div style="font-size:18px;">{name}</div></div>""", unsafe_allow_html=True)
 
         st.markdown("<div class='feedback-box'>", unsafe_allow_html=True)
@@ -497,7 +511,14 @@ else:
                     st.success(f"👤 {curr['card_id']} | ⭐ {curr['stars']}")
                     cps = run_query("SELECT * FROM customer_coupons WHERE card_id=:id AND is_used=FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": curr['card_id']})
                     if not cps.empty:
-                        cp_map = {"disc_20": "20% Endirim", "disc_30": "30% Endirim", "disc_50": "50% Endirim", "disc_100_coffee": "Ad Günü (Pulsuz Kofe)"}
+                        # Updated Map including Thermos Welcome
+                        cp_map = {
+                            "disc_20": "20% Endirim", 
+                            "disc_30": "30% Endirim", 
+                            "disc_50": "50% Endirim", 
+                            "disc_100_coffee": "Ad Günü (Pulsuz Kofe)",
+                            "thermos_welcome": "♻️ Termos Hədiyyəsi (Pulsuz)"
+                        }
                         cp_ops = {f"{cp_map.get(r['coupon_type'], r['coupon_type'])}": r['id'] for _, r in cps.iterrows()}
                         sel_cp = st.selectbox("Kupon:", ["Yox"] + list(cp_ops.keys()))
                         if sel_cp != "Yox": 
@@ -531,10 +552,16 @@ else:
                         elif cp == 'disc_100_coffee': 
                              c_items = [x for x in st.session_state.cart if x.get('is_coffee')]
                              if c_items: candidate_discounts.append(float(min(c_items, key=lambda x: float(x['price']))['price']))
+                        # THERMOS WELCOME LOGIC (FREE COFFEE, NO STARS)
+                        elif cp == 'thermos_welcome':
+                             c_items = [x for x in st.session_state.cart if x.get('is_coffee')]
+                             if c_items: candidate_discounts.append(float(min(c_items, key=lambda x: float(x['price']))['price']))
+
                 if candidate_discounts: final_discount = max(candidate_discounts)
                 final_price = max(0, total - final_discount)
                 st.markdown(f"<div style='font-size:24px; font-weight:bold; text-align:right; color:#D32F2F; margin-top:10px;'>YEKUN: {final_price:.2f} ₼</div>", unsafe_allow_html=True)
                 if final_discount > 0: st.caption(f"Endirim: -{final_discount:.2f}")
+                
                 pay_m = st.radio("Metod:", ["Nəğd", "Kart"], horizontal=True, label_visibility="collapsed")
                 if st.button("✅ ÖDƏNİŞ ET", type="primary", use_container_width=True):
                     if not st.session_state.cart: return
@@ -544,15 +571,45 @@ else:
                         with conn.session as s:
                             if curr:
                                 ns = int(curr['stars'])
+                                used_welcome = False
+                                if st.session_state.active_coupon:
+                                    # CHECK IF WELCOME COUPON IS USED
+                                    cp_type = st.session_state.active_coupon['type']
+                                    # Re-verify against DB map or raw type
+                                    if 'thermos_welcome' in cp_type or 'Xoşgəldin' in cp_type: 
+                                        used_welcome = True
+
                                 if coffs > 0:
-                                    if ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
+                                    if used_welcome: pass # Don't add star
+                                    elif ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
                                     else: ns += 1
+                                
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
-                                if st.session_state.active_coupon: s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
-                            s.execute(text("INSERT INTO sales (items, total, payment_method, created_at) VALUES (:i, :t, :p, NOW())"), {"i":items_str, "t":final_price, "p":p_code})
+                                if st.session_state.active_coupon: 
+                                    s.execute(text("UPDATE customer_coupons SET is_used=TRUE WHERE id=:cid"), {"cid":st.session_state.active_coupon['id']})
+                            
+                            # SAVE CASHIER INFO
+                            s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at) VALUES (:i, :t, :p, :c, NOW())"), 
+                                      {"i":items_str, "t":final_price, "p":p_code, "c":st.session_state.user})
                             s.commit()
                         st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
+            
+            # --- STAFF REPORT SECTION (VIEW ONLY) ---
+            with layout_col2:
+                with st.expander("📊 Günlük Hesabatım"):
+                    my_sales = run_query("SELECT * FROM sales WHERE cashier = :u AND DATE(created_at) = CURRENT_DATE ORDER BY created_at DESC", {"u":st.session_state.user})
+                    if not my_sales.empty:
+                        tot = my_sales['total'].sum()
+                        cash = my_sales[my_sales['payment_method']=='Cash']['total'].sum()
+                        card = my_sales[my_sales['payment_method']=='Card']['total'].sum()
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Cəm", f"{tot:.2f}")
+                        c2.metric("Nağd", f"{cash:.2f}")
+                        c3.metric("Kart", f"{card:.2f}")
+                        st.dataframe(my_sales[['created_at', 'items', 'total', 'payment_method']], hide_index=True)
+                    else: st.info("Bu gün satış etməmisiniz.")
+
             with layout_col2:
                 c1, c2, c3 = st.columns(3)
                 if c1.button("☕ Qəhvə", key="cat_coff", type="secondary", use_container_width=True): st.session_state.pos_category = "Qəhvə"; st.rerun()
@@ -607,7 +664,17 @@ else:
                             st.success("Silindi!"); st.rerun()
                 st.divider()
                 
-                m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
+                # --- CRM FILTERS ---
+                f_gen = st.radio("Filtr:", ["Hamısı", "Kişi", "Qadın"], horizontal=True)
+                sql_q = "SELECT card_id, email, stars, type, gender, last_visit FROM customers WHERE email IS NOT NULL"
+                params = {}
+                if f_gen == "Kişi": 
+                    sql_q += " AND gender='M'"
+                elif f_gen == "Qadın":
+                    sql_q += " AND gender='F'"
+                
+                m_df = run_query(sql_q, params)
+                
                 if not m_df.empty:
                     if 'select_all' not in st.session_state: st.session_state.select_all = False
                     c_btn1, c_btn2 = st.columns(2)
@@ -680,6 +747,10 @@ else:
                     for i in ids: 
                         token = secrets.token_hex(8)
                         run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
+                        # AUTO WELCOME COUPON FOR THERMOS
+                        if is_th:
+                            run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:i, 'thermos_welcome')", {"i":i})
+                    
                     if cnt == 1:
                         tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
                         d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
