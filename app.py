@@ -627,4 +627,41 @@ else:
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
-                with
+                with st.form("add"):
+                    c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofedir?")
+                    if st.form_submit_button("Əlavə Et"):
+                        run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
+                st.dataframe(run_query("SELECT * FROM menu"))
+            with tabs[4]:
+                st.markdown("### ⚙️ Ayarlar")
+                with st.expander("📍 Əlaqə"):
+                    na = st.text_input("Ünvan", SHOP_ADDRESS); ni = st.text_input("Instagram", INSTAGRAM_LINK)
+                    if st.button("Saxla"): set_config("shop_address", na); set_config("instagram_link", ni); st.success("OK")
+                with st.expander("👥 İşçilər"):
+                    udf = run_query("SELECT username, role FROM users"); st.dataframe(udf)
+                    nu = st.text_input("User"); np = st.text_input("Pass", type="password"); nr = st.selectbox("Role", ["staff","admin"])
+                    if st.button("Yarat", key="crt_usr"):
+                        run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r)", {"u":nu, "p":hash_password(np), "r":nr}); st.success("OK")
+            with tabs[5]:
+                if st.button("📥 BÜTÜN BAZANI YÜKLƏ (BACKUP)", type="primary"):
+                    try:
+                        out = BytesIO()
+                        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                            clean_df_for_excel(run_query("SELECT * FROM customers")).to_excel(writer, sheet_name='Customers')
+                            clean_df_for_excel(run_query("SELECT * FROM sales")).to_excel(writer, sheet_name='Sales')
+                        st.download_button("⬇️ Endir", out.getvalue(), f"Backup.xlsx")
+                    except Exception as e: st.error(e)
+            with tabs[6]:
+                cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
+                if st.button("Yarat"):
+                    ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
+                    for i in ids: 
+                        token = secrets.token_hex(8)
+                        run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
+                    if cnt == 1:
+                        tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
+                        d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
+                        st.image(BytesIO(d), width=250); st.download_button("⬇️ Yüklə", d, f"{ids[0]}.png", "image/png")
+                    else: st.success("Hazır!")
+
+        elif role == 'staff': render_pos()
