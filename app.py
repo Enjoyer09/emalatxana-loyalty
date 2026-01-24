@@ -24,7 +24,7 @@ DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# === DİZAYN KODLARI (CSS) ===
+# === DİZAYN KODLARI (CSS & JS) ===
 # ==========================================
 st.markdown("""
     <script>
@@ -128,6 +128,13 @@ st.markdown("""
     @keyframes pulse-insta {
         0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
+
+    .refresh-btn {
+        position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+        background: #333; color: white; border-radius: 50%;
+        width: 50px; height: 50px; border: none; font-size: 24px;
+        cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; text-decoration: none;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -153,10 +160,6 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star INTEGER DEFAULT -1;"))
         except: pass
         try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
-        except: pass
-        
-        # IPHONE FIX
-        try: s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token LIKE '%-%' OR secret_token LIKE '%_%';"))
         except: pass
         s.commit()
 ensure_schema()
@@ -256,9 +259,6 @@ def get_random_quote():
     quotes = ["Bu gün əla görünürsən! 🧡", "Enerjini bərpa etmək vaxtıdır! ⚡", "Sən ən yaxşısına layiqsən! ✨", "Kofe ilə gün daha gözəldir! ☀️", "Gülüşün dünyanı dəyişə bilər! 😊"]
     return random.choice(quotes)
 
-# --- CRM MOTIVATION LIST ---
-CRM_QUOTES = ["Səni görmək çox xoşdur! ☕", "Həftəsonun əla keçsin! 🎉", "Yeni həftəyə enerji ilə başla! 🚀", "Günün aydın olsun! ☀️"]
-
 # --- BIRTHDAY CHECKER ---
 def check_and_send_birthday_emails():
     try:
@@ -297,7 +297,10 @@ if "id" in query_params:
     df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
     if not df.empty:
         user = df.iloc[0]
-        if user['secret_token'] and user['secret_token'] != token: st.error("⛔ İcazəsiz Giriş!"); st.stop()
+        # TOKEN CHECK (FIXED)
+        if user['secret_token'] and token and user['secret_token'] != token:
+            st.error("⛔ İcazəsiz Giriş! Zəhmət olmasa QR kodu yenidən skan edin.")
+            st.stop()
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
@@ -308,7 +311,6 @@ if "id" in query_params:
             with st.form("act"):
                 em = st.text_input("📧 Email"); dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
-                # --- YENİ QAYDALAR ---
                 with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
                     st.markdown("""
                     <div style="font-size:14px; color:#333;">
@@ -381,7 +383,6 @@ else:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
     if st.session_state.logged_in:
-        # SIDEBAR LOGOUT & REFRESH
         with st.sidebar:
             st.markdown(f"### 👤 {st.session_state.user}")
             if st.button("🔴 Çıxış Et"):
@@ -520,6 +521,8 @@ else:
                     m2.metric("Nağd", f"{sales[sales['payment_method']=='Cash']['total'].sum():.2f}")
                     m3.metric("Kart", f"{sales[sales['payment_method']=='Card']['total'].sum():.2f}")
                     st.dataframe(sales)
+            
+            # --- CRM CHECKBOX STYLE (VER 7) ---
             with tabs[2]:
                 st.markdown("### 📧 CRM")
                 with st.expander("🗑️ Müştəri Sil (Toplu)"):
@@ -530,10 +533,45 @@ else:
                             for d_id in to_del: run_action("DELETE FROM customers WHERE card_id=:id", {"id":d_id})
                             st.success("Silindi!"); st.rerun()
                 st.divider()
+                
                 m_df = run_query("SELECT card_id, email, stars FROM customers WHERE email IS NOT NULL")
                 if not m_df.empty:
-                    edited = st.data_editor(m_df, hide_index=True)
-                    # Kupon ve mesaj logikasi (Eyni qalib)
+                    # Initialize columns for checkboxes
+                    m_df['50% Endirim'] = False
+                    m_df['Ad Günü'] = False
+                    m_df['Peceniya'] = False
+                    
+                    edited = st.data_editor(m_df, hide_index=True, use_container_width=True)
+                    
+                    if st.button("🚀 Seçilənləri Göndər"):
+                        cnt = 0
+                        for i, r in edited.iterrows():
+                            # 50% ENDIRIM
+                            if r['50% Endirim']:
+                                if send_email(r['email'], "50% Endirim!", "Sizə özəl 50% endirim!"):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, '50% Endirim!')", {"id":r['card_id']})
+                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'disc_50', NOW() + INTERVAL '7 days')", {"id":r['card_id']})
+                                    cnt += 1
+                            
+                            # AD GÜNÜ
+                            if r['Ad Günü']:
+                                if send_email(r['email'], "Ad Gününüz Mübarək!", "Bir kofe bizdən hədiyyə!"):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Ad Günü Hədiyyəsi!')", {"id":r['card_id']})
+                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'disc_100_coffee', NOW() + INTERVAL '1 day')", {"id":r['card_id']})
+                                    cnt += 1
+                            
+                            # PECENIYA (Simvolik endirimli kupon kimi yazaq, məs: 20% və ya free)
+                            # Qeyd: Əgər 'free_cookie' type yoxdursa, 'disc_20' vura bilərik və ya sadəcə mesaj
+                            if r['Peceniya']:
+                                if send_email(r['email'], "Şirin Hədiyyə!", "Kofe alana Peceniya bizdən!"):
+                                    run_action("INSERT INTO notifications (card_id, message) VALUES (:id, 'Pulsuz Peceniya!')", {"id":r['card_id']})
+                                    # Peceniya ucun xususi kupon kodu 'free_cookie' (sistem taniyir)
+                                    run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:id, 'free_cookie', NOW() + INTERVAL '7 days')", {"id":r['card_id']})
+                                    cnt += 1
+                        
+                        st.success(f"{cnt} əməliyyat icra olundu!")
+                else: st.info("Müştəri yoxdur")
+
             with tabs[3]:
                 with st.form("add"):
                     c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofedir?")
