@@ -16,7 +16,7 @@ import threading
 import base64
 
 # ==========================================
-# === IRONWAVES POS - VERSION 1.02 (ONLINE STATUS) ===
+# === IRONWAVES POS - VERSION 1.0.4 (STABLE) ===
 # ==========================================
 
 # --- INFRASTRUKTUR AYARLARI ---
@@ -429,7 +429,6 @@ else:
                     is_online = False
                     if u_row['last_seen']:
                         diff = datetime.datetime.now() - pd.to_datetime(u_row['last_seen'])
-                        # Əgər son 2 dəqiqədə aktiv olubsa
                         if diff.total_seconds() < 120: is_online = True
                     
                     dot_class = "status-online" if is_online else "status-offline"
@@ -603,10 +602,7 @@ else:
                         c1.metric("Cəm", f"{tot:.2f}")
                         c2.metric("Nağd", f"{cash:.2f}")
                         c3.metric("Kart", f"{card:.2f}")
-                        
-                        disp_df = my_sales[['id', 'created_at', 'items', 'total', 'payment_method']]
-                        disp_df.columns = ['Çek №', 'Tarix', 'Məhsullar', 'Məbləğ', 'Ödəniş']
-                        st.dataframe(disp_df, hide_index=True)
+                        st.dataframe(my_sales[['id', 'created_at', 'items', 'total', 'payment_method']], hide_index=True)
                     else: st.info("Seçilən tarixdə satış yoxdur.")
 
             with layout_col2:
@@ -800,4 +796,50 @@ else:
                 with st.expander("🔐 Şifrə Dəyişmə (Admin/Staff)"):
                     all_users = run_query("SELECT username FROM users")
                     sel_user = st.selectbox("İstifadəçi Seç", all_users['username'].tolist())
-                    new_pass = st.text_
+                    
+                    # DÜZƏLDİLMİŞ SƏTİR:
+                    new_pass = st.text_input("Yeni Şifrə / PIN", type="password")
+                    
+                    if st.button("Şifrəni Yenilə"):
+                        run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_user})
+                        st.success("Yeniləndi!")
+
+                with st.expander("👥 Yeni İşçi Yarat"):
+                    nu = st.text_input("Ad (Username)"); np = st.text_input("PIN / Şifrə", type="password"); nr = st.selectbox("Role", ["staff","admin"])
+                    if st.button("Yarat", key="crt_usr"):
+                        try:
+                            run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r)", {"u":nu, "p":hash_password(np), "r":nr})
+                            st.success("OK")
+                        except: st.error("Bu ad artıq var")
+
+                with st.expander("📍 Əlaqə"):
+                    na = st.text_input("Ünvan", SHOP_ADDRESS); ni = st.text_input("Instagram", INSTAGRAM_LINK)
+                    if st.button("Saxla"): set_config("shop_address", na); set_config("instagram_link", ni); st.success("OK")
+
+            with tabs[5]:
+                if st.button("📥 BÜTÜN BAZANI YÜKLƏ (BACKUP)", type="primary"):
+                    try:
+                        out = BytesIO()
+                        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                            clean_df_for_excel(run_query("SELECT * FROM customers")).to_excel(writer, sheet_name='Customers')
+                            clean_df_for_excel(run_query("SELECT * FROM sales")).to_excel(writer, sheet_name='Sales')
+                        st.download_button("⬇️ Endir", out.getvalue(), f"Backup.xlsx")
+                    except Exception as e: st.error(e)
+            
+            with tabs[6]:
+                cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
+                if st.button("Yarat"):
+                    ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
+                    zip_buffer = BytesIO(); has_multiple = cnt > 1
+                    with zipfile.ZipFile(zip_buffer, "w") as zf:
+                        for i in ids: 
+                            token = secrets.token_hex(8)
+                            run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
+                            if is_th: run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:i, 'thermos_welcome')", {"i":i})
+                            img_data = generate_custom_qr(f"{APP_URL}/?id={i}&t={token}", i)
+                            zf.writestr(f"{i}.png", img_data)
+                            if not has_multiple: st.image(BytesIO(img_data), width=250); single_data = img_data
+                    if has_multiple: st.download_button("📥 ZIP Yüklə", zip_buffer.getvalue(), "qrcodes.zip", "application/zip")
+                    else: st.download_button("⬇️ Yüklə", single_data, f"{ids[0]}.png", "image/png")
+
+        elif role == 'staff': render_pos()
