@@ -175,10 +175,6 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS cashier TEXT;"))
         except: pass
-        
-        # OLD TOKEN FIX
-        try: s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token LIKE '%-%' OR secret_token LIKE '%_%';"))
-        except: pass
         s.commit()
 ensure_schema()
 
@@ -344,10 +340,9 @@ if "id" in query_params:
 
     if not df.empty:
         user = df.iloc[0]
-        # SAFE TOKEN CHECK (Warning only for transition)
+        # SAFE TOKEN CHECK (Warning only)
         if user['secret_token'] and token and user['secret_token'] != token:
             st.warning("⚠️ QR kod yenilənib. Təhlükəsizlik üçün kassadan yenisini istəyin.")
-            # st.stop() # Disabled for RC2 stability during transition
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
@@ -468,9 +463,7 @@ else:
                 with st.form("staff_login"):
                     pin = st.text_input("PIN Kodu Daxil Edin", type="password", placeholder="****")
                     if st.form_submit_button("GİRİŞ", use_container_width=True):
-                        # Staff login just by password check (username is implicit or stored as name in username field)
                         udf = run_query("SELECT * FROM users WHERE role='staff'") 
-                        # Simple check: Iterate staff to find matching PIN (since usernames aren't typed)
                         found = False
                         for _, u_row in udf.iterrows():
                             if verify_password(pin, u_row['password']):
@@ -593,11 +586,32 @@ else:
                         st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
             
+            # --- STAFF ANALYTICS (RC3) ---
             with layout_col2:
-                with st.expander("📊 Günlük Hesabatım"):
-                    my_sales = run_query("SELECT * FROM sales WHERE cashier = :u AND DATE(created_at) = CURRENT_DATE ORDER BY created_at DESC", {"u":st.session_state.user})
+                with st.expander("📊 Mənim Satışlarım (Analitika)"):
+                    sf_mode = st.radio("Rejim:", ["Günlük", "Aylıq", "Aralıq"], horizontal=True, key="s_mode")
+                    sql = "SELECT * FROM sales WHERE cashier = :u"
+                    p = {'u': st.session_state.user}
+                    
+                    if sf_mode == "Günlük":
+                        d = st.date_input("Gün", datetime.date.today(), key="s_d")
+                        sql += " AND DATE(created_at AT TIME ZONE 'Asia/Baku') = :d"
+                        p['d'] = d
+                    elif sf_mode == "Aylıq":
+                        d = st.date_input("Ay", datetime.date.today(), key="s_m")
+                        sql += " AND TO_CHAR(created_at AT TIME ZONE 'Asia/Baku', 'YYYY-MM') = :m"
+                        p['m'] = d.strftime("%Y-%m")
+                    else:
+                        d1 = st.date_input("Başlanğıc", datetime.date.today(), key="s_d1")
+                        d2 = st.date_input("Bitmə", datetime.date.today(), key="s_d2")
+                        sql += " AND DATE(created_at AT TIME ZONE 'Asia/Baku') BETWEEN :d1 AND :d2"
+                        p['d1'] = d1; p['d2'] = d2
+                    
+                    sql += " ORDER BY created_at DESC"
+                    my_sales = run_query(sql, p)
+                    
                     if not my_sales.empty:
-                        # Timezone adjust for display
+                        # Timezone Adjust
                         my_sales['created_at'] = pd.to_datetime(my_sales['created_at']) + pd.Timedelta(hours=4)
                         tot = my_sales['total'].sum()
                         cash = my_sales[my_sales['payment_method']=='Cash']['total'].sum()
@@ -607,7 +621,7 @@ else:
                         c2.metric("Nağd", f"{cash:.2f}")
                         c3.metric("Kart", f"{card:.2f}")
                         st.dataframe(my_sales[['created_at', 'items', 'total', 'payment_method']], hide_index=True)
-                    else: st.info("Bu gün satış etməmisiniz.")
+                    else: st.info("Seçilən tarixdə satış yoxdur.")
 
             with layout_col2:
                 c1, c2, c3 = st.columns(3)
@@ -626,9 +640,8 @@ else:
                 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
                 
-                # Show Coffee Icon if item is_coffee
-                def fmt_name(row):
-                    return f"☕ {row['item_name']}" if row['is_coffee'] else row['item_name']
+                # Show Coffee Icon
+                def fmt_name(row): return f"☕ {row['item_name']}" if row['is_coffee'] else row['item_name']
 
                 groups = {}
                 for idx, row in enumerate(menu_df.to_dict('records')):
@@ -648,13 +661,9 @@ else:
             with tabs[0]: render_pos()
             with tabs[1]:
                 st.markdown("### 📊 Satış Analitikası (Bakı Vaxtı)")
-                
-                # FILTER MODE
                 f_mode = st.radio("Rejim:", ["Günlük", "Aylıq", "Aralıq"], horizontal=True)
-                
                 sql = "SELECT * FROM sales"
                 p = {}
-                
                 if f_mode == "Günlük":
                     d = st.date_input("Gün", datetime.date.today())
                     sql += " WHERE DATE(created_at AT TIME ZONE 'Asia/Baku') = :d"
@@ -673,16 +682,14 @@ else:
                 sales = run_query(sql, p)
                 
                 if not sales.empty:
-                    # Adjust Timezone for Display
+                    # Adjust Timezone
                     sales['created_at'] = pd.to_datetime(sales['created_at']) + pd.Timedelta(hours=4)
-                    
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Cəm", f"{sales['total'].sum():.2f}")
                     m2.metric("Nağd", f"{sales[sales['payment_method']=='Cash']['total'].sum():.2f}")
                     m3.metric("Kart", f"{sales[sales['payment_method']=='Card']['total'].sum():.2f}")
                     st.dataframe(sales)
                     
-                    # DELETE SALE
                     st.divider()
                     st.markdown("#### 🗑️ Satış Ləğvi")
                     with st.form("del_sale"):
@@ -690,14 +697,12 @@ else:
                         sid = c1.number_input("Satış ID", min_value=1, step=1)
                         apass = c2.text_input("Admin Şifrəsi", type="password")
                         if st.form_submit_button("Sil"):
-                            # Verify Admin
                             adm = run_query("SELECT password FROM users WHERE username=:u AND role='admin'", {"u":st.session_state.user})
                             if not adm.empty and verify_password(apass, adm.iloc[0]['password']):
                                 run_action("DELETE FROM sales WHERE id=:id", {"id":sid})
                                 st.success(f"Satış #{sid} silindi!")
                                 time.sleep(1); st.rerun()
-                            else:
-                                st.error("Şifrə yanlışdır!")
+                            else: st.error("Şifrə yanlışdır!")
                 else: st.info("Satış yoxdur")
             
             with tabs[2]:
@@ -764,14 +769,12 @@ else:
                     if st.form_submit_button("Əlavə Et"):
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
                 
-                # Show Menu with Icon
                 m_list = run_query("SELECT * FROM menu ORDER BY category")
                 m_list['is_coffee'] = m_list['is_coffee'].apply(lambda x: "☕" if x else "")
                 st.dataframe(m_list)
 
             with tabs[4]:
                 st.markdown("### ⚙️ Ayarlar")
-                
                 with st.expander("🔐 Şifrə Dəyişmə (Admin/Staff)"):
                     all_users = run_query("SELECT username FROM users")
                     sel_user = st.selectbox("İstifadəçi Seç", all_users['username'].tolist())
@@ -806,8 +809,6 @@ else:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
                 if st.button("Yarat"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
-                    
-                    # Prepare ZIP if multiple
                     zip_buffer = BytesIO()
                     has_multiple = cnt > 1
                     
@@ -818,11 +819,9 @@ else:
                             if is_th:
                                 run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:i, 'thermos_welcome')", {"i":i})
                             
-                            # Generate Image
                             img_data = generate_custom_qr(f"{APP_URL}/?id={i}&t={token}", i)
                             zf.writestr(f"{i}.png", img_data)
                             
-                            # If single, show on screen too
                             if not has_multiple:
                                 st.image(BytesIO(img_data), width=250)
                                 single_data = img_data
