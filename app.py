@@ -21,7 +21,7 @@ DOMAIN = "emalatxana.ironwaves.store"
 APP_URL = f"https://{DOMAIN}"
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store" 
 
-# SIDEBARI GÖRÜNƏN EDIRIK
+# --- SƏHİFƏ AYARLARI ---
 st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
@@ -91,7 +91,6 @@ st.markdown("""
         text-align: center; margin-bottom: 20px;
     }
     
-    /* YENİ THERMOS DİZAYNI */
     .thermos-vip {
         background: linear-gradient(135deg, #2E7D32, #66BB6A);
         color: white;
@@ -143,13 +142,6 @@ st.markdown("""
     @keyframes pulse-insta {
         0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
-
-    .refresh-btn {
-        position: fixed; bottom: 20px; right: 20px; z-index: 9999;
-        background: #333; color: white; border-radius: 50%;
-        width: 50px; height: 50px; border: none; font-size: 24px;
-        cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; text-decoration: none;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -174,6 +166,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         
+        # MIGRATIONS
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star INTEGER DEFAULT -1;"))
         except: pass
         try: s.execute(text("ALTER TABLE customer_coupons ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;")) 
@@ -181,6 +174,10 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT;"))
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS cashier TEXT;"))
+        except: pass
+        
+        # OLD TOKEN FIX
+        try: s.execute(text("UPDATE customers SET secret_token = md5(random()::text) WHERE secret_token LIKE '%-%' OR secret_token LIKE '%_%';"))
         except: pass
         s.commit()
 ensure_schema()
@@ -347,10 +344,10 @@ if "id" in query_params:
 
     if not df.empty:
         user = df.iloc[0]
-        # TOKEN CHECK (RELAXED FOR TESTING - NO STOP)
+        # SAFE TOKEN CHECK (Warning only for transition)
         if user['secret_token'] and token and user['secret_token'] != token:
-            st.warning("⚠️ QR kod köhnəlib, amma test məqsədilə girişə icazə verildi. Xahiş olunur yeni QR yaradın.")
-            # st.stop() # Removed to allow access during testing
+            st.warning("⚠️ QR kod yenilənib. Təhlükəsizlik üçün kassadan yenisini istəyin.")
+            # st.stop() # Disabled for RC2 stability during transition
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
@@ -366,13 +363,12 @@ if "id" in query_params:
                 with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
                     st.markdown("""
                     <div style="font-size:14px; color:#333;">
-                        <b>1. Şəxsi Məlumatlar:</b> E-mail və Doğum tarixi yalnız kampaniyalar üçün istifadə olunur.<br>
-                        <b>2. Sadiqlik Proqramı:</b> 9 ulduz toplayana 10-cu kofe HƏDİYYƏDİR.<br>
-                        <b>3. VIP Termos:</b> Öz termosu ilə gələnlərə endirim edilir.<br>
-                        <b>4. Ad Günü:</b> Hədiyyə üçün şəxsiyyət vəsiqəsi tələb oluna bilər.<br>
-                        <b>5. Endirimlər:</b> Eyni anda birdən çox endirim varsa, SİZİN ÜÇÜN ƏN SƏRFƏLİ OLAN tətbiq edilir.<br>
-                        <b>6. İmtina və Silinmə:</b> İstədiyiniz vaxt məlumatlarınızın bazadan silinməsini personaldan xahiş edə bilərsiniz.<br>
-                        <b>7. Dəyişikliklər:</b> {SHOP_NAME} qaydaları dəyişmək hüququnu saxlayır.
+                        <b>1. Sadiqlik Proqramı:</b> Bu rəqəmsal kartla hər kofe alışında ulduz toplayır və hədiyyələr qazanırsınız.<br>
+                        <b>2. Bonus Sistemi:</b> Hər <b>tam qiymətli</b> (endurimsiz) kofe alışı = 1 Ulduz. Endirimli və ya hədiyyə kofelərdə ulduz hesablanmır.<br>
+                        <b>3. Hədiyyə Kofe:</b> 9 ulduz toplandıqda, növbəti kofe bizdən HƏDİYYƏDİR! ☕<br>
+                        <b>4. EKO-TERM Klubu:</b> Emalatxana termosu alanlara ilk kofe hədiyyədir. Növbəti gəlişlərdə öz termosu ilə gələnlərə daimi ekoloji endirim tətbiq olunur.<br>
+                        <b>5. Ağıllı Endirim:</b> Eyni anda bir neçə endirim şansı varsa, sistem avtomatik olaraq <b>Sizə ən sərfəli olanını</b> seçir.<br>
+                        <b>6. Məxfilik:</b> Məlumatlarınız yalnız sizə özəl kampaniyalar üçün istifadə olunur.
                     </div>
                     """.replace("{SHOP_NAME}", SHOP_NAME), unsafe_allow_html=True)
                 agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
@@ -432,7 +428,6 @@ if "id" in query_params:
         qr_url = f"{APP_URL}/?id={card_id}&t={user['secret_token']}"
         st.download_button("📥 KARTI YÜKLƏ", generate_custom_qr(qr_url, card_id), f"{card_id}.png", "image/png", use_container_width=True)
         
-        # LOGOUT BUTTON FOR CUSTOMER
         if st.button("🔴 Hesabdan Çıx", type="primary"):
             st.query_params.clear()
             st.rerun()
@@ -466,17 +461,39 @@ else:
         with c2: 
             if LOGO_BASE64: st.markdown(f'<div style="text-align:center"><img src="data:image/png;base64,{LOGO_BASE64}" width="150"></div>', unsafe_allow_html=True)
             else: st.markdown(f"<h2 style='text-align:center'>{SHOP_NAME}</h2>", unsafe_allow_html=True)
-            with st.form("login"):
-                u = st.text_input("User"); p = st.text_input("Pass", type="password")
-                if st.form_submit_button("GİRİŞ", use_container_width=True):
-                    udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u)", {"u":u})
-                    if not udf.empty and verify_password(p, udf.iloc[0]['password']):
-                        st.session_state.logged_in = True; st.session_state.role = udf.iloc[0]['role']; st.session_state.user = u
-                        s_token = secrets.token_urlsafe(16)
-                        run_action("INSERT INTO active_sessions (token, username, role) VALUES (:t, :u, :r)", {"t":s_token, "u":u, "r":udf.iloc[0]['role']})
-                        st.query_params["token"] = s_token
-                        st.rerun()
-                    else: st.error("Səhvdir!")
+            
+            tabs = st.tabs(["STAFF GİRİŞİ (PIN)", "ADMIN GİRİŞİ"])
+            
+            with tabs[0]:
+                with st.form("staff_login"):
+                    pin = st.text_input("PIN Kodu Daxil Edin", type="password", placeholder="****")
+                    if st.form_submit_button("GİRİŞ", use_container_width=True):
+                        # Staff login just by password check (username is implicit or stored as name in username field)
+                        udf = run_query("SELECT * FROM users WHERE role='staff'") 
+                        # Simple check: Iterate staff to find matching PIN (since usernames aren't typed)
+                        found = False
+                        for _, u_row in udf.iterrows():
+                            if verify_password(pin, u_row['password']):
+                                st.session_state.logged_in = True; st.session_state.role = 'staff'; st.session_state.user = u_row['username']
+                                s_token = secrets.token_urlsafe(16)
+                                run_action("INSERT INTO active_sessions (token, username, role) VALUES (:t, :u, :r)", {"t":s_token, "u":u_row['username'], "r":'staff'})
+                                st.query_params["token"] = s_token
+                                st.rerun()
+                                found = True; break
+                        if not found: st.error("Yanlış PIN!")
+
+            with tabs[1]:
+                with st.form("admin_login"):
+                    u = st.text_input("Username"); p = st.text_input("Password", type="password")
+                    if st.form_submit_button("ADMIN GİRİŞ", use_container_width=True):
+                        udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u) AND role='admin'", {"u":u})
+                        if not udf.empty and verify_password(p, udf.iloc[0]['password']):
+                            st.session_state.logged_in = True; st.session_state.role = 'admin'; st.session_state.user = u
+                            s_token = secrets.token_urlsafe(16)
+                            run_action("INSERT INTO active_sessions (token, username, role) VALUES (:t, :u, :r)", {"t":s_token, "u":u, "r":'admin'})
+                            st.query_params["token"] = s_token
+                            st.rerun()
+                        else: st.error("Səhvdir!")
     else:
         role = st.session_state.role
         
@@ -561,7 +578,8 @@ else:
                                         used_welcome = True
 
                                 if coffs > 0:
-                                    if used_welcome: pass
+                                    # LOGIC UPDATE: NO STARS IF DISCOUNT COUPON USED OR WELCOME
+                                    if st.session_state.active_coupon: pass # Coupon used -> No star
                                     elif ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
                                     else: ns += 1
                                 
@@ -579,6 +597,8 @@ else:
                 with st.expander("📊 Günlük Hesabatım"):
                     my_sales = run_query("SELECT * FROM sales WHERE cashier = :u AND DATE(created_at) = CURRENT_DATE ORDER BY created_at DESC", {"u":st.session_state.user})
                     if not my_sales.empty:
+                        # Timezone adjust for display
+                        my_sales['created_at'] = pd.to_datetime(my_sales['created_at']) + pd.Timedelta(hours=4)
                         tot = my_sales['total'].sum()
                         cash = my_sales[my_sales['payment_method']=='Cash']['total'].sum()
                         card = my_sales[my_sales['payment_method']=='Card']['total'].sum()
@@ -605,6 +625,11 @@ else:
                             if st.button(f"{label}\n{item['price']}₼", key=f"v_{item['id']}"): st.session_state.cart.append(item); st.rerun()
                 
                 menu_df = run_query("SELECT * FROM menu WHERE category=:c AND is_active=TRUE ORDER BY item_name", {"c": st.session_state.pos_category})
+                
+                # Show Coffee Icon if item is_coffee
+                def fmt_name(row):
+                    return f"☕ {row['item_name']}" if row['is_coffee'] else row['item_name']
+
                 groups = {}
                 for idx, row in enumerate(menu_df.to_dict('records')):
                     name = row['item_name']; parts = name.split()
@@ -616,21 +641,64 @@ else:
                         if len(items) > 1:
                             if st.button(f"{base_name}\n(Seçim)", key=f"grp_{i}"): show_variants(base_name, items)
                         else:
-                            if st.button(f"{items[0]['item_name']}\n{items[0]['price']}₼", key=f"itm_{items[0]['id']}"): st.session_state.cart.append(items[0]); st.rerun()
+                            if st.button(f"{fmt_name(items[0])}\n{items[0]['price']}₼", key=f"itm_{items[0]['id']}"): st.session_state.cart.append(items[0]); st.rerun()
 
         if role == 'admin':
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
             with tabs[0]: render_pos()
             with tabs[1]:
-                st.markdown("### 📊 Satış")
-                today = datetime.date.today(); sel_date = st.date_input("Ay", today); sel_month = sel_date.strftime("%Y-%m")
-                sales = run_query("SELECT * FROM sales WHERE TO_CHAR(created_at, 'YYYY-MM') = :m ORDER BY created_at DESC", {"m": sel_month})
+                st.markdown("### 📊 Satış Analitikası (Bakı Vaxtı)")
+                
+                # FILTER MODE
+                f_mode = st.radio("Rejim:", ["Günlük", "Aylıq", "Aralıq"], horizontal=True)
+                
+                sql = "SELECT * FROM sales"
+                p = {}
+                
+                if f_mode == "Günlük":
+                    d = st.date_input("Gün", datetime.date.today())
+                    sql += " WHERE DATE(created_at AT TIME ZONE 'Asia/Baku') = :d"
+                    p['d'] = d
+                elif f_mode == "Aylıq":
+                    d = st.date_input("Ay (Hər hansı gününü seç)", datetime.date.today())
+                    sql += " WHERE TO_CHAR(created_at AT TIME ZONE 'Asia/Baku', 'YYYY-MM') = :m"
+                    p['m'] = d.strftime("%Y-%m")
+                else:
+                    d1 = st.date_input("Başlanğıc", datetime.date.today())
+                    d2 = st.date_input("Bitmə", datetime.date.today())
+                    sql += " WHERE DATE(created_at AT TIME ZONE 'Asia/Baku') BETWEEN :d1 AND :d2"
+                    p['d1'] = d1; p['d2'] = d2
+                
+                sql += " ORDER BY created_at DESC"
+                sales = run_query(sql, p)
+                
                 if not sales.empty:
+                    # Adjust Timezone for Display
+                    sales['created_at'] = pd.to_datetime(sales['created_at']) + pd.Timedelta(hours=4)
+                    
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Cəm", f"{sales['total'].sum():.2f}")
                     m2.metric("Nağd", f"{sales[sales['payment_method']=='Cash']['total'].sum():.2f}")
                     m3.metric("Kart", f"{sales[sales['payment_method']=='Card']['total'].sum():.2f}")
                     st.dataframe(sales)
+                    
+                    # DELETE SALE
+                    st.divider()
+                    st.markdown("#### 🗑️ Satış Ləğvi")
+                    with st.form("del_sale"):
+                        c1, c2 = st.columns(2)
+                        sid = c1.number_input("Satış ID", min_value=1, step=1)
+                        apass = c2.text_input("Admin Şifrəsi", type="password")
+                        if st.form_submit_button("Sil"):
+                            # Verify Admin
+                            adm = run_query("SELECT password FROM users WHERE username=:u AND role='admin'", {"u":st.session_state.user})
+                            if not adm.empty and verify_password(apass, adm.iloc[0]['password']):
+                                run_action("DELETE FROM sales WHERE id=:id", {"id":sid})
+                                st.success(f"Satış #{sid} silindi!")
+                                time.sleep(1); st.rerun()
+                            else:
+                                st.error("Şifrə yanlışdır!")
+                else: st.info("Satış yoxdur")
             
             with tabs[2]:
                 st.markdown("### 📧 CRM")
@@ -695,17 +763,35 @@ else:
                     c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofedir?")
                     if st.form_submit_button("Əlavə Et"):
                         run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
-                st.dataframe(run_query("SELECT * FROM menu"))
+                
+                # Show Menu with Icon
+                m_list = run_query("SELECT * FROM menu ORDER BY category")
+                m_list['is_coffee'] = m_list['is_coffee'].apply(lambda x: "☕" if x else "")
+                st.dataframe(m_list)
+
             with tabs[4]:
                 st.markdown("### ⚙️ Ayarlar")
+                
+                with st.expander("🔐 Şifrə Dəyişmə (Admin/Staff)"):
+                    all_users = run_query("SELECT username FROM users")
+                    sel_user = st.selectbox("İstifadəçi Seç", all_users['username'].tolist())
+                    new_pass = st.text_input("Yeni Şifrə / PIN", type="password")
+                    if st.button("Şifrəni Yenilə"):
+                        run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_user})
+                        st.success("Yeniləndi!")
+
+                with st.expander("👥 Yeni İşçi Yarat"):
+                    nu = st.text_input("Ad (Username)"); np = st.text_input("PIN / Şifrə", type="password"); nr = st.selectbox("Role", ["staff","admin"])
+                    if st.button("Yarat", key="crt_usr"):
+                        try:
+                            run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r)", {"u":nu, "p":hash_password(np), "r":nr})
+                            st.success("OK")
+                        except: st.error("Bu ad artıq var")
+
                 with st.expander("📍 Əlaqə"):
                     na = st.text_input("Ünvan", SHOP_ADDRESS); ni = st.text_input("Instagram", INSTAGRAM_LINK)
                     if st.button("Saxla"): set_config("shop_address", na); set_config("instagram_link", ni); st.success("OK")
-                with st.expander("👥 İşçilər"):
-                    udf = run_query("SELECT username, role FROM users"); st.dataframe(udf)
-                    nu = st.text_input("User"); np = st.text_input("Pass", type="password"); nr = st.selectbox("Role", ["staff","admin"])
-                    if st.button("Yarat", key="crt_usr"):
-                        run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r)", {"u":nu, "p":hash_password(np), "r":nr}); st.success("OK")
+
             with tabs[5]:
                 if st.button("📥 BÜTÜN BAZANI YÜKLƏ (BACKUP)", type="primary"):
                     try:
@@ -715,20 +801,36 @@ else:
                             clean_df_for_excel(run_query("SELECT * FROM sales")).to_excel(writer, sheet_name='Sales')
                         st.download_button("⬇️ Endir", out.getvalue(), f"Backup.xlsx")
                     except Exception as e: st.error(e)
+            
             with tabs[6]:
                 cnt = st.number_input("Say", 1, 50); is_th = st.checkbox("Termos?")
                 if st.button("Yarat"):
                     ids = [str(random.randint(10000000, 99999999)) for _ in range(cnt)]
-                    for i in ids: 
-                        token = secrets.token_hex(8)
-                        run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
-                        if is_th:
-                            run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:i, 'thermos_welcome')", {"i":i})
                     
-                    if cnt == 1:
-                        tkn = run_query("SELECT secret_token FROM customers WHERE card_id=:id", {"id":ids[0]}).iloc[0]['secret_token']
-                        d = generate_custom_qr(f"{APP_URL}/?id={ids[0]}&t={tkn}", ids[0])
-                        st.image(BytesIO(d), width=250); st.download_button("⬇️ Yüklə", d, f"{ids[0]}.png", "image/png")
-                    else: st.success("Hazır!")
+                    # Prepare ZIP if multiple
+                    zip_buffer = BytesIO()
+                    has_multiple = cnt > 1
+                    
+                    with zipfile.ZipFile(zip_buffer, "w") as zf:
+                        for i in ids: 
+                            token = secrets.token_hex(8)
+                            run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :st)", {"i":i, "t":"thermos" if is_th else "standard", "st":token})
+                            if is_th:
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:i, 'thermos_welcome')", {"i":i})
+                            
+                            # Generate Image
+                            img_data = generate_custom_qr(f"{APP_URL}/?id={i}&t={token}", i)
+                            zf.writestr(f"{i}.png", img_data)
+                            
+                            # If single, show on screen too
+                            if not has_multiple:
+                                st.image(BytesIO(img_data), width=250)
+                                single_data = img_data
+
+                    if has_multiple:
+                        st.success(f"{cnt} ədəd QR yaradıldı!")
+                        st.download_button("📥 ZIP Yüklə", zip_buffer.getvalue(), "qrcodes.zip", "application/zip")
+                    else:
+                        st.download_button("⬇️ Yüklə", single_data, f"{ids[0]}.png", "image/png")
 
         elif role == 'staff': render_pos()
