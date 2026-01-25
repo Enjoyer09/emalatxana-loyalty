@@ -16,7 +16,7 @@ import threading
 import base64
 
 # ==========================================
-# === IRONWAVES POS - VERSION 1.0 (FINAL) ===
+# === IRONWAVES POS - VERSION 1.01 (UPDATE) ===
 # ==========================================
 
 # --- INFRASTRUKTUR AYARLARI ---
@@ -205,7 +205,16 @@ LOGO_BASE64 = get_config("shop_logo_base64", "")
 
 # --- HELPERS ---
 def hash_password(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
-def verify_password(p, h): return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
+
+def verify_password(p, h): 
+    # Bcrypt yoxlanışı, əgər düzgün hash deyilsə, adi mətn kimi yoxla (Demo üçün)
+    try:
+        if h.startswith('$2b$'):
+            return bcrypt.checkpw(p.encode(), h.encode())
+        return p == h
+    except:
+        return False
+
 def run_query(q, p=None): return conn.query(q, params=p, ttl=0)
 
 def run_action(q, p=None): 
@@ -630,16 +639,26 @@ else:
 
                 groups = {}
                 for idx, row in enumerate(menu_df.to_dict('records')):
-                    name = row['item_name']; parts = name.split()
-                    if parts[-1] in ['S', 'M', 'L', 'XL']: base = " ".join(parts[:-1]); groups.setdefault(base, []).append(row)
-                    else: groups[name] = [row]
+                    name = row['item_name']
+                    # Anti-crash check: boş adları ötürürük
+                    if not name or not str(name).strip(): continue
+                    
+                    parts = name.split()
+                    if parts and parts[-1] in ['S', 'M', 'L', 'XL']: 
+                        base = " ".join(parts[:-1])
+                        groups.setdefault(base, []).append(row)
+                    else: 
+                        groups[name] = [row]
+                        
                 cols = st.columns(4)
-                for i, (base_name, items) in enumerate(groups.items()):
+                i = 0
+                for base_name, items in groups.items():
                     with cols[i % 4]:
                         if len(items) > 1:
                             if st.button(f"{base_name}\n(Seçim)", key=f"grp_{i}"): show_variants(base_name, items)
                         else:
                             if st.button(f"{fmt_name(items[0])}\n{items[0]['price']}₼", key=f"itm_{items[0]['id']}"): st.session_state.cart.append(items[0]); st.rerun()
+                    i += 1
 
         if role == 'admin':
             tabs = st.tabs(["POS", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
@@ -751,14 +770,67 @@ else:
                 else: st.info("Müştəri yoxdur")
 
             with tabs[3]:
-                with st.form("add"):
-                    c1,c2,c3 = st.columns(3); n=c1.text_input("Ad"); p=c2.number_input("Qiymət"); c=c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"]); cf=st.checkbox("Kofedir?")
-                    if st.form_submit_button("Əlavə Et"):
-                        run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", {"n":n,"p":p,"c":c,"ic":cf}); st.rerun()
+                st.markdown("### 📋 Menyu İdarəetməsi")
                 
-                m_list = run_query("SELECT * FROM menu ORDER BY category")
-                m_list['is_coffee'] = m_list['is_coffee'].apply(lambda x: "☕" if x else "")
-                st.dataframe(m_list)
+                # --- 1. EXCEL YÜKLƏMƏ ---
+                with st.expander("📤 Excel-dən Yüklə (Bulk Import)"):
+                    st.info("Excel sütunları: item_name, price, category, is_coffee")
+                    up_file = st.file_uploader("Excel faylını seçin", type=['xlsx'])
+                    
+                    if up_file and st.button("Faylı Bazaya Yaz"):
+                        try:
+                            df_excel = pd.read_excel(up_file)
+                            req_cols = ['item_name', 'price', 'category']
+                            if not all(col in df_excel.columns for col in req_cols):
+                                st.error(f"Sütunlar çatışmır! Mütləq bunlar olmalıdır: {req_cols}")
+                            else:
+                                count = 0
+                                for _, row in df_excel.iterrows():
+                                    if pd.isna(row['item_name']) or str(row['item_name']).strip() == "": continue
+                                    is_cof = row['is_coffee'] if 'is_coffee' in df_excel.columns else False
+                                    run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n, :p, :c, :ic)",
+                                               {"n": str(row['item_name']), "p": float(row['price']), "c": str(row['category']), "ic": bool(is_cof)})
+                                    count += 1
+                                st.success(f"✅ {count} məhsul uğurla yükləndi!")
+                                time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Xəta: {e}")
+
+                st.divider()
+
+                # --- 2. MANUAL ƏLAVƏ ---
+                st.markdown("#### ➕ Tək-tək Əlavə Et")
+                with st.form("add"):
+                    c1,c2,c3 = st.columns(3)
+                    n = c1.text_input("Ad")
+                    p = c2.number_input("Qiymət", min_value=0.0, step=0.1)
+                    c = c3.selectbox("Kat", ["Qəhvə","İçkilər","Desert"])
+                    cf = st.checkbox("Kofedir? (Ulduz qazandırır)")
+                    
+                    if st.form_submit_button("Əlavə Et"):
+                        if n and n.strip(): 
+                            run_action("INSERT INTO menu (item_name, price, category, is_coffee) VALUES (:n,:p,:c,:ic)", 
+                                      {"n":n,"p":p,"c":c,"ic":cf})
+                            st.success("Əlavə olundu!")
+                            st.rerun()
+                        else:
+                            st.error("Ad boş ola bilməz!")
+                
+                # --- 3. SİYAHI VƏ SİLMƏ ---
+                st.markdown("#### 📜 Mövcud Menyu")
+                m_list = run_query("SELECT * FROM menu ORDER BY category, item_name")
+                
+                if not m_list.empty:
+                    st.dataframe(m_list, use_container_width=True)
+                    del_id = st.selectbox("Silmək istədiyiniz məhsulu seçin:", 
+                                         m_list['id'].astype(str) + " - " + m_list['item_name'], 
+                                         index=None, placeholder="Seçim edin...")
+                    if del_id and st.button("🗑️ Seçiləni Sil", type="primary"):
+                        real_id = del_id.split(" - ")[0]
+                        run_action("DELETE FROM menu WHERE id = :id", {"id": real_id})
+                        st.success("Silindi!")
+                        time.sleep(0.5); st.rerun()
+                else:
+                    st.info("Menyu boşdur.")
 
             with tabs[4]:
                 st.markdown("### ⚙️ Ayarlar")
