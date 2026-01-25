@@ -16,7 +16,7 @@ import threading
 import base64
 
 # ==========================================
-# === IRONWAVES POS - VERSION 1.0.4 (STABLE) ===
+# === IRONWAVES POS - VERSION 1.1.2 (FINAL RULES) ===
 # ==========================================
 
 # --- INFRASTRUKTUR AYARLARI ---
@@ -33,7 +33,8 @@ st.set_page_config(page_title="Ironwaves POS", page_icon="☕", layout="wide", i
 # ==========================================
 st.markdown("""
     <script>
-    function keepAlive() { var xhr = new XMLHttpRequest(); xhr.open("GET", "/", true); xhr.send(); }
+    // Anti-Sleep: Serveri oyaq saxlamaq üçün sakit siqnal
+    function keepAlive() { fetch("/"); }
     setInterval(keepAlive, 30000); 
     </script>
 
@@ -133,6 +134,19 @@ st.markdown("""
     .inner-motivation {
         font-size: 20px; color: #2E7D32; font-family: 'Oswald', sans-serif;
         font-weight: 700; margin-bottom: 10px; text-align: center;
+    }
+
+    /* INSTAGRAM LOGO (FIXED) */
+    .insta-link {
+        display: inline-block;
+        margin-top: 5px;
+        transition: transform 0.2s;
+        animation: pulse-insta 2s infinite;
+    }
+    .insta-link img { width: 24px; height: 24px; } 
+    .insta-link:hover { transform: scale(1.1); }
+    @keyframes pulse-insta {
+        0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); }
     }
     
     /* STATUS İŞIQLARI */
@@ -341,15 +355,35 @@ if "id" in query_params:
         if not user['is_active']:
             st.warning(f"🎉 {SHOP_NAME}-a Xoş Gəldiniz!")
             with st.form("act"):
-                em = st.text_input("📧 Email"); dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
+                em = st.text_input("📧 Email")
+                dob = st.date_input("🎂 Doğum Tarixi", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 gender = st.radio("Cinsiyyət:", ["Kişi", "Qadın", "Qeyd etmirəm"], horizontal=True)
-                agree = st.checkbox("Qaydalarla razıyam")
+                
+                # --- QAYDALAR HİSSƏSİ (FINAL - v1.1.2) ---
+                with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
+                    st.markdown(f"""
+                    <div style="font-size:14px; color:#333; line-height: 1.6;">
+                        <b>1. Sadiqlik Proqramı:</b> Bu rəqəmsal kartla həyata keçirilən hər kofe alış-verişi zamanı bonus (ulduz) toplayır və eksklüziv hədiyyələr əldə edirsiniz.<br>
+                        <b>2. Bonus Hesablanması:</b> Hər <b>tam qiymətli</b> (endirimsiz) kofe alışı = 1 Ulduz. Endirimli, kampaniya çərçivəsində və ya kuponla alınan məhsullarda ulduz hesablanmır.<br>
+                        <b>3. Hədiyyə Sistemi:</b> Balansda 9 ulduz toplandıqda, növbəti kofe "Emalatxana" tərəfindən ödənişsiz (HƏDİYYƏ) təqdim olunur. ☕<br>
+                        <b>4. EKO-TERM Klubu:</b> "Emalatxana" termosu əldə edən müştərilərə ilk kofe hədiyyə edilir. Növbəti ziyarətlərdə termosun üzərindəki QR kodu skan etdikdə, bütün kofe sifarişlərinə <b>daimi 20% ekoloji endirim</b> tətbiq olunur.<br>
+                        <b>5. Ağıllı Endirim Siyasəti:</b> Eyni anda bir neçə endirim imkanı mövcud olduqda, sistem avtomatik alqoritm vasitəsilə <b>Müştəri üçün ən sərfəli olan (ən yüksək endirimli)</b> variantı seçir və tətbiq edir.<br>
+                        <b>6. Məxfilik Siyasəti və Şərtlərin Dəyişdirilməsi:</b> İstifadəçinin şəxsi məlumatları yalnız fərdi kampaniyalar və xidmət keyfiyyətinin artırılması məqsədilə istifadə olunur. Bu məlumatların üçüncü tərəflərə ötürülməsi qəti qadağandır. İstifadəçi istənilən vaxt məlumatlarının bazadan silinməsini tələb etmək hüququna malikdir.<br><br>
+                        <b>7. Kuponların Müddəti və Təsdiqləmə:</b> Kampaniyalar çərçivəsində təqdim olunan endirim və kuponlar <b>7 gün (1 həftə)</b> müddətində etibarlıdır. "Ad Günü" hədiyyəsi isə yalnız doğum günündə (<b>1 gün</b>) aktiv olur. Ad günü hədiyyəsinin təqdim edilməsi zamanı "Emalatxana" əməkdaşı tərəfindən tarixin dəqiqləşdirilməsi məqsədilə <b>şəxsiyyət vəsiqəsi tələb edilə bilər.</b><br><br>
+                        <i>"Emalatxana" bu Qaydalar və İstifadəçi Razılaşmasına birtərəfli qaydada dəyişiklik etmək hüququnu özündə saxlayır. Hər hansı yenilik barədə İstifadəçiyə <b>e-mail</b> vasitəsilə bildiriş göndəriləcək. Bildirişdən sonra xidmətdən istifadəyə davam edilməsi, yeni şərtlərin <b>avtomatik və qeyd-şərtsiz qəbul edildiyi</b> anlamına gəlir.</i>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
+                
                 if st.form_submit_button("Qeydiyyatı Tamamla"):
                     if agree and em:
                         g_code = "M" if gender=="Kişi" else "F" if gender=="Qadın" else "U"
                         run_action("UPDATE customers SET email=:e, birth_date=:b, gender=:g, is_active=TRUE WHERE card_id=:i", 
                                    {"e":em, "b":dob.strftime("%Y-%m-%d"), "g":g_code, "i":card_id})
                         st.balloons(); st.rerun()
+                    else:
+                        st.error("Zəhmət olmasa email yazın və qaydaları qəbul edin.")
             st.stop()
 
         st.markdown(f"<div class='inner-motivation'>{get_random_quote()}</div>", unsafe_allow_html=True)
@@ -796,10 +830,7 @@ else:
                 with st.expander("🔐 Şifrə Dəyişmə (Admin/Staff)"):
                     all_users = run_query("SELECT username FROM users")
                     sel_user = st.selectbox("İstifadəçi Seç", all_users['username'].tolist())
-                    
-                    # DÜZƏLDİLMİŞ SƏTİR:
                     new_pass = st.text_input("Yeni Şifrə / PIN", type="password")
-                    
                     if st.button("Şifrəni Yenilə"):
                         run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_user})
                         st.success("Yeniləndi!")
