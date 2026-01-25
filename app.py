@@ -15,6 +15,10 @@ import secrets
 import threading
 import base64
 
+# ==========================================
+# === IRONWAVES POS - VERSION 1.0 (FINAL) ===
+# ==========================================
+
 # --- INFRASTRUKTUR AYARLARI ---
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 DOMAIN = "emalatxana.ironwaves.store" 
@@ -22,13 +26,14 @@ APP_URL = f"https://{DOMAIN}"
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store" 
 
 # --- SƏHİFƏ AYARLARI ---
-st.set_page_config(page_title="Emalatxana POS", page_icon="☕", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Ironwaves POS", page_icon="☕", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# === DİZAYN KODLARI (CSS) ===
+# === DİZAYN KODLARI (CSS & JS) ===
 # ==========================================
 st.markdown("""
     <script>
+    // KeepAlive: Serveri və Bazanı oyaq saxlamaq üçün hər 30 saniyədən bir sorğu
     function keepAlive() { var xhr = new XMLHttpRequest(); xhr.open("GET", "/", true); xhr.send(); }
     setInterval(keepAlive, 30000); 
     </script>
@@ -176,7 +181,6 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS cashier TEXT;"))
         except: pass
         
-        # ***FIX: QR KOD YENİLƏNMƏSİ LƏĞV EDİLDİ (SABİT TOKEN)***
         s.commit()
 ensure_schema()
 
@@ -197,8 +201,6 @@ SHOP_NAME = get_config("shop_name", "Emalatxana Coffee")
 SHOP_ADDRESS = get_config("shop_address", "Bakı şəhəri")
 SHOP_PHONE = get_config("shop_phone", "+994 50 000 00 00")
 INSTAGRAM_LINK = get_config("instagram_link", "https://instagram.com")
-FACEBOOK_LINK = get_config("facebook_link", "")
-YOUTUBE_LINK = get_config("youtube_link", "")
 LOGO_BASE64 = get_config("shop_logo_base64", "")
 
 # --- HELPERS ---
@@ -216,16 +218,6 @@ def run_action(q, p=None):
         p = new_p
     with conn.session as s: s.execute(text(q), p); s.commit()
     return True
-
-def process_logo_upload(uploaded_file):
-    if uploaded_file is not None:
-        try:
-            image = Image.open(uploaded_file)
-            buffered = BytesIO()
-            image.save(buffered, format="PNG")
-            return base64.b64encode(buffered.getvalue()).decode()
-        except: return None
-    return None
 
 def clean_df_for_excel(df):
     for col in df.select_dtypes(include=['datetime64[ns, UTC]', 'datetime64[ns]']).columns:
@@ -249,7 +241,7 @@ def send_email(to_email, subject, body):
         "from": f"{SHOP_NAME} <{DEFAULT_SENDER_EMAIL}>",
         "to": [to_email],
         "subject": subject,
-        "reply_to": "taliyev.abbas84@gmail.com",
+        "reply_to": "info@ironwaves.store",
         "html": f"<div style='font-family:Arial; padding:20px; color:#333; border:1px solid #eee; border-radius:10px;'><h2>{SHOP_NAME}</h2><hr><p>{body.replace(chr(10), '<br>')}</p></div>"
     }
     try:
@@ -326,7 +318,6 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 if 'current_customer' not in st.session_state: st.session_state.current_customer = None
 if 'pos_category' not in st.session_state: st.session_state.pos_category = "Qəhvə"
 if 'active_coupon' not in st.session_state: st.session_state.active_coupon = None
-if 'scan_input' not in st.session_state: st.session_state.scan_input = ""
 
 # ===========================
 # === 1. MÜŞTƏRİ EKRANI ===
@@ -342,10 +333,9 @@ if "id" in query_params:
 
     if not df.empty:
         user = df.iloc[0]
-        # TOKEN CHECK (CRITICAL: ALLOWING OLD TOKENS TO WORK)
+        # Token yoxlanışı (Yalnız xəbərdarlıq)
         if user['secret_token'] and token and user['secret_token'] != token:
             st.warning("⚠️ QR kod köhnəlib, amma girişə icazə verildi. Xahiş olunur kassadan yeni QR istəyin.")
-            # st.stop() # REMOVED TO PREVENT LOCKOUT
 
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
@@ -566,16 +556,9 @@ else:
                         with conn.session as s:
                             if curr:
                                 ns = int(curr['stars'])
-                                used_welcome = False
-                                if st.session_state.active_coupon:
-                                    cp_type = st.session_state.active_coupon['type']
-                                    if 'thermos_welcome' in cp_type or 'Xoşgəldin' in cp_type: 
-                                        used_welcome = True
-
-                                if coffs > 0:
-                                    if st.session_state.active_coupon: pass # Coupon used -> No star
-                                    elif ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
-                                    else: ns += 1
+                                if st.session_state.active_coupon: pass 
+                                elif ns >= 9 and any(x.get('is_coffee') for x in st.session_state.cart): ns = 0
+                                else: ns += 1
                                 
                                 s.execute(text("UPDATE customers SET stars=:s, last_visit=NOW() WHERE card_id=:id"), {"s":ns, "id":curr['card_id']})
                                 if st.session_state.active_coupon: 
@@ -587,6 +570,7 @@ else:
                         st.success("OK!"); st.session_state.cart = []; st.session_state.current_customer = None; st.session_state.active_coupon = None; time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
             
+            # --- STAFF ANALYTICS ---
             with layout_col2:
                 with st.expander("📊 Mənim Satışlarım (Analitika)"):
                     sf_mode = st.radio("Rejim:", ["Günlük", "Aylıq", "Aralıq"], horizontal=True, key="s_mode")
