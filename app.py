@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === IRONWAVES POS - V4.2 (CUSTOM UI) ===
+# === IRONWAVES POS - V4.3 (STAFF FILTER) ===
 # ==========================================
 
-VERSION = "v4.2 PRO (UI Toggle)"
+VERSION = "v4.3 PRO (Staff Filters)"
 
 # --- INFRA ---
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -228,7 +228,7 @@ def calculate_smart_total(cart, customer=None, is_table=False):
             
     return total, discounted_total, coffee_discount_rate, free_coffees_to_apply, total_star_pool, service_charge
 
-# --- SMART ADD ---
+# --- SMART ADD (AGGREGATION) ---
 def add_to_cart(cart_ref, item):
     try:
         r = run_query("SELECT printer_target, price_half FROM menu WHERE item_name=:n", {"n":item['item_name']})
@@ -489,19 +489,61 @@ def admin_auth_dialog(item_idx):
 
 # --- RENDERERS ---
 def render_analytics(is_admin=False):
-    tabs = st.tabs(["Satışlar", "Xərclər", "Loglar", "Void Report"])
+    # DYNAMIC TABS FOR STAFF VS ADMIN
+    tab_list = ["Satışlar"]
+    if is_admin: tab_list.extend(["Xərclər", "Loglar", "Void Report"])
+    
+    tabs = st.tabs(tab_list)
+    
+    # 1. SALES TAB (FILTERED)
     with tabs[0]:
-        sales = run_query("SELECT id, created_at, items, total, payment_method, cashier, customer_card_id FROM sales ORDER BY created_at DESC")
-        st.dataframe(sales, hide_index=True, use_container_width=True)
-        if is_admin and st.button("📩 Günlük Hesabatı Emailə Göndər"):
-            today_sales = sales[sales['created_at'].dt.date == get_baku_now().date()]
-            total_today = today_sales['total'].sum()
-            body = f"<h1>Günlük Hesabat</h1><p>Tarix: {get_baku_now().date()}</p><h3>Ümumi Satış: {total_today:.2f} ₼</h3>"
-            res = send_email(DEFAULT_SENDER_EMAIL, "Günlük Hesabat", body) 
-            if res == "OK": st.success("Göndərildi!")
-            else: st.error(res)
+        c_filt, c_sum = st.columns([2, 1])
+        with c_filt:
+            ft = st.selectbox("Filtr", ["Bu Gün", "Bu Ay", "Tarix Aralığı"], label_visibility="collapsed")
+        
+        # Base Query
+        base_sql = "SELECT id, created_at, items, total, payment_method, cashier, customer_card_id FROM sales"
+        p = {}
+        
+        # Apply User Filter for Staff
+        if not is_admin:
+            base_sql += " WHERE cashier = :u"
+            p['u'] = st.session_state.user
+        
+        base_sql += " ORDER BY created_at DESC"
+        df = run_query(base_sql, p)
+        
+        # Apply Date Filter (Pandas)
+        if not df.empty:
+            df['created_at'] = pd.to_datetime(df['created_at'])
+            now = get_baku_now()
+            
+            if ft == "Bu Gün":
+                df = df[df['created_at'].dt.date == now.date()]
+            elif ft == "Bu Ay":
+                df = df[(df['created_at'].dt.month == now.month) & (df['created_at'].dt.year == now.year)]
+            elif ft == "Tarix Aralığı":
+                c_d1, c_d2 = st.columns(2)
+                d1 = c_d1.date_input("Başlanğıc")
+                d2 = c_d2.date_input("Bitmə")
+                if d1 and d2:
+                    df = df[(df['created_at'].dt.date >= d1) & (df['created_at'].dt.date <= d2)]
+            
+            # Show Metric
+            with c_sum:
+                st.metric("Dövriyyə", f"{df['total'].sum():.2f} ₼")
+                
+            st.dataframe(df, hide_index=True, use_container_width=True)
+            
+            if is_admin and st.button("📩 Hesabatı Emailə Göndər"):
+                body = f"<h1>Satış Hesabatı ({ft})</h1><h3>Cəm: {df['total'].sum():.2f} ₼</h3>"
+                res = send_email(DEFAULT_SENDER_EMAIL, "Satış Hesabatı", body)
+                if res == "OK": st.success("Göndərildi!")
+        else:
+            st.info("Məlumat tapılmadı")
 
-    if is_admin and len(tabs)>1:
+    # 2. ADMIN TABS
+    if is_admin and len(tabs) > 1:
         with tabs[1]:
             st.markdown("### 💰 Xərclər")
             expenses = run_query("SELECT * FROM expenses ORDER BY created_at DESC")
@@ -720,14 +762,8 @@ def render_menu_grid(cart_ref, key_prefix):
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
     
-    sql = "SELECT id, item_name, price, is_coffee FROM menu WHERE is_active=TRUE"
-    p = {}
-    if sc != "Hamısı": 
-        sql += " AND category=:c"
-        p["c"] = sc
-    sql += " ORDER BY price ASC"
-    
-    prods = run_query(sql, p)
+    sql = "SELECT * FROM menu WHERE is_active=TRUE AND category=:c ORDER BY price ASC"; 
+    prods = run_query(sql, {"c":sc}) if sc != "Hamısı" else run_query("SELECT * FROM menu WHERE is_active=TRUE")
 
     if not prods.empty:
         gr = {}
@@ -811,6 +847,7 @@ else:
     role = st.session_state.role
     
     if role == 'admin':
+        # DYNAMIC ADMIN TABS
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "📜 Resept", "Analitika", "CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
         with tabs[0]: render_takeaway()
         with tabs[1]: render_tables_main()
