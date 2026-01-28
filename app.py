@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V4.8.1 (GOLDEN RELEASE) ===
+# === EMALATKHANA POS - V4.8.2 (BACKUP FIX) ===
 # ==========================================
 
-VERSION = "v4.8.1 PRO (GOLDEN RELEASE)"
+VERSION = "v4.8.2 PRO (Backup Fixed)"
 BRAND_NAME = "Emalatkhana Daily Coffee and Drinks"
 
 # --- INFRA ---
@@ -155,11 +155,9 @@ def ensure_schema():
         s.commit()
     
     # --- PASSWORD RESCUE MISSION ---
-    # This block forces 'admin' password to 'admin123' on restart
     with conn.session as s:
         try:
             p_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
-            # If admin exists, UPDATE. If not, INSERT.
             s.execute(text("""
                 INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin')
                 ON CONFLICT (username) DO UPDATE SET password = :p
@@ -187,6 +185,14 @@ def run_action(q, p=None):
         p = new_p
     with conn.session as s: s.execute(text(q), p); s.commit()
     return True
+
+# --- NEW HELPER FOR BACKUP (FIXED) ---
+def clean_df_for_excel(df):
+    for col in df.select_dtypes(include=['datetime64[ns, UTC]', 'datetime64[ns]']).columns:
+        df[col] = df[col].astype(str)
+    return df
+# -------------------------------------
+
 def hash_password(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
 def verify_password(p, h): 
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
