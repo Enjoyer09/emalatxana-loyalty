@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V4.7 (MANAGER ROLE) ===
+# === EMALATKHANA POS - V4.8 (SECURITY & SPEED) ===
 # ==========================================
 
-VERSION = "v4.7 PRO (Manager & User Delete)"
+VERSION = "v4.8 PRO (Security Shield)"
 BRAND_NAME = "Emalatkhana Daily Coffee and Drinks"
 
 # --- INFRA ---
@@ -110,7 +110,8 @@ try:
     conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
-# --- SCHEMA ---
+# --- SCHEMA (CACHED FOR PERFORMANCE) ---
+@st.cache_resource
 def ensure_schema():
     with conn.session as s:
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
@@ -129,6 +130,8 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS coupon_templates (id SERIAL PRIMARY KEY, name TEXT, percent INTEGER, days_valid INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS void_logs (id SERIAL PRIMARY KEY, item_name TEXT, qty INTEGER, reason TEXT, deleted_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        # V4.8 NEW: FAILED LOGINS
+        s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
 
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_card_id TEXT;"))
         except: pass
@@ -151,6 +154,8 @@ def ensure_schema():
         if res[0] == 0:
             for i in range(1, 7): s.execute(text("INSERT INTO tables (label, is_occupied) VALUES (:l, FALSE)"), {"l": f"MASA {i}"})
         s.commit()
+    
+    # SELF-HEALING ADMIN
     with conn.session as s:
         try:
             chk = s.execute(text("SELECT * FROM users WHERE username='admin'")).fetchone()
@@ -159,7 +164,9 @@ def ensure_schema():
                 s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin')"), {"p": p_hash})
                 s.commit()
         except: s.rollback()
-ensure_schema()
+    return True
+
+ensure_schema() # Called once and cached
 
 # --- HELPERS ---
 def get_baku_now(): return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=4))).replace(tzinfo=None)
@@ -217,6 +224,38 @@ def send_email(to_email, subject, body):
 def format_qty(val):
     if val % 1 == 0: return int(val)
     return val
+
+# --- LOGIN SECURITY HELPERS (V4.8) ---
+def check_login_block(username):
+    # Returns (is_blocked, minutes_left)
+    try:
+        row = run_query("SELECT attempt_count, blocked_until FROM failed_logins WHERE username=:u", {"u":username})
+        if not row.empty:
+            data = row.iloc[0]
+            if data['blocked_until'] and data['blocked_until'] > get_baku_now():
+                delta = data['blocked_until'] - get_baku_now()
+                return True, int(delta.total_seconds() // 60) + 1
+    except: pass
+    return False, 0
+
+def register_failed_login(username):
+    now = get_baku_now()
+    try:
+        row = run_query("SELECT attempt_count FROM failed_logins WHERE username=:u", {"u":username})
+        if row.empty:
+            run_action("INSERT INTO failed_logins (username, attempt_count, last_attempt) VALUES (:u, 1, :t)", {"u":username, "t":now})
+        else:
+            new_count = row.iloc[0]['attempt_count'] + 1
+            blocked_until = None
+            if new_count >= 5: # 5 ATTEMPTS LIMIT
+                blocked_until = now + datetime.timedelta(minutes=5)
+            run_action("UPDATE failed_logins SET attempt_count=:c, last_attempt=:t, blocked_until=:b WHERE username=:u", 
+                       {"c":new_count, "t":now, "b":blocked_until, "u":username})
+    except: pass
+
+def clear_failed_login(username):
+    try: run_action("DELETE FROM failed_logins WHERE username=:u", {"u":username})
+    except: pass
 
 # --- SMART CALCULATION ENGINE ---
 def calculate_smart_total(cart, customer=None, is_table=False):
@@ -413,6 +452,7 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
+            # KOT Logic Color
             items = json.loads(row['items']) if row['items'] else []
             has_unsent = any(x.get('status') == 'new' for x in items)
             is_occ = row['is_occupied']
@@ -538,11 +578,7 @@ def admin_auth_dialog(item_idx=None, sale_to_delete=None):
             st.error("Səbəb yazmalısınız!")
             return
 
-        # V4.7: Check if user is admin OR manager
-        # Only admin can delete SALES. Manager can only void ITEMS.
         target_roles = ['admin'] if sale_to_delete else ['admin', 'manager']
-        
-        # Build query for multiple roles
         role_ph = ",".join([f"'{r}'" for r in target_roles])
         approvers = run_query(f"SELECT password, role FROM users WHERE role IN ({role_ph})")
         
@@ -556,12 +592,12 @@ def admin_auth_dialog(item_idx=None, sale_to_delete=None):
                 break
         
         if approved:
-            if sale_to_delete: # DELETE SALE MODE (Admin Only)
+            if sale_to_delete: 
                 s_info = run_query("SELECT * FROM sales WHERE id=:id", {"id":int(sale_to_delete)}).iloc[0]
                 run_action("DELETE FROM sales WHERE id=:id", {"id":int(sale_to_delete)})
                 log_system(st.session_state.user, f"Deleted Sale #{sale_to_delete} ({s_info['total']} AZN). Reason: {reason} (Auth: {approver_role})")
                 st.success("Satış silindi!"); st.rerun()
-            else: # VOID ITEM MODE (Admin or Manager)
+            else: 
                 item = st.session_state.cart_table[item_idx]
                 run_action("INSERT INTO void_logs (item_name, qty, reason, deleted_by, created_at) VALUES (:n, :q, :r, :u, :t)", 
                            {"n":item['item_name'], "q":item['qty'], "r":reason, "u":f"{st.session_state.user} (by {approver_role})", "t":get_baku_now()})
@@ -572,8 +608,6 @@ def admin_auth_dialog(item_idx=None, sale_to_delete=None):
             st.error(f"Səhv PIN! ({'Admin' if sale_to_delete else 'Admin/Manager'} tələb olunur)")
 
 def render_analytics(is_admin=False, is_manager=False):
-    # V4.7: Tab Logic for Manager
-    # Manager sees Sales, Expenses, Logs, Voids. BUT cannot delete Sales.
     tab_list = ["Satışlar"]
     if is_admin or is_manager: tab_list.extend(["Xərclər", "Loglar", "Void Report"])
     tabs = st.tabs(tab_list)
@@ -585,7 +619,6 @@ def render_analytics(is_admin=False, is_manager=False):
         
         base_sql = "SELECT id, created_at, items, total, payment_method, cashier, customer_card_id FROM sales"
         p = {}
-        # Admin and Manager see ALL sales. Staff sees only OWN.
         if not (is_admin or is_manager):
             base_sql += " WHERE cashier = :u"
             p['u'] = st.session_state.user
@@ -611,7 +644,6 @@ def render_analytics(is_admin=False, is_manager=False):
             with c_sum:
                 st.metric("Dövriyyə", f"{df['total'].sum():.2f} ₼")
             
-            # DELETE SALE UI (ADMIN ONLY - Manager cannot delete sales)
             if is_admin:
                 df_editor = df.copy()
                 df_editor.insert(0, "Seç", False)
@@ -637,9 +669,6 @@ def render_analytics(is_admin=False, is_manager=False):
             expenses = run_query("SELECT * FROM expenses ORDER BY created_at DESC")
             expenses.insert(0, "Seç", False)
             edited = st.data_editor(expenses, hide_index=True, use_container_width=True)
-            # Only Admin can delete expenses? Let's allow Manager to delete expenses they made or just view/add?
-            # User said "Xərclər - görsün". Usually managers add expenses (daily shopping).
-            # Admin can delete.
             if is_admin:
                 to_del = edited[edited['Seç']]['id'].tolist()
                 if to_del and st.button(f"Seçilənləri Sil ({len(to_del)})"):
@@ -672,33 +701,51 @@ def render_analytics(is_admin=False, is_manager=False):
 if not st.session_state.logged_in:
     c1, c2, c3 = st.columns([1,1,1])
     with c2:
-        # LOGIN HEADER
         st.markdown(f"<h1 style='text-align:center; color:#2E7D32;'>{BRAND_NAME}</h1><h5 style='text-align:center; color:#777;'>{VERSION}</h5>", unsafe_allow_html=True)
         tabs = st.tabs(["İŞÇİ (STAFF)", "İDARƏETMƏ (ADMIN/MANAGER)"])
         with tabs[0]:
             with st.form("staff_login"):
                 pin = st.text_input("PIN", type="password"); 
                 if st.form_submit_button("Giriş", use_container_width=True):
+                    is_blocked, mins = check_login_block(pin) # Naive check by PIN string usage
+                    if is_blocked: st.error(f"Çox sayda uğursuz cəhd. {mins} dəqiqə gözləyin."); st.stop()
+                    
                     udf = run_query("SELECT * FROM users WHERE role='staff'")
                     found = False
                     for _, row in udf.iterrows():
                         if verify_password(pin, row['password']):
+                            clear_failed_login(row['username'])
                             st.session_state.logged_in=True; st.session_state.user=row['username']; st.session_state.role='staff'
                             tok=secrets.token_urlsafe(16); run_action("INSERT INTO active_sessions (token,username,role,created_at) VALUES (:t,:u,:r,:time)", {"t":tok,"u":row['username'],"r":'staff',"time":get_baku_now()})
                             log_system(row['username'], "Login (Staff)"); st.query_params["token"] = tok; st.rerun(); found=True; break
-                    if not found: st.error("Yanlış PIN!")
+                    
+                    if not found:
+                        st.error("Yanlış PIN!")
+                        # Note: We can't easily block by PIN since multiple users might try. 
+                        # Blocking logic applies better to usernames. For staff PINs, we just sleep.
+                        time.sleep(2)
+
         with tabs[1]:
             with st.form("admin_login"):
                 u = st.text_input("İstifadəçi"); p = st.text_input("Şifrə/PIN", type="password")
                 if st.form_submit_button("Daxil Ol", use_container_width=True):
-                    # V4.7: Allow both Admin and Manager login here
+                    is_blocked, mins = check_login_block(u)
+                    if is_blocked: st.error(f"Hesab bloklanıb. {mins} dəqiqə gözləyin."); st.stop()
+
                     udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u) AND role IN ('admin', 'manager')", {"u":u})
-                    if not udf.empty and verify_password(p, udf.iloc[0]['password']):
-                        role_found = udf.iloc[0]['role']
-                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=role_found
-                        tok=secrets.token_urlsafe(16); run_action("INSERT INTO active_sessions (token,username,role,created_at) VALUES (:t,:u,:r,:time)", {"t":tok,"u":u,"r":role_found,"time":get_baku_now()})
-                        log_system(u, f"Login ({role_found})"); st.query_params["token"] = tok; st.rerun()
-                    else: st.error("Səhv Məlumat!")
+                    if not udf.empty:
+                        row = udf.iloc[0]
+                        if verify_password(p, row['password']):
+                            clear_failed_login(u)
+                            st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=row['role']
+                            tok=secrets.token_urlsafe(16); run_action("INSERT INTO active_sessions (token,username,role,created_at) VALUES (:t,:u,:r,:time)", {"t":tok,"u":u,"r":row['role'],"time":get_baku_now()})
+                            log_system(u, f"Login ({row['role']})"); st.query_params["token"] = tok; st.rerun()
+                        else:
+                            register_failed_login(u)
+                            st.error("Səhv Məlumat!")
+                    else:
+                        st.error("Səhv Məlumat!") # Don't reveal user existence
+                        time.sleep(1)
 else:
     h1, h2, h3 = st.columns([4, 1, 1])
     with h1: st.markdown(f"**👤 {st.session_state.user}** | {st.session_state.role.upper()}")
@@ -940,7 +987,7 @@ else:
                 st.markdown("**🔐 Şifrə Dəyişmə & İstifadəçilər**")
                 all_users = run_query("SELECT username, role FROM users")
                 
-                # --- V4.7: DELETE USER ---
+                # --- DELETE USER ---
                 with st.expander("🗑️ İstifadəçi Sil (Təhlükəli)", expanded=False):
                     user_to_del = st.selectbox("Silinəcək İstifadəçi", all_users['username'].tolist(), key="u_del_sel")
                     if user_to_del != "admin": # Protect main admin
@@ -971,7 +1018,7 @@ else:
                 log_system(st.session_state.user, "Requested Full Backup")
                 out = BytesIO()
                 with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                    for t in ["customers", "sales", "menu", "users", "ingredients", "recipes", "system_logs", "tables", "expenses", "void_logs", "feedbacks"]:
+                    for t in ["customers", "sales", "menu", "users", "ingredients", "recipes", "system_logs", "tables", "expenses", "void_logs", "feedbacks", "failed_logins"]:
                         clean_df_for_excel(run_query(f"SELECT * FROM {t}")).to_excel(writer, sheet_name=t.capitalize())
                 st.download_button("⬇️ Endir", out.getvalue(), "Backup.xlsx")
             st.divider()
