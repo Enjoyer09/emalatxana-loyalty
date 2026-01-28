@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V4.6.2 (FUNCTION ORDER FIX) ===
+# === EMALATKHANA POS - V4.6.3 (SCHEMA DOCTOR) ===
 # ==========================================
 
-VERSION = "v4.6.2 PRO (Stable)"
+VERSION = "v4.6.3 PRO (Schema Fix)"
 BRAND_NAME = "Emalatkhana Daily Coffee and Drinks"
 
 # --- INFRA ---
@@ -138,7 +138,12 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS price_half DECIMAL(10,2);"))
         except: pass
+        # FIXED HERE: Ensure all recipe columns exist
         try: s.execute(text("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS ingredient_name TEXT;"))
+        except: pass
+        try: s.execute(text("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS menu_item_name TEXT;"))
+        except: pass
+        try: s.execute(text("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS quantity_required DECIMAL(10,2);"))
         except: pass
         try: s.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_feedback_star_count INTEGER DEFAULT 0;"))
         except: pass
@@ -251,7 +256,7 @@ def calculate_smart_total(cart, customer=None, is_table=False):
             
     return total, discounted_total, coffee_discount_rate, free_coffees_to_apply, total_star_pool, service_charge
 
-# --- SMART ADD (AGGREGATION) ---
+# --- RENDERERS (MOVED UP) ---
 def add_to_cart(cart_ref, item):
     try:
         r = run_query("SELECT printer_target, price_half FROM menu WHERE item_name=:n", {"n":item['item_name']})
@@ -271,7 +276,6 @@ def add_to_cart(cart_ref, item):
             return
     cart_ref.append(item)
 
-# --- PORTION TOGGLE ---
 def toggle_portion(idx):
     item = st.session_state.cart_table[idx]
     if item['qty'] == 1.0:
@@ -282,144 +286,6 @@ def toggle_portion(idx):
         item['qty'] = 1.0
         r = run_query("SELECT price FROM menu WHERE item_name=:n", {"n":item['item_name']})
         if not r.empty: item['price'] = float(r.iloc[0]['price'])
-
-# --- 1. MÜŞTƏRİ PORTALI ---
-qp = st.query_params
-if "id" in qp:
-    card_id = qp["id"]
-    c1, c2, c3 = st.columns([1,2,1])
-    with c2: 
-        # BRAND HEADER
-        st.markdown(f"<h2 style='text-align:center; color:#2E7D32; font-weight:bold;'>{BRAND_NAME}</h2>", unsafe_allow_html=True)
-    
-    user_df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
-    if not user_df.empty:
-        user = user_df.iloc[0]
-        
-        # MOTIVATION
-        quotes = [
-            "Bu gün əla görünürsən! ☕", "Uğur bir fincan kofe ilə başlayır.", 
-            "Gülüşün günümüzü işıqlandırır.", "Kofe bəhanə, söhbət şahanə.", 
-            "Enerjini topla, dünyanı fəth et!", "Sənin kofen, sənin qaydaların."
-        ]
-        st.markdown(f"<div class='motivation-text'>{random.choice(quotes)}</div>", unsafe_allow_html=True)
-
-        if not user['is_active']:
-            st.info("🎉 Xoş gəlmisiniz! Qeydiyyatı tamamlayın.")
-            with st.form("act_form"):
-                em = st.text_input("Email"); dob = st.date_input("Doğum Tarixi", min_value=datetime.date(1950,1,1))
-                st.markdown("### 📜 İstifadəçi Razılaşması")
-                with st.expander("Qaydaları Oxumaq üçün Toxunun"):
-                    st.markdown(f"""
-                    **İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ**
-
-                    **1. Ümumi Müddəalar**
-                    Bu loyallıq proqramı **"{BRAND_NAME}"** sistemi vasitəsilə idarə olunur. Qeydiyyatdan keçməklə siz aşağıdakı şərtləri qəbul etmiş olursunuz.
-
-                    **2. Bonuslar, Hədiyyələr və Endirim Siyasəti**
-                    2.1. Toplanılan ulduzlar və bonuslar heç bir halda nağd pula çevrilə, başqa hesaba köçürülə və ya qaytarıla bilməz.
-                    2.2. **Şəxsiyyətin Təsdiqi:** Ad günü və ya xüsusi kampaniya hədiyyələrinin təqdim edilməsi zamanı, sui-istifadə hallarınin qarşısını almaq və təvəllüdü dəqiqləşdirmək məqsədilə, şirkət əməkdaşı müştəridən şəxsiyyət vəsiqəsini təqdim etməsini tələb etmək hüququna malikdir. Sənəd təqdim edilmədikdə hədiyyə verilməyə bilər.
-                    2.3. **Endirimlərin Tətbiq Sahəsi:** Nəzərinizə çatdırırıq ki, **"{BRAND_NAME}"** loyallıq proqramı çərçivəsində təqdim olunan bütün növ imtiyazlar (o cümlədən "Ekoloji Termos" endirimi, xüsusi promo-kodlar və faizli endirim kartları) **müstəsna olaraq kofe və kofe əsaslı içkilərə şamil edilir.** Şirniyyatlar, qablaşdırılmış qida məhsulları və digər soyuq içkilər endirim siyasətindən xaricdir. Sizin kofe həzzinizi daha əlçatan etmək üçün çalışırıq!
-
-                    **3. Dəyişikliklər və İmtina Hüququ**
-                    3.1. Şirkət, bu razılaşmanın şərtlərini dəyişdirmək hüququnu özündə saxlayır.
-                    3.2. **Bildiriş:** Şərtlərdə əsaslı dəyişikliklər edildiyi təqdirdə, qeydiyyatlı e-poçt ünvanınıza bildiriş göndəriləcək.
-                    3.3. **İmtina:** Əgər yeni şərtlərlə razılaşmırsınızsa, sistemdən qeydiyyatınızın və fərdi məlumatlarınızın silinməsini tələb etmək hüququnuz var.
-
-                    **4. Məxfilik**
-                    4.1. Sizin məlumatlarınız (Email, Doğum tarixi) üçüncü tərəflə paylaşılmır və yalnız xidmət keyfiyyətinin artırılması üçün istifadə olunur.
-                    """)
-                agree = st.checkbox("Şərtləri qəbul edirəm")
-                if st.form_submit_button("Tamamla"):
-                    if agree:
-                        run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob, "i":card_id})
-                        st.success("Hazırdır!"); st.rerun()
-                    else: st.error("Qaydaları qəbul etməlisiniz.")
-            st.stop()
-        
-        # BALANCE CARD
-        st.markdown(f"<div class='cust-card'><h4 style='margin:0; color:#888;'>BALANS</h4><h1 style='color:#2E7D32; font-size: 48px; margin:0;'>{user['stars']} / 10</h1><p style='color:#555;'>ID: {card_id}</p></div>", unsafe_allow_html=True)
-        html_grid = '<div class="coffee-grid">'
-        for i in range(10):
-            icon_url = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
-            cls = "coffee-icon"; style = ""
-            if i == 9: 
-                icon_url = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png"
-                if user['stars'] >= 10: style="opacity:1; filter:none; animation: bounce 1s infinite;"
-            elif i < user['stars']: style="opacity:1; filter:none;"
-            html_grid += f'<img src="{icon_url}" class="{cls}" style="{style}">'
-        html_grid += '</div>'
-        st.markdown(html_grid, unsafe_allow_html=True)
-        
-        # --- FEEDBACK LOGIC ---
-        last_fb = user.get('last_feedback_star_count', 0) or 0
-        current_stars = user['stars']
-        
-        if current_stars > 0 and current_stars > last_fb:
-            st.divider()
-            st.markdown("#### 🌟 Fikriniz önəmlidir!")
-            with st.form("fb_form"):
-                rating = st.radio("Xidmətimizi qiymətləndirin:", ["⭐️", "⭐️⭐️", "⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️⭐️"], horizontal=True, index=4)
-                comment = st.text_area("Rəyiniz (İstəyə bağlı)", placeholder="Kofe necə idi?")
-                if st.form_submit_button("Göndər"):
-                    r_val = len(rating) // 2 
-                    if rating == "⭐️": r_val = 1
-                    elif rating == "⭐️⭐️": r_val = 2
-                    elif rating == "⭐️⭐️⭐️": r_val = 3
-                    elif rating == "⭐️⭐️⭐️⭐️": r_val = 4
-                    elif rating == "⭐️⭐️⭐️⭐️⭐️": r_val = 5
-                    
-                    run_action("INSERT INTO feedbacks (card_id, rating, comment, created_at) VALUES (:c, :r, :m, :t)", 
-                               {"c":card_id, "r":r_val, "m":comment, "t":get_baku_now()})
-                    run_action("UPDATE customers SET last_feedback_star_count = :s WHERE card_id = :c", {"s":current_stars, "c":card_id})
-                    st.success("Təşəkkürlər! Rəyiniz qəbul olundu. 💚")
-                    time.sleep(2); st.rerun()
-        elif current_stars > 0 and current_stars == last_fb:
-             st.markdown("<p style='text-align:center; color:#2E7D32; margin-top:20px;'><i>Dəyərli fikriniz üçün təşəkkürlər! Növbəti kofedə görüşərik 💚</i></p>", unsafe_allow_html=True)
-
-        st.divider()
-        if st.button("Çıxış"): st.query_params.clear(); st.rerun()
-        st.stop()
-
-# --- SESSION ---
-def check_session_token():
-    token = st.query_params.get("token")
-    if token:
-        try:
-            res = run_query("SELECT username, role FROM active_sessions WHERE token=:t", {"t":token})
-            if not res.empty:
-                st.session_state.logged_in=True; st.session_state.user=res.iloc[0]['username']; st.session_state.role=res.iloc[0]['role']; st.query_params.clear()
-        except: pass
-def cleanup_old_sessions():
-    try: run_action("DELETE FROM active_sessions WHERE created_at < NOW() - INTERVAL '24 hours'")
-    except: pass
-
-check_session_token()
-if st.session_state.get('logged_in'):
-    cleanup_old_sessions()
-    run_action("UPDATE users SET last_seen = :t WHERE username = :u", {"t":get_baku_now(), "u": st.session_state.user})
-
-if 'last_sale' in st.session_state and st.session_state.last_sale: show_receipt_dialog(); st.session_state.last_sale = None
-
-# --- RENDERERS ---
-def add_to_cart(cart_ref, item):
-    try:
-        r = run_query("SELECT printer_target, price_half FROM menu WHERE item_name=:n", {"n":item['item_name']})
-        if not r.empty:
-            item['printer_target'] = r.iloc[0]['printer_target']
-            item['price_half'] = float(r.iloc[0]['price_half']) if r.iloc[0]['price_half'] else None
-        else:
-            item['printer_target'] = 'kitchen'
-            item['price_half'] = None
-    except: 
-        item['printer_target'] = 'kitchen'
-        item['price_half'] = None
-    
-    for ex in cart_ref:
-        if ex['item_name'] == item['item_name'] and ex.get('status') == 'new' and ex.get('qty') % 1 == 0: 
-            ex['qty'] += 1
-            return
-    cart_ref.append(item)
 
 def render_menu_grid(cart_ref, key_prefix):
     cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")
@@ -522,6 +388,10 @@ def render_takeaway():
             except Exception as e: st.error(str(e))
     with c2: render_menu_grid(st.session_state.cart_takeaway, "ta")
 
+def render_tables_main():
+    if st.session_state.selected_table: render_table_order()
+    else: render_table_grid()
+
 def render_table_grid():
     if st.session_state.role == 'admin':
         with st.expander("🛠️ Masa İdarəetməsi"):
@@ -544,7 +414,6 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
-            # KOT Logic Color
             items = json.loads(row['items']) if row['items'] else []
             has_unsent = any(x.get('status') == 'new' for x in items)
             is_occ = row['is_occupied']
@@ -602,19 +471,19 @@ def render_table_order():
                     st.markdown('</div>', unsafe_allow_html=True)
                 with b2:
                     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
+                    if st.button("➕", key=f"p_tb_{i}"): 
+                        if it['qty'] == 0.5: it['qty'] = 1.0 
+                        else: it['qty']+=1
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with b3:
+                    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                     if st.button("➖", key=f"m_tb_{i}"): 
                         if status == 'sent': admin_auth_dialog(item_idx=i)
                         else:
                             if it['qty']>1 and it['qty']!=0.5: it['qty']-=1 
                             else: st.session_state.cart_table.pop(i)
                             st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with b3:
-                    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
-                    if st.button("➕", key=f"p_tb_{i}"): 
-                        if it['qty'] == 0.5: it['qty'] = 1.0 
-                        else: it['qty']+=1
-                        st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
@@ -655,9 +524,36 @@ def render_table_order():
 
     with c2: render_menu_grid(st.session_state.cart_table, "tb")
 
-def render_tables_main():
-    if st.session_state.selected_table: render_table_order()
-    else: render_table_grid()
+@st.dialog("Admin Təsdiqi (Void/Delete)")
+def admin_auth_dialog(item_idx=None, sale_to_delete=None):
+    if sale_to_delete:
+        st.warning("🔴 Satış bazadan silinəcək! Bu əməliyyat geri qaytarıla bilməz.")
+    else:
+        st.warning("🔴 Təsdiqlənmiş mal silinir!")
+    
+    reason = st.text_input("Səbəb (Məcburi)")
+    pin = st.text_input("Admin PIN", type="password")
+    
+    if st.button("Təsdiqlə"):
+        if not reason:
+            st.error("Səbəb yazmalısınız!")
+            return
+
+        adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
+        if not adm.empty and verify_password(pin, adm.iloc[0]['password']):
+            if sale_to_delete: # DELETE SALE MODE
+                s_info = run_query("SELECT * FROM sales WHERE id=:id", {"id":int(sale_to_delete)}).iloc[0]
+                run_action("DELETE FROM sales WHERE id=:id", {"id":int(sale_to_delete)})
+                log_system(st.session_state.user, f"Deleted Sale #{sale_to_delete} ({s_info['total']} AZN). Reason: {reason}")
+                st.success("Satış silindi!"); st.rerun()
+            else: # VOID ITEM MODE
+                item = st.session_state.cart_table[item_idx]
+                run_action("INSERT INTO void_logs (item_name, qty, reason, deleted_by, created_at) VALUES (:n, :q, :r, :u, :t)", 
+                           {"n":item['item_name'], "q":item['qty'], "r":reason, "u":st.session_state.user, "t":get_baku_now()})
+                st.session_state.cart_table.pop(item_idx)
+                run_action("UPDATE tables SET items=:i WHERE id=:id", {"i":json.dumps(st.session_state.cart_table), "id":st.session_state.selected_table['id']})
+                st.success("Silindi!"); st.rerun()
+        else: st.error("Səhv PIN!")
 
 def render_analytics(is_admin=False):
     tab_list = ["Satışlar"]
@@ -746,10 +642,109 @@ def render_analytics(is_admin=False):
             voids = run_query("SELECT * FROM void_logs ORDER BY created_at DESC")
             st.dataframe(voids, use_container_width=True)
 
+# --- 1. MÜŞTƏRİ PORTALI (V4.6 - UPDATED) ---
+qp = st.query_params
+if "id" in qp:
+    card_id = qp["id"]
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2: 
+        # BRAND HEADER
+        st.markdown(f"<h2 style='text-align:center; color:#2E7D32; font-weight:bold;'>{BRAND_NAME}</h2>", unsafe_allow_html=True)
+    
+    user_df = run_query("SELECT * FROM customers WHERE card_id = :id", {"id": card_id})
+    if not user_df.empty:
+        user = user_df.iloc[0]
+        
+        # MOTIVATION
+        quotes = [
+            "Bu gün əla görünürsən! ☕", "Uğur bir fincan kofe ilə başlayır.", 
+            "Gülüşün günümüzü işıqlandırır.", "Kofe bəhanə, söhbət şahanə.", 
+            "Enerjini topla, dünyanı fəth et!", "Sənin kofen, sənin qaydaların."
+        ]
+        st.markdown(f"<div class='motivation-text'>{random.choice(quotes)}</div>", unsafe_allow_html=True)
+
+        if not user['is_active']:
+            st.info("🎉 Xoş gəlmisiniz! Qeydiyyatı tamamlayın.")
+            with st.form("act_form"):
+                em = st.text_input("Email"); dob = st.date_input("Doğum Tarixi", min_value=datetime.date(1950,1,1))
+                st.markdown("### 📜 İstifadəçi Razılaşması")
+                with st.expander("Qaydaları Oxumaq üçün Toxunun"):
+                    st.markdown(f"""
+                    **İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ**
+
+                    **1. Ümumi Müddəalar**
+                    Bu loyallıq proqramı **"{BRAND_NAME}"** sistemi vasitəsilə idarə olunur. Qeydiyyatdan keçməklə siz aşağıdakı şərtləri qəbul etmiş olursunuz.
+
+                    **2. Bonuslar, Hədiyyələr və Endirim Siyasəti**
+                    2.1. Toplanılan ulduzlar və bonuslar heç bir halda nağd pula çevrilə, başqa hesaba köçürülə və ya qaytarıla bilməz.
+                    2.2. **Şəxsiyyətin Təsdiqi:** Ad günü və ya xüsusi kampaniya hədiyyələrinin təqdim edilməsi zamanı, sui-istifadə hallarınin qarşısını almaq və təvəllüdü dəqiqləşdirmək məqsədilə, şirkət əməkdaşı müştəridən şəxsiyyət vəsiqəsini təqdim etməsini tələb etmək hüququna malikdir. Sənəd təqdim edilmədikdə hədiyyə verilməyə bilər.
+                    2.3. **Endirimlərin Tətbiq Sahəsi:** Nəzərinizə çatdırırıq ki, **"{BRAND_NAME}"** loyallıq proqramı çərçivəsində təqdim olunan bütün növ imtiyazlar (o cümlədən "Ekoloji Termos" endirimi, xüsusi promo-kodlar və faizli endirim kartları) **müstəsna olaraq kofe və kofe əsaslı içkilərə şamil edilir.** Şirniyyatlar, qablaşdırılmış qida məhsulları və digər soyuq içkilər endirim siyasətindən xaricdir. Sizin kofe həzzinizi daha əlçatan etmək üçün çalışırıq!
+
+                    **3. Dəyişikliklər və İmtina Hüququ**
+                    3.1. Şirkət, bu razılaşmanın şərtlərini dəyişdirmək hüququnu özündə saxlayır.
+                    3.2. **Bildiriş:** Şərtlərdə əsaslı dəyişikliklər edildiyi təqdirdə, qeydiyyatlı e-poçt ünvanınıza bildiriş göndəriləcək.
+                    3.3. **İmtina:** Əgər yeni şərtlərlə razılaşmırsınızsa, sistemdən qeydiyyatınızın və fərdi məlumatlarınızın silinməsini tələb etmək hüququnuz var.
+
+                    **4. Məxfilik**
+                    4.1. Sizin məlumatlarınız (Email, Doğum tarixi) üçüncü tərəflə paylaşılmır və yalnız xidmət keyfiyyətinin artırılması üçün istifadə olunur.
+                    """)
+                agree = st.checkbox("Şərtləri qəbul edirəm")
+                if st.form_submit_button("Tamamla"):
+                    if agree:
+                        run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":dob, "i":card_id})
+                        st.success("Hazırdır!"); st.rerun()
+                    else: st.error("Qaydaları qəbul etməlisiniz.")
+            st.stop()
+        
+        # BALANCE CARD
+        st.markdown(f"<div class='cust-card'><h4 style='margin:0; color:#888;'>BALANS</h4><h1 style='color:#2E7D32; font-size: 48px; margin:0;'>{user['stars']} / 10</h1><p style='color:#555;'>ID: {card_id}</p></div>", unsafe_allow_html=True)
+        html_grid = '<div class="coffee-grid">'
+        for i in range(10):
+            icon_url = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+            cls = "coffee-icon"; style = ""
+            if i == 9: 
+                icon_url = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png"
+                if user['stars'] >= 10: style="opacity:1; filter:none; animation: bounce 1s infinite;"
+            elif i < user['stars']: style="opacity:1; filter:none;"
+            html_grid += f'<img src="{icon_url}" class="{cls}" style="{style}">'
+        html_grid += '</div>'
+        st.markdown(html_grid, unsafe_allow_html=True)
+        
+        # --- FEEDBACK LOGIC ---
+        last_fb = user.get('last_feedback_star_count', 0) or 0
+        current_stars = user['stars']
+        
+        if current_stars > 0 and current_stars > last_fb:
+            st.divider()
+            st.markdown("#### 🌟 Fikriniz önəmlidir!")
+            with st.form("fb_form"):
+                rating = st.radio("Xidmətimizi qiymətləndirin:", ["⭐️", "⭐️⭐️", "⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️", "⭐️⭐️⭐️⭐️⭐️"], horizontal=True, index=4)
+                comment = st.text_area("Rəyiniz (İstəyə bağlı)", placeholder="Kofe necə idi?")
+                if st.form_submit_button("Göndər"):
+                    r_val = len(rating) // 2 
+                    if rating == "⭐️": r_val = 1
+                    elif rating == "⭐️⭐️": r_val = 2
+                    elif rating == "⭐️⭐️⭐️": r_val = 3
+                    elif rating == "⭐️⭐️⭐️⭐️": r_val = 4
+                    elif rating == "⭐️⭐️⭐️⭐️⭐️": r_val = 5
+                    
+                    run_action("INSERT INTO feedbacks (card_id, rating, comment, created_at) VALUES (:c, :r, :m, :t)", 
+                               {"c":card_id, "r":r_val, "m":comment, "t":get_baku_now()})
+                    run_action("UPDATE customers SET last_feedback_star_count = :s WHERE card_id = :c", {"s":current_stars, "c":card_id})
+                    st.success("Təşəkkürlər! Rəyiniz qəbul olundu. 💚")
+                    time.sleep(2); st.rerun()
+        elif current_stars > 0 and current_stars == last_fb:
+             st.markdown("<p style='text-align:center; color:#2E7D32; margin-top:20px;'><i>Dəyərli fikriniz üçün təşəkkürlər! Növbəti kofedə görüşərik 💚</i></p>", unsafe_allow_html=True)
+
+        st.divider()
+        if st.button("Çıxış"): st.query_params.clear(); st.rerun()
+        st.stop()
+
 # --- MAIN ---
 if not st.session_state.logged_in:
     c1, c2, c3 = st.columns([1,1,1])
     with c2:
+        # LOGIN HEADER
         st.markdown(f"<h1 style='text-align:center; color:#2E7D32;'>{BRAND_NAME}</h1><h5 style='text-align:center; color:#777;'>{VERSION}</h5>", unsafe_allow_html=True)
         tabs = st.tabs(["İŞÇİ", "ADMİN"])
         with tabs[0]:
@@ -788,6 +783,7 @@ else:
     role = st.session_state.role
     
     if role == 'admin':
+        # DYNAMIC ADMIN TABS
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "📜 Resept", "Analitika", "👥 CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
         with tabs[0]: render_takeaway()
         with tabs[1]: render_tables_main()
