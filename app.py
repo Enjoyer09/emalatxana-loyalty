@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === IRONWAVES POS - V4.1.1 (DUPLICATE FIX) ===
+# === IRONWAVES POS - V4.2 (CUSTOM UI) ===
 # ==========================================
 
-VERSION = "v4.1.1 (Duplicate Key Fix)"
+VERSION = "v4.2 PRO (UI Toggle)"
 
 # --- INFRA ---
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -228,7 +228,7 @@ def calculate_smart_total(cart, customer=None, is_table=False):
             
     return total, discounted_total, coffee_discount_rate, free_coffees_to_apply, total_star_pool, service_charge
 
-# --- SMART ADD (AGGREGATION) ---
+# --- SMART ADD ---
 def add_to_cart(cart_ref, item):
     try:
         r = run_query("SELECT printer_target, price_half FROM menu WHERE item_name=:n", {"n":item['item_name']})
@@ -605,7 +605,6 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
-            # KOT Logic Color
             items = json.loads(row['items']) if row['items'] else []
             has_unsent = any(x.get('status') == 'new' for x in items)
             is_occ = row['is_occupied']
@@ -616,7 +615,6 @@ def render_table_grid():
             
             label = f"{row['label']}\n{row['total']} ₼{label_extra}" if is_occ else f"{row['label']}\n(BOŞ)"
             kind = "primary" if is_occ else "secondary"
-            cls = "table-occ" if is_occ else ""
             if st.button(label, key=f"tbl_btn_{row['id']}", type=kind, use_container_width=True):
                 st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
 
@@ -630,8 +628,6 @@ def render_table_order():
     c1, c2 = st.columns([1.5, 3])
     with c1:
         st.info("Masa Sifarişi")
-        
-        # PERSISTENT CUSTOMER CHECK (DB -> SESSION)
         db_cust_id = tbl.get('active_customer_id')
         if db_cust_id and not st.session_state.current_customer_tb:
              r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":db_cust_id})
@@ -659,62 +655,64 @@ def render_table_order():
                 status_icon = "🔥" if status == 'sent' else "✏️"
                 
                 st.markdown(f"<div style='background:{bg_col};padding:10px;margin-bottom:5px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid #ddd;'><div style='flex:2'><b>{it['item_name']}</b> <small>{status_icon}</small></div><div style='flex:1'>{it['price']}</div><div style='flex:1;color:#E65100'>x{it['qty']}</div><div style='flex:1;text-align:right'>{it['qty']*it['price']:.1f}</div></div>", unsafe_allow_html=True)
-                b1,b2,b3=st.columns([1,1,4])
+                b1,b2,b3,b4=st.columns([1,1,1,3])
                 with b1:
+                    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
+                    if st.button("½", key=f"half_{i}"): toggle_portion(i); st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with b2:
                     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                     if st.button("➖", key=f"m_tb_{i}"): 
                         if status == 'sent': admin_auth_dialog(i)
                         else:
-                            if it['qty']>1: it['qty']-=1 
+                            if it['qty']>1 and it['qty']!=0.5: it['qty']-=1 
                             else: st.session_state.cart_table.pop(i)
                             st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
-                with b2:
+                with b3:
                     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
-                    if st.button("➕", key=f"p_tb_{i}"): it['qty']+=1; st.rerun()
+                    if st.button("➕", key=f"p_tb_{i}"): 
+                        if it['qty'] == 0.5: it['qty'] = 1.0 
+                        else: it['qty']+=1
+                        st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='text-align:right; color:#E65100'>{final_total:.2f} ₼</h2>", unsafe_allow_html=True)
         if serv_chg > 0: st.caption(f"ℹ️ Servis Haqqı (7%): {serv_chg:.2f} ₼ daxildir")
-        if free_count > 0: st.success(f"🎁 {free_count} ədəd Kofe HƏDİYYƏ! (-{free_count * 10} ulduz)")
-        if disc_rate > 0: st.caption(f"⚡ {int(disc_rate*100)}% Kofe Endirimi Tətbiq Edildi")
-
+        
         col_s, col_p = st.columns(2)
         if col_s.button("🔥 MƏTBƏXƏ GÖNDƏR", key="save_tbl", use_container_width=True):
-            for x in st.session_state.cart_table: x['status'] = 'sent'
-            # Save Active Customer ID too
-            act_cust_id = st.session_state.current_customer_tb['card_id'] if st.session_state.current_customer_tb else None
+            kitchen_items = []
+            bar_items = []
+            new_items_found = False
             
-            run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t, active_customer_id=:c WHERE id=:id", 
-                       {"i":json.dumps(st.session_state.cart_table), "t":final_total, "c":act_cust_id, "id":tbl['id']})
-            st.success("Göndərildi!"); time.sleep(0.5); st.session_state.selected_table=None; st.rerun()
-        
-        pm = st.radio("Metod", ["Nəğd", "Kart"], horizontal=True, key="pm_tb")
+            for x in st.session_state.cart_table:
+                if x.get('status') == 'new':
+                    new_items_found = True
+                    target = x.get('printer_target', 'kitchen')
+                    if target == 'kitchen': kitchen_items.append(f"{x['item_name']} x{x['qty']}")
+                    else: bar_items.append(f"{x['item_name']} x{x['qty']}")
+                    x['status'] = 'sent'
+            
+            if new_items_found:
+                if bar_items: st.toast(f"🍺 BARA ÇIXDI: {', '.join(bar_items)}", icon="🖨️")
+                if kitchen_items: st.toast(f"🍳 MƏTBƏXƏ ÇIXDI: {', '.join(kitchen_items)}", icon="🖨️")
+                
+                act_cust_id = st.session_state.current_customer_tb['card_id'] if st.session_state.current_customer_tb else None
+                run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t, active_customer_id=:c WHERE id=:id", 
+                           {"i":json.dumps(st.session_state.cart_table), "t":final_total, "c":act_cust_id, "id":tbl['id']})
+                st.success("Göndərildi!"); time.sleep(1); st.rerun()
+            else:
+                st.warning("Yeni sifariş yoxdur!")
+
         if col_p.button("✅ ÖDƏNİŞ ET", key="pay_tbl", type="primary", use_container_width=True):
             if not st.session_state.cart_table: st.error("Boşdur!"); st.stop()
-            try:
-                istr = f"[{tbl['label']}] " + ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_table])
-                cust_id = st.session_state.current_customer_tb['card_id'] if st.session_state.current_customer_tb else None
-                cust_email = st.session_state.current_customer_tb.get('email') if st.session_state.current_customer_tb else None
-                run_action("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id) VALUES (:i,:t,:p,:c,:time, :cid)", 
-                           {"i":istr,"t":final_total,"p":("Cash" if pm=="Nəğd" else "Card"),"c":st.session_state.user, "time":get_baku_now(), "cid":cust_id})
-                with conn.session as s:
-                    for it in st.session_state.cart_table:
-                        rs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
-                        for r in rs: s.execute(text("UPDATE ingredients SET stock_qty=stock_qty-:q WHERE name=:n"), {"q":float(r[1])*it['qty'], "n":r[0]})
-                    if st.session_state.current_customer_tb:
-                        new_stars_balance = total_pool - (free_count * 10)
-                        s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":new_stars_balance, "id":cust_id})
-                    s.commit()
-                # Clear everything including customer
-                run_action("UPDATE tables SET is_occupied=FALSE, items=NULL, total=0, active_customer_id=NULL WHERE id=:id", {"id":tbl['id']})
-                st.session_state.last_sale = {
-                    "id": int(time.time()), "items": istr, "total": final_total, "subtotal": raw_total, "discount": raw_total - final_total,
-                    "date": get_baku_now().strftime("%Y-%m-%d %H:%M"), "cashier": st.session_state.user, "customer_email": cust_email, "service_charge": serv_chg
-                }
-                st.session_state.cart_table=[]; st.session_state.selected_table=None; st.rerun()
-            except Exception as e: st.error(str(e))
+            show_payment_dialog(tbl['id'])
+        
+        if st.button("🖨️ Hesabı Gətir (Ara Çek)", use_container_width=True):
+            show_pre_check_dialog(raw_total, final_total, serv_chg, st.session_state.cart_table, tbl['label'], get_baku_now().strftime("%Y-%m-%d %H:%M"))
+
     with c2: render_menu_grid(st.session_state.cart_table, "tb")
 
 def render_menu_grid(cart_ref, key_prefix):
@@ -722,8 +720,14 @@ def render_menu_grid(cart_ref, key_prefix):
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
     
-    sql = "SELECT * FROM menu WHERE is_active=TRUE AND category=:c ORDER BY price ASC"; 
-    prods = run_query(sql, {"c":sc}) if sc != "Hamısı" else run_query("SELECT * FROM menu WHERE is_active=TRUE")
+    sql = "SELECT id, item_name, price, is_coffee FROM menu WHERE is_active=TRUE"
+    p = {}
+    if sc != "Hamısı": 
+        sql += " AND category=:c"
+        p["c"] = sc
+    sql += " ORDER BY price ASC"
+    
+    prods = run_query(sql, p)
 
     if not prods.empty:
         gr = {}
@@ -958,7 +962,7 @@ else:
                         st.success(f"{c} email getdi!")
 
         with tabs[6]: # Menyu (V4.0 - HALF PRICE)
-            st.subheader("📋 Menyu (V4.0 PRO)")
+            st.subheader("📋 Menyu (V4.1 PRO)")
             with st.expander("📥 Excel"):
                 up = st.file_uploader("Fayl", type=['xlsx'])
                 if up and st.button("Yüklə", key="xl_load"):
@@ -1008,6 +1012,14 @@ else:
                     set_setting("receipt_phone", r_phone); set_setting("receipt_footer", r_foot)
                     set_setting("receipt_web", r_web); set_setting("receipt_insta", r_insta); set_setting("receipt_email", r_email)
                     st.success("Yadda saxlanıldı!")
+                
+                st.divider()
+                st.markdown("**🔧 Sistem Ayarları**")
+                show_tbl = st.checkbox("İşçi Panelində 'Masalar' bölməsini göstər", value=(get_setting("staff_show_tables", "TRUE")=="TRUE"))
+                if st.button("Yadda Saxla", key="sv_sys"):
+                    set_setting("staff_show_tables", "TRUE" if show_tbl else "FALSE")
+                    st.success("Yadda saxlanıldı! (Yeniləyin)")
+
             with c2:
                 st.markdown("**🔐 Şifrə Dəyişmə**")
                 all_users = run_query("SELECT username FROM users")
@@ -1075,9 +1087,16 @@ else:
                 st.download_button("📥 Bütün QR-ları Endir (ZIP)", zb.getvalue(), "qrcodes.zip", "application/zip", type="primary")
 
     elif role == 'staff':
-        staff_tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "Mənim Satışlarım"])
-        with staff_tabs[0]: render_takeaway()
-        with staff_tabs[1]: render_tables_main()
-        with staff_tabs[2]: render_analytics(is_admin=False)
+        # DYNAMIC STAFF TABS (V4.2)
+        show_tables = (get_setting("staff_show_tables", "TRUE") == "TRUE")
+        if show_tables:
+            staff_tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "Mənim Satışlarım"])
+            with staff_tabs[0]: render_takeaway()
+            with staff_tabs[1]: render_tables_main()
+            with staff_tabs[2]: render_analytics(is_admin=False)
+        else:
+            staff_tabs = st.tabs(["🏃‍♂️ AL-APAR", "Mənim Satışlarım"])
+            with staff_tabs[0]: render_takeaway()
+            with staff_tabs[1]: render_analytics(is_admin=False)
 
     st.markdown(f"<div class='footer'>Ironwaves POS {VERSION} | © 2026</div>", unsafe_allow_html=True)
