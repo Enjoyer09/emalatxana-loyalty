@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V4.8 (SECURITY & SPEED) ===
+# === EMALATKHANA POS - V4.8.1 (GOLDEN RELEASE) ===
 # ==========================================
 
-VERSION = "v4.8 PRO (Security Shield)"
+VERSION = "v4.8.1 PRO (GOLDEN RELEASE)"
 BRAND_NAME = "Emalatkhana Daily Coffee and Drinks"
 
 # --- INFRA ---
@@ -110,7 +110,7 @@ try:
     conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
-# --- SCHEMA (CACHED FOR PERFORMANCE) ---
+# --- SCHEMA (CACHED) ---
 @st.cache_resource
 def ensure_schema():
     with conn.session as s:
@@ -130,7 +130,6 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS coupon_templates (id SERIAL PRIMARY KEY, name TEXT, percent INTEGER, days_valid INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS void_logs (id SERIAL PRIMARY KEY, item_name TEXT, qty INTEGER, reason TEXT, deleted_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        # V4.8 NEW: FAILED LOGINS
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
 
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_card_id TEXT;"))
@@ -155,18 +154,21 @@ def ensure_schema():
             for i in range(1, 7): s.execute(text("INSERT INTO tables (label, is_occupied) VALUES (:l, FALSE)"), {"l": f"MASA {i}"})
         s.commit()
     
-    # SELF-HEALING ADMIN
+    # --- PASSWORD RESCUE MISSION ---
+    # This block forces 'admin' password to 'admin123' on restart
     with conn.session as s:
         try:
-            chk = s.execute(text("SELECT * FROM users WHERE username='admin'")).fetchone()
-            if not chk:
-                p_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
-                s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin')"), {"p": p_hash})
-                s.commit()
+            p_hash = bcrypt.hashpw("admin123".encode(), bcrypt.gensalt()).decode()
+            # If admin exists, UPDATE. If not, INSERT.
+            s.execute(text("""
+                INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin')
+                ON CONFLICT (username) DO UPDATE SET password = :p
+            """), {"p": p_hash})
+            s.commit()
         except: s.rollback()
     return True
 
-ensure_schema() # Called once and cached
+ensure_schema()
 
 # --- HELPERS ---
 def get_baku_now(): return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=4))).replace(tzinfo=None)
@@ -225,9 +227,8 @@ def format_qty(val):
     if val % 1 == 0: return int(val)
     return val
 
-# --- LOGIN SECURITY HELPERS (V4.8) ---
+# --- LOGIN SECURITY HELPERS ---
 def check_login_block(username):
-    # Returns (is_blocked, minutes_left)
     try:
         row = run_query("SELECT attempt_count, blocked_until FROM failed_logins WHERE username=:u", {"u":username})
         if not row.empty:
@@ -247,7 +248,7 @@ def register_failed_login(username):
         else:
             new_count = row.iloc[0]['attempt_count'] + 1
             blocked_until = None
-            if new_count >= 5: # 5 ATTEMPTS LIMIT
+            if new_count >= 5: 
                 blocked_until = now + datetime.timedelta(minutes=5)
             run_action("UPDATE failed_logins SET attempt_count=:c, last_attempt=:t, blocked_until=:b WHERE username=:u", 
                        {"c":new_count, "t":now, "b":blocked_until, "u":username})
@@ -452,7 +453,6 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
-            # KOT Logic Color
             items = json.loads(row['items']) if row['items'] else []
             has_unsent = any(x.get('status') == 'new' for x in items)
             is_occ = row['is_occupied']
@@ -707,7 +707,7 @@ if not st.session_state.logged_in:
             with st.form("staff_login"):
                 pin = st.text_input("PIN", type="password"); 
                 if st.form_submit_button("Giriş", use_container_width=True):
-                    is_blocked, mins = check_login_block(pin) # Naive check by PIN string usage
+                    is_blocked, mins = check_login_block(pin) 
                     if is_blocked: st.error(f"Çox sayda uğursuz cəhd. {mins} dəqiqə gözləyin."); st.stop()
                     
                     udf = run_query("SELECT * FROM users WHERE role='staff'")
@@ -721,8 +721,6 @@ if not st.session_state.logged_in:
                     
                     if not found:
                         st.error("Yanlış PIN!")
-                        # Note: We can't easily block by PIN since multiple users might try. 
-                        # Blocking logic applies better to usernames. For staff PINs, we just sleep.
                         time.sleep(2)
 
         with tabs[1]:
@@ -744,7 +742,7 @@ if not st.session_state.logged_in:
                             register_failed_login(u)
                             st.error("Səhv Məlumat!")
                     else:
-                        st.error("Səhv Məlumat!") # Don't reveal user existence
+                        st.error("Səhv Məlumat!") 
                         time.sleep(1)
 else:
     h1, h2, h3 = st.columns([4, 1, 1])
