@@ -19,10 +19,10 @@ import json
 from collections import Counter
 
 # ==========================================
-# === IRONWAVES POS - V4.3 (STAFF FILTER) ===
+# === IRONWAVES POS - V4.4 (LOGS & DELETE) ===
 # ==========================================
 
-VERSION = "v4.3 PRO (Staff Filters)"
+VERSION = "v4.4 PRO (Logs & Sales Delete)"
 
 # --- INFRA ---
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -111,6 +111,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS coupon_templates (id SERIAL PRIMARY KEY, name TEXT, percent INTEGER, days_valid INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS void_logs (id SERIAL PRIMARY KEY, item_name TEXT, qty INTEGER, reason TEXT, deleted_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
 
+        # UPDATES & FIXES
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_card_id TEXT;"))
         except: pass
         try: s.execute(text("ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_customer_id TEXT;"))
@@ -118,6 +119,9 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS printer_target TEXT DEFAULT 'kitchen';")) 
         except: pass
         try: s.execute(text("ALTER TABLE menu ADD COLUMN IF NOT EXISTS price_half DECIMAL(10,2);"))
+        except: pass
+        # CRITICAL FIX FOR RECIPES
+        try: s.execute(text("ALTER TABLE recipes ADD COLUMN IF NOT EXISTS ingredient_name TEXT;"))
         except: pass
         
         res = s.execute(text("SELECT count(*) FROM tables")).fetchone()
@@ -470,50 +474,59 @@ def show_payment_dialog(table_id):
                 st.session_state.last_sale = {"id": int(time.time()), "items": istr, "total": final_t, "subtotal": raw_t, "discount": raw_t - final_t, "date": get_baku_now().strftime("%Y-%m-%d %H:%M"), "cashier": st.session_state.user, "customer_email": None, "service_charge": serv}
                 st.rerun()
 
-@st.dialog("Admin Təsdiqi (Void)")
-def admin_auth_dialog(item_idx):
-    st.warning("🔴 Təsdiqlənmiş mal silinir!")
-    reason = st.selectbox("Səbəb", ["Səhv Vurulub", "Müştəri Bəyənmədi", "Məhsul Bitib", "Müştəri Getdi", "Digər"])
+@st.dialog("Admin Təsdiqi (Void/Delete)")
+def admin_auth_dialog(item_idx=None, sale_to_delete=None):
+    if sale_to_delete:
+        st.warning("🔴 Satış bazadan silinəcək! Bu əməliyyat geri qaytarıla bilməz.")
+    else:
+        st.warning("🔴 Təsdiqlənmiş mal silinir!")
+    
+    reason = st.text_input("Səbəb (Məcburi)")
     pin = st.text_input("Admin PIN", type="password")
     
-    if st.button("Təsdiqlə və Sil"):
+    if st.button("Təsdiqlə"):
+        if not reason:
+            st.error("Səbəb yazmalısınız!")
+            return
+
         adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
         if not adm.empty and verify_password(pin, adm.iloc[0]['password']):
-            item = st.session_state.cart_table[item_idx]
-            run_action("INSERT INTO void_logs (item_name, qty, reason, deleted_by, created_at) VALUES (:n, :q, :r, :u, :t)", 
-                       {"n":item['item_name'], "q":item['qty'], "r":reason, "u":st.session_state.user, "t":get_baku_now()})
-            st.session_state.cart_table.pop(item_idx)
-            run_action("UPDATE tables SET items=:i WHERE id=:id", {"i":json.dumps(st.session_state.cart_table), "id":st.session_state.selected_table['id']})
-            st.success("Silindi!"); st.rerun()
+            if sale_to_delete: # DELETE SALE MODE
+                # Get sale details first for log
+                s_info = run_query("SELECT * FROM sales WHERE id=:id", {"id":int(sale_to_delete)}).iloc[0]
+                run_action("DELETE FROM sales WHERE id=:id", {"id":int(sale_to_delete)})
+                log_system(st.session_state.user, f"Deleted Sale #{sale_to_delete} ({s_info['total']} AZN). Reason: {reason}")
+                st.success("Satış silindi!"); st.rerun()
+            else: # VOID ITEM MODE
+                item = st.session_state.cart_table[item_idx]
+                run_action("INSERT INTO void_logs (item_name, qty, reason, deleted_by, created_at) VALUES (:n, :q, :r, :u, :t)", 
+                           {"n":item['item_name'], "q":item['qty'], "r":reason, "u":st.session_state.user, "t":get_baku_now()})
+                st.session_state.cart_table.pop(item_idx)
+                run_action("UPDATE tables SET items=:i WHERE id=:id", {"i":json.dumps(st.session_state.cart_table), "id":st.session_state.selected_table['id']})
+                st.success("Silindi!"); st.rerun()
         else: st.error("Səhv PIN!")
 
 # --- RENDERERS ---
 def render_analytics(is_admin=False):
-    # DYNAMIC TABS FOR STAFF VS ADMIN
     tab_list = ["Satışlar"]
     if is_admin: tab_list.extend(["Xərclər", "Loglar", "Void Report"])
-    
     tabs = st.tabs(tab_list)
     
-    # 1. SALES TAB (FILTERED)
+    # 1. SALES TAB
     with tabs[0]:
         c_filt, c_sum = st.columns([2, 1])
         with c_filt:
             ft = st.selectbox("Filtr", ["Bu Gün", "Bu Ay", "Tarix Aralığı"], label_visibility="collapsed")
         
-        # Base Query
         base_sql = "SELECT id, created_at, items, total, payment_method, cashier, customer_card_id FROM sales"
         p = {}
-        
-        # Apply User Filter for Staff
         if not is_admin:
             base_sql += " WHERE cashier = :u"
             p['u'] = st.session_state.user
-        
         base_sql += " ORDER BY created_at DESC"
+        
         df = run_query(base_sql, p)
         
-        # Apply Date Filter (Pandas)
         if not df.empty:
             df['created_at'] = pd.to_datetime(df['created_at'])
             now = get_baku_now()
@@ -529,21 +542,30 @@ def render_analytics(is_admin=False):
                 if d1 and d2:
                     df = df[(df['created_at'].dt.date >= d1) & (df['created_at'].dt.date <= d2)]
             
-            # Show Metric
             with c_sum:
                 st.metric("Dövriyyə", f"{df['total'].sum():.2f} ₼")
-                
-            st.dataframe(df, hide_index=True, use_container_width=True)
             
+            # DELETE SALE UI (ADMIN ONLY)
+            if is_admin:
+                df_editor = df.copy()
+                df_editor.insert(0, "Seç", False)
+                edited_df = st.data_editor(df_editor, hide_index=True, use_container_width=True, disabled=["id", "items", "total", "cashier", "created_at"])
+                to_del = edited_df[edited_df['Seç']]['id'].tolist()
+                if to_del:
+                    if st.button(f"🗑️ Seçilənləri Sil ({len(to_del)})", type="primary"):
+                        admin_auth_dialog(sale_to_delete=to_del[0]) # Delete one by one for safety or logic loop
+            else:
+                st.dataframe(df, hide_index=True, use_container_width=True)
+                
             if is_admin and st.button("📩 Hesabatı Emailə Göndər"):
                 body = f"<h1>Satış Hesabatı ({ft})</h1><h3>Cəm: {df['total'].sum():.2f} ₼</h3>"
                 res = send_email(DEFAULT_SENDER_EMAIL, "Satış Hesabatı", body)
                 if res == "OK": st.success("Göndərildi!")
+                else: st.error(res)
         else:
             st.info("Məlumat tapılmadı")
 
-    # 2. ADMIN TABS
-    if is_admin and len(tabs) > 1:
+    if is_admin and len(tabs)>1:
         with tabs[1]:
             st.markdown("### 💰 Xərclər")
             expenses = run_query("SELECT * FROM expenses ORDER BY created_at DESC")
@@ -551,13 +573,29 @@ def render_analytics(is_admin=False):
             edited = st.data_editor(expenses, hide_index=True, use_container_width=True)
             to_del = edited[edited['Seç']]['id'].tolist()
             if to_del and st.button(f"Seçilənləri Sil ({len(to_del)})"):
-                for d_id in to_del: run_action("DELETE FROM expenses WHERE id=:id", {"id":int(d_id)})
+                for d_id in to_del: 
+                    run_action("DELETE FROM expenses WHERE id=:id", {"id":int(d_id)})
+                    log_system(st.session_state.user, f"Deleted Expense ID: {d_id}")
                 st.rerun()
             with st.expander("➕ Yeni Xərc"):
                 with st.form("add_exp_new"):
                     t=st.text_input("Təyinat"); a=st.number_input("Məbləğ", min_value=0.0); c=st.selectbox("Kat", ["İcarə","Kommunal","Maaş","Təchizat"]); 
-                    if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO expenses (title,amount,category,created_at) VALUES (:t,:a,:c,:time)",{"t":t,"a":a,"c":c, "time":get_baku_now()}); st.rerun()
-        with tabs[2]: st.markdown("### 🕵️‍♂️ Giriş/Çıxış"); logs = run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100"); st.dataframe(logs, use_container_width=True)
+                    if st.form_submit_button("Əlavə Et"): 
+                        run_action("INSERT INTO expenses (title,amount,category,created_at) VALUES (:t,:a,:c,:time)",{"t":t,"a":a,"c":c, "time":get_baku_now()})
+                        log_system(st.session_state.user, f"Added Expense: {t} - {a} AZN")
+                        st.rerun()
+        with tabs[2]: 
+            st.markdown("### 📜 Sistem Logları")
+            u_list = ["Hamısı"] + run_query("SELECT username FROM users")['username'].tolist()
+            sel_u = st.selectbox("İstifadəçi", u_list)
+            sql_l = "SELECT * FROM system_logs"
+            p_l = {}
+            if sel_u != "Hamısı":
+                sql_l += " WHERE username=:u"
+                p_l['u'] = sel_u
+            sql_l += " ORDER BY created_at DESC LIMIT 200"
+            st.dataframe(run_query(sql_l, p_l), use_container_width=True)
+            
         with tabs[3]: 
             st.markdown("### 🗑️ Ləğv Edilənlər (Void)"); 
             voids = run_query("SELECT * FROM void_logs ORDER BY created_at DESC")
@@ -637,16 +675,23 @@ def render_table_grid():
             c_add, c_del = st.columns(2)
             with c_add:
                 new_l = st.text_input("Masa Adı", key="new_table_input")
-                if st.button("➕ Yarat", key="add_table_btn"): run_action("INSERT INTO tables (label) VALUES (:l)", {"l":new_l}); st.rerun()
+                if st.button("➕ Yarat", key="add_table_btn"): 
+                    run_action("INSERT INTO tables (label) VALUES (:l)", {"l":new_l})
+                    log_system(st.session_state.user, f"Created Table: {new_l}")
+                    st.rerun()
             with c_del:
                 tabs = run_query("SELECT label FROM tables")
                 d_l = st.selectbox("Silinəcək", tabs['label'].tolist() if not tabs.empty else [], key="del_table_select")
-                if st.button("❌ Sil", key="del_table_btn"): run_action("DELETE FROM tables WHERE label=:l", {"l":d_l}); st.rerun()
+                if st.button("❌ Sil", key="del_table_btn"): 
+                    run_action("DELETE FROM tables WHERE label=:l", {"l":d_l})
+                    log_system(st.session_state.user, f"Deleted Table: {d_l}")
+                    st.rerun()
     st.markdown("### 🍽️ ZAL PLAN")
     tables = run_query("SELECT * FROM tables ORDER BY id")
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
+            # KOT Logic Color
             items = json.loads(row['items']) if row['items'] else []
             has_unsent = any(x.get('status') == 'new' for x in items)
             is_occ = row['is_occupied']
@@ -705,7 +750,7 @@ def render_table_order():
                 with b2:
                     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                     if st.button("➖", key=f"m_tb_{i}"): 
-                        if status == 'sent': admin_auth_dialog(i)
+                        if status == 'sent': admin_auth_dialog(item_idx=i)
                         else:
                             if it['qty']>1 and it['qty']!=0.5: it['qty']-=1 
                             else: st.session_state.cart_table.pop(i)
@@ -762,8 +807,14 @@ def render_menu_grid(cart_ref, key_prefix):
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
     
-    sql = "SELECT * FROM menu WHERE is_active=TRUE AND category=:c ORDER BY price ASC"; 
-    prods = run_query(sql, {"c":sc}) if sc != "Hamısı" else run_query("SELECT * FROM menu WHERE is_active=TRUE")
+    sql = "SELECT id, item_name, price, is_coffee FROM menu WHERE is_active=TRUE"
+    p = {}
+    if sc != "Hamısı": 
+        sql += " AND category=:c"
+        p["c"] = sc
+    sql += " ORDER BY price ASC"
+    
+    prods = run_query(sql, p)
 
     if not prods.empty:
         gr = {}
@@ -865,14 +916,20 @@ else:
                 with c1:
                     add_q = st.number_input(f"Artır ({unit})", min_value=0.0, key=f"add_{id}")
                     if st.button("➕ Mədaxil", key=f"btn_add_{id}"):
-                        run_action("UPDATE ingredients SET stock_qty=stock_qty+:q WHERE id=:id", {"q":add_q, "id":id}); st.success("Oldu!"); st.rerun()
+                        run_action("UPDATE ingredients SET stock_qty=stock_qty+:q WHERE id=:id", {"q":add_q, "id":id}); 
+                        log_system(st.session_state.user, f"Restock: {name} +{add_q}{unit}")
+                        st.success("Oldu!"); st.rerun()
                 with c2:
                     fix_q = st.number_input("Dəqiq Say", value=float(current_qty), min_value=0.0, key=f"fix_{id}")
                     if st.button("✏️ Düzəliş", key=f"btn_fix_{id}"):
-                        run_action("UPDATE ingredients SET stock_qty=:q WHERE id=:id", {"q":fix_q, "id":id}); st.success("Oldu!"); st.rerun()
+                        run_action("UPDATE ingredients SET stock_qty=:q WHERE id=:id", {"q":fix_q, "id":id}); 
+                        log_system(st.session_state.user, f"Stock Correction: {name} -> {fix_q}{unit}")
+                        st.success("Oldu!"); st.rerun()
                 st.divider()
                 if st.button("🗑️ Malı Sil", key=f"del_{id}", type="primary"):
-                    run_action("DELETE FROM ingredients WHERE id=:id", {"id":id}); st.rerun()
+                    run_action("DELETE FROM ingredients WHERE id=:id", {"id":id}); 
+                    log_system(st.session_state.user, f"Deleted Ingredient: {name}")
+                    st.rerun()
 
             def render_inv(cat=None):
                 sql = "SELECT * FROM ingredients"
@@ -1019,7 +1076,9 @@ else:
                 if st.form_submit_button("Əlavə"): 
                     ph_val = ph if ph > 0 else None
                     run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee,printer_target,price_half) VALUES (:n,:p,:c,TRUE,:ic,:pt,:ph)", 
-                               {"n":n,"p":p,"c":c,"ic":ic,"pt":pt,"ph":ph_val}); st.rerun()
+                               {"n":n,"p":p,"c":c,"ic":ic,"pt":pt,"ph":ph_val})
+                    log_system(st.session_state.user, f"Added Menu Item: {n} ({p} AZN)")
+                    st.rerun()
             
             ml = run_query("SELECT * FROM menu")
             if not ml.empty:
@@ -1027,7 +1086,9 @@ else:
                 edited_menu = st.data_editor(ml, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, hide_index=True, use_container_width=True)
                 to_del_menu = edited_menu[edited_menu['Seç']]['item_name'].tolist()
                 if to_del_menu and st.button(f"Seçilənləri Sil ({len(to_del_menu)})", type="primary", key="del_menu_bulk"):
-                    for i_n in to_del_menu: run_action("DELETE FROM menu WHERE item_name=:n", {"n":i_n})
+                    for i_n in to_del_menu: 
+                        run_action("DELETE FROM menu WHERE item_name=:n", {"n":i_n})
+                        log_system(st.session_state.user, f"Deleted Menu Item: {i_n}")
                     st.rerun()
 
         with tabs[7]: # Ayarlar
@@ -1064,15 +1125,20 @@ else:
                 new_pass = st.text_input("Yeni Şifrə / PIN", type="password", key="cp_pass")
                 if st.button("Şifrəni Yenilə"):
                     run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":target_user})
+                    log_system(st.session_state.user, f"Changed password for {target_user}")
                     st.success("Yeniləndi!")
                 st.divider()
                 with st.form("nu"):
                     u=st.text_input("Ad"); p=st.text_input("PIN"); r=st.selectbox("Rol",["staff","admin"])
-                    if st.form_submit_button("Yarat"): run_action("INSERT INTO users (username,password,role) VALUES (:u,:p,:r)", {"u":u,"p":hash_password(p),"r":r}); st.success("OK")
+                    if st.form_submit_button("Yarat"): 
+                        run_action("INSERT INTO users (username,password,role) VALUES (:u,:p,:r)", {"u":u,"p":hash_password(p),"r":r})
+                        log_system(st.session_state.user, f"Created User: {u}")
+                        st.success("OK")
         
         with tabs[8]: # Admin
             st.subheader("🔧 Admin Tools")
             if st.button("📥 FULL BACKUP", key="bkp_btn"):
+                log_system(st.session_state.user, "Requested Full Backup")
                 out = BytesIO()
                 with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                     for t in ["customers", "sales", "menu", "users", "ingredients", "recipes", "system_logs", "tables", "expenses", "void_logs"]:
@@ -1093,6 +1159,7 @@ else:
                                     for _, row in pd.read_excel(xls, "Menu").iterrows():
                                         run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", 
                                                    {"n":row['item_name'],"p":row['price'],"c":row['category'],"ic":row.get('is_coffee',False)})
+                                log_system(st.session_state.user, "Restored Database from Backup")
                                 st.success("Bərpa olundu!")
                             except Exception as e: st.error(f"Xəta: {e}")
                     else: st.error("Şifrə səhvdir")
