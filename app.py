@@ -19,13 +19,13 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V5.2 (FINAL RELEASE) ===
+# === EMALATKHANA POS - V5.3 (STABLE & FIXED) ===
 # ==========================================
 
-VERSION = "v5.2 (Final Release)"
+VERSION = "v5.3 (Stable UI)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
-# --- DEFAULT LEGAL TEXT (TƏSDİQLƏNMİŞ) ---
+# --- DEFAULT LEGAL TEXT ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ</h4>
     <p><b>1. Ümumi Müddəalar</b><br>
@@ -61,69 +61,69 @@ if 'last_sale' not in st.session_state: st.session_state.last_sale = None
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (TOUCH FRIENDLY & APP-LIKE) ---
+# --- CSS (V5.1 CLASSIC STYLE - FIXED) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    
-    /* FORCE LIGHT MODE */
+    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap');
+
+    /* GLOBAL LIGHT MODE FORCE */
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F4F6F9 !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
+    
+    /* TEXT & INPUTS FIX */
     p, h1, h2, h3, h4, h5, h6, li, span, label, div[data-testid="stMarkdownContainer"] p { color: #333333 !important; }
-    div[data-baseweb="input"], div[data-baseweb="select"] > div, div[data-baseweb="base-input"] { background-color: #FFFFFF !important; border: 1px solid #ced4da !important; color: #333 !important; }
+    div[data-baseweb="input"] { background-color: #FFFFFF !important; border: 1px solid #ced4da !important; color: #333 !important; }
     input, textarea { color: #333 !important; }
+    div[data-baseweb="select"] > div { background-color: #FFFFFF !important; color: #333 !important; }
     
-    /* HIDE STREAMLIT CHROME */
+    /* HIDE HEADER/FOOTER */
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
-    .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* TOUCH BUTTONS (SEGMENTED CONTROL STYLE) */
-    div[role="radiogroup"] { flex-direction: row; gap: 10px; width: 100%; display: flex; flex-wrap: wrap; }
-    div[role="radiogroup"] label { 
-        background-color: white !important; 
-        border: 2px solid #ddd !important; 
-        padding: 15px 20px !important; 
-        border-radius: 12px !important; 
-        flex: 1; text-align: center; justify-content: center;
-        transition: all 0.2s;
+    /* TABS (Classic V5.1) */
+    button[data-baseweb="tab"] {
+        font-family: 'Oswald', sans-serif !important; font-size: 18px !important; font-weight: 700 !important;
+        background-color: white !important; border: 2px solid #FFCCBC !important; border-radius: 12px !important;
+        margin: 0 4px !important; color: #555 !important; flex-grow: 1;
     }
-    div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #2E7D32 !important; 
-        border-color: #2E7D32 !important; 
-        color: white !important;
-        box-shadow: 0 4px 10px rgba(46, 125, 50, 0.3);
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #2E7D32, #1B5E20) !important; border-color: #2E7D32 !important; 
+        box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
     }
-    div[role="radiogroup"] label[data-checked="true"] p { color: white !important; }
+    button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
     
-    /* CUSTOMER CARDS */
-    .hero-card { padding: 30px; border-radius: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); color: #fff !important; position: relative; overflow: hidden; }
-    .hero-card::before { content: ""; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent); transform: rotate(45deg); animation: shine 3s infinite; }
-    @keyframes shine { 0% {top: -150%; left: -150%;} 100% {top: 150%; left: 150%;} }
-    
-    .card-golden { background: linear-gradient(135deg, #FFC107, #FF9800); }
-    .card-platinum { background: linear-gradient(135deg, #90A4AE, #546E7A); }
-    .card-elite { background: linear-gradient(135deg, #212121, #000000); border: 1px solid #FFD700; }
-    .card-thermos { background: linear-gradient(135deg, #66BB6A, #2E7D32); }
-    .card-standard { background: white; color: #333 !important; border: 1px solid #ddd; }
-    .card-standard h1, .card-standard h3 { color: #2E7D32 !important; }
-
-    /* ACTION BUTTONS */
+    /* BUTTONS (Classic V5.1) */
     div.stButton > button { border-radius: 12px !important; height: 60px !important; font-weight: 700 !important; box-shadow: 0 4px 0 rgba(0,0,0,0.1) !important; transition: all 0.1s !important; background: white !important; color: #333 !important; border: 1px solid #ddd !important; }
     div.stButton > button:active { transform: translateY(3px) !important; box-shadow: none !important; }
-    
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="primary"] p { color: white !important; }
+    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 120px !important; font-size: 24px !important; white-space: pre-wrap !important; }
+    div.stButton > button[kind="secondary"] p { color: white !important; }
+    div.stButton > button[kind="primary"].table-occ { background: linear-gradient(135deg, #E53935, #C62828) !important; color: white !important; border: 2px solid #B71C1C !important; height: 120px !important; font-size: 24px !important; white-space: pre-wrap !important; animation: pulse-red 2s infinite; }
     
-    /* ALERTS */
-    @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
-    .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+    .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
 
+    /* CUSTOMER SCREEN (Classic Clean) */
+    .digital-card { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; }
+    .thermos-vip { background: linear-gradient(135deg, #2E7D32, #66BB6A); color: white; padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3); }
+    .thermos-vip p { color: white !important; }
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; filter: drop-shadow(0 0 5px gold); }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
+    .progress-text { font-size: 20px; color: #D84315 !important; font-weight: bold; margin-top: 15px; background: #FBE9E7; padding: 10px; border-radius: 10px; }
 
-    @media print { body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; } }
+    /* ALERTS */
+    @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
+    .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; }
+
+    @media print {
+        body * { visibility: hidden; }
+        .paper-receipt, .paper-receipt * { visibility: visible; }
+        .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; margin: 0; padding: 0; border: none; box-shadow: none; }
+        div[data-testid="stDialog"], div[role="dialog"] { box-shadow: none !important; background: none !important; }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -260,7 +260,7 @@ def clear_failed_login(username):
     try: run_action("DELETE FROM failed_logins WHERE username=:u", {"u":username})
     except: pass
 
-# --- SMART CALCULATION ENGINE V5.2 (COFFEE FILTER) ---
+# --- SMART CALCULATION ENGINE (COFFEE FILTER) ---
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; discounted_total = 0.0; 
     status_discount_rate = 0.0 
@@ -339,11 +339,11 @@ if "id" in query_params:
         for _, row in notifs.iterrows():
             st.info(f"📩 {row['message']}"); run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
 
-        # Registration (Simplified V5.0)
+        # Registration (Simplified V5.2 Logic)
         if not user['is_active']:
             st.warning(f"🎉 Xoş Gəldiniz!")
             with st.form("act"):
-                em = st.text_input("📧 Email (Bildirişlər üçün)")
+                em = st.text_input("📧 Email (Bildirişlər üçün)", key="reg_email") # FIX: UNIQUE KEY
                 dob = st.date_input("🎂 Doğum Tarixi (Hədiyyə üçün)", min_value=datetime.date(1950, 1, 1), max_value=datetime.date.today())
                 
                 with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
@@ -358,24 +358,18 @@ if "id" in query_params:
                     else: st.error("Email yazın və qaydaları qəbul edin.")
             st.stop()
 
-        # DASHBOARD
+        # DASHBOARD (V5.1 CLEAN DESIGN)
         ctype = user['type']
-        card_class = "card-standard"; card_title = "MEMBER CARD"; card_msg = "Sizə özəl endirimlər kassada."
-        
-        if ctype == 'golden': card_class = "card-golden"; card_title = "GOLDEN MEMBER"; card_msg = "Daimi 5% Kofe Endirimi"
-        elif ctype == 'platinum': card_class = "card-platinum"; card_title = "PLATINUM MEMBER"; card_msg = "Daimi 10% Kofe Endirimi"
-        elif ctype == 'elite': card_class = "card-elite"; card_title = "ELITE ACCESS"; card_msg = "VIP Status: 20% Endirim"
-        elif ctype == 'thermos': card_class = "card-thermos"; card_title = "EKO-TERM MEMBER"; card_msg = "Təbiət Dostu: 20% Endirim"
+        st_label = ""
+        if ctype == 'golden': st_label = "GOLDEN MEMBER"
+        elif ctype == 'platinum': st_label = "PLATINUM MEMBER"
+        elif ctype == 'elite': st_label = "ELITE MEMBER"
+        elif ctype == 'thermos': st_label = "EKO-TERM MEMBER"
 
-        st.markdown(f"""
-        <div class="hero-card {card_class}">
-            <h1>{card_title}</h1>
-            <h3 style="margin-top:10px;">{user['stars']} / 10 Ulduz</h3>
-            <p style="margin-top:5px; opacity:0.9">{card_msg}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if st_label: st.success(f"🛡️ STATUS: {st_label}")
         
-        # Grid
+        st.markdown(f"""<div class="digital-card"><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p>Balansınız</p></div>""", unsafe_allow_html=True)
+        
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" if i==9 else "https://cdn-icons-png.flaticon.com/512/751/751621.png"
@@ -394,7 +388,7 @@ if "id" in query_params:
 
         # Feedback
         with st.form("feed"):
-            s = st.feedback("stars"); m = st.text_input("Rəyiniz")
+            s = st.feedback("stars"); m = st.text_input("Rəyiniz", key="feed_msg") # FIX: UNIQUE KEY
             if st.form_submit_button("Göndər") and s:
                 run_action("INSERT INTO feedbacks (card_id, rating, comment, created_at) VALUES (:i,:r,:m, :t)", {"i":card_id, "r":s+1, "m":m, "t":get_baku_now()})
                 st.success("Təşəkkürlər!")
@@ -482,7 +476,7 @@ def render_takeaway():
     with c1:
         st.info("🧾 Al-Apar Çek")
         with st.form("sc_ta", clear_on_submit=True):
-            ci, cb = st.columns([3,1]); qv = ci.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan..."); 
+            ci, cb = st.columns([3,1]); qv = ci.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan...", key="ta_inp"); 
             if cb.form_submit_button("🔍") or qv:
                 try: 
                     cid = qv.strip().split("id=")[1].split("&")[0] if "id=" in qv else qv.strip()
@@ -601,7 +595,7 @@ def render_table_order():
              if not r.empty: st.session_state.current_customer_tb = r.iloc[0].to_dict()
 
         with st.form("sc_tb", clear_on_submit=True):
-            ci, cb = st.columns([3,1]); qv = ci.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan..."); 
+            ci, cb = st.columns([3,1]); qv = ci.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan...", key="tb_inp"); 
             if cb.form_submit_button("🔍") or qv:
                 try: 
                     cid = qv.strip().split("id=")[1].split("&")[0] if "id=" in qv else qv.strip()
@@ -637,7 +631,7 @@ def render_table_order():
                     st.markdown('</div>', unsafe_allow_html=True)
                 with b3:
                     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
-                    if st.button("➖", key=f"m_tb_{i}"): 
+                    if button("➖", key=f"m_tb_{i}"): 
                         if status == 'sent': admin_auth_dialog(item_idx=i)
                         else:
                             if it['qty']>1 and it['qty']!=0.5: it['qty']-=1 
@@ -769,7 +763,7 @@ def render_analytics(is_admin=False, is_manager=False):
                 st.divider()
                 st.markdown("#### 📤 Hesabatı Göndər")
                 c_em1, c_em2 = st.columns([3, 1])
-                target_email = c_em1.text_input("Email", value=get_setting("receipt_email", DEFAULT_SENDER_EMAIL))
+                target_email = c_em1.text_input("Email", value=get_setting("receipt_email", DEFAULT_SENDER_EMAIL), key="analytics_email") # FIX: UNIQUE KEY
                 if c_em2.button("Göndər", use_container_width=True):
                     body = f"<h1>Satış Hesabatı ({ft})</h1><h3>Cəm: {df['total'].sum():.2f} ₼</h3>"
                     res = send_email(target_email, "Satış Hesabatı", body)
@@ -1123,7 +1117,7 @@ else:
                 r_phone = st.text_input("Telefon", value=get_setting("receipt_phone", "+994 55 000 00 00"))
                 r_web = st.text_input("Vebsayt", value=get_setting("receipt_web", "www.ironwaves.store"))
                 r_insta = st.text_input("Instagram", value=get_setting("receipt_insta", "@ironwaves"))
-                r_email = st.text_input("Email", value=get_setting("receipt_email", "info@ironwaves.store"))
+                r_email = st.text_input("Email", value=get_setting("receipt_email", "info@ironwaves.store"), key="set_r_email") # FIX: UNIQUE KEY
                 r_foot = st.text_input("Footer", value=get_setting("receipt_footer", "Təşəkkürlər!"))
                 lf = st.file_uploader("Logo"); 
                 if lf and st.button("Logo Saxla", key="sv_lg"): set_setting("receipt_logo_base64", image_to_base64(lf)); st.success("OK")
