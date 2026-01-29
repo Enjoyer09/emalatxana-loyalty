@@ -14,17 +14,16 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.11 (BEST OF BOTH) ===
+# === EMALATKHANA POS - V5.12 (CLEAN CUSTOMER UI) ===
 # ==========================================
 
-VERSION = "v5.11 (v5.3 UI + Smart CRM)"
+VERSION = "v5.12 (Clean Customer UI)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI</h4>
-    <p><b>1. Ümumi:</b> Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
-    <p><b>2. Ulduzlar:</b> Yalnız Kofe məhsullarına şamil olunur (9 ulduz = 1 Hədiyyə).</p>
+    <p>Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
 </div>"""
 
 # --- INFRA ---
@@ -45,7 +44,7 @@ if 'current_customer_tb' not in st.session_state: st.session_state.current_custo
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (V5.3 CLASSIC UI + V5.10 MOBILE CARD) ---
+# --- CSS (V5.3 POS STYLE + V5.9 CLEAN CUSTOMER CARD) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
@@ -61,7 +60,7 @@ st.markdown("""
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* --- V5.3 CLASSIC BUTTONS (CLEAN WHITE) --- */
+    /* --- V5.3 CLASSIC POS BUTTONS (CLEAN WHITE) --- */
     div.stButton > button { 
         border-radius: 12px !important; 
         height: 60px !important; 
@@ -75,15 +74,11 @@ st.markdown("""
     div.stButton > button:active { transform: translateY(3px) !important; box-shadow: none !important; }
     div.stButton > button:hover { border-color: #2E7D32 !important; color: #2E7D32 !important; background-color: #F1F8E9 !important; }
 
-    /* PRIMARY ACTIONS (ORANGE) */
+    /* PRIMARY ACTIONS */
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="primary"] p { color: white !important; }
     
-    /* TABLE BUTTONS */
-    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 100px !important; font-size: 20px !important; }
-    div.stButton > button[kind="secondary"] p { color: white !important; }
-    
-    /* TABS (V5.3 Style) */
+    /* TABS */
     button[data-baseweb="tab"] {
         font-family: 'Oswald', sans-serif !important; font-size: 18px !important; font-weight: 700 !important;
         background-color: white !important; border: 2px solid #FFCCBC !important; border-radius: 12px !important;
@@ -95,26 +90,46 @@ st.markdown("""
     }
     button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
 
-    /* --- MOBILE CUSTOMER CARD (FROM V5.10) --- */
-    .member-card-container {
-        width: 100%; border-radius: 24px; padding: 25px; margin-bottom: 20px; position: relative; overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1); color: white !important; font-family: 'Inter', sans-serif !important;
+    /* --- CLEAN CUSTOMER CARD (V5.9 STYLE RESTORED) --- */
+    .digital-card { 
+        background: white; 
+        border-radius: 20px; 
+        padding: 25px; 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
+        text-align: center; 
+        margin-bottom: 20px; 
+        border: 1px solid #eee; 
+        position: relative; 
+        overflow: hidden; 
     }
-    .card-standard { background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%); }
-    .card-golden { background: linear-gradient(135deg, #FFC107 0%, #FF8C00 100%); box-shadow: 0 10px 30px rgba(255, 193, 7, 0.3); }
-    .card-platinum { background: linear-gradient(135deg, #B0BEC5 0%, #78909C 100%); }
-    .card-elite { background: linear-gradient(135deg, #212121 0%, #000000 100%); border: 1px solid #FFD700; }
-    .card-thermos { background: linear-gradient(135deg, #43A047 0%, #2E7D32 100%); border: 2px solid #A5D6A7; }
-    .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-    .card-brand { font-size: 14px; opacity: 0.8; letter-spacing: 2px; font-weight: 600; }
-    .card-status { font-size: 12px; font-weight: bold; text-transform: uppercase; background: rgba(255,255,255,0.2); padding: 5px 12px; border-radius: 20px; backdrop-filter: blur(5px); }
-    .card-balance { text-align: center; margin-bottom: 30px; }
-    .star-count { font-size: 64px; font-weight: 700; line-height: 1; text-shadow: 0 2px 10px rgba(0,0,0,0.2); }
-    .star-label { font-size: 14px; opacity: 0.9; font-weight: 300; }
-    .card-msg { font-size: 16px; font-weight: 500; text-align: center; opacity: 0.95; font-style: italic; }
+    
+    /* Minimalist Status Badges */
+    .status-badge { 
+        font-family: 'Inter', sans-serif;
+        font-size: 14px; 
+        font-weight: 600; 
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 8px 20px; 
+        border-radius: 50px; 
+        display: inline-block; 
+        margin-bottom: 15px; 
+        color: white; 
+        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    }
+    .badge-standard { background: #9E9E9E; }
+    .badge-gold { background: linear-gradient(135deg, #FFC107, #FF9800); }
+    .badge-plat { background: linear-gradient(135deg, #90A4AE, #546E7A); }
+    .badge-elite { background: linear-gradient(135deg, #212121, #000000); border: 1px solid #FFD700; }
+    .badge-eco { background: linear-gradient(135deg, #43A047, #2E7D32); }
+
+    .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
+    .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
+    .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
+    @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
 
     /* ALERTS */
-    .global-msg { background-color: #E3F2FD; border-left: 5px solid #2196F3; padding: 15px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; }
+    .global-msg { background-color: #E3F2FD; border-left: 5px solid #2196F3; padding: 15px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; font-family: 'Inter', sans-serif; }
     
     @media print {
         body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; }
@@ -303,24 +318,20 @@ if "id" in query_params:
                     run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE, activated_at=:t WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id, "t":get_baku_now()}); st.rerun()
             st.stop()
 
-        # MOBILE FIRST STATUS CARD
-        ctype = user['type']; card_cls = "card-standard"; status_txt = "CLUB MEMBER"; warm_msg = "Xoş Gəldiniz!"
-        if ctype == 'golden': card_cls="card-golden"; status_txt="GOLDEN MEMBER"; warm_msg="Siz bizim Qızıl ulduzumuzsunuz!"
-        elif ctype == 'platinum': card_cls="card-platinum"; status_txt="PLATINUM MEMBER"; warm_msg="Siz bizim ən sadiq qonağımızsınız!"
-        elif ctype == 'elite': card_cls="card-elite"; status_txt="ELITE VIP"; warm_msg="Siz bizim üçün çox özəlsiniz."
-        elif ctype == 'thermos': card_cls="card-thermos"; status_txt="ECO HERO"; warm_msg="Təbiəti qoruduğunuz üçün təşəkkürlər!"
+        # RESTORED CLEAN CARD UI (V5.9 Style) with NICE BADGES
+        ctype = user['type']; badge_html = ""; warm_msg = "Xoş Gəldiniz!"
+        if ctype == 'golden': badge_html = "<div class='status-badge badge-gold'>🌟 GOLDEN</div>"; warm_msg = "Siz bizim Qızıl ulduzumuzsunuz!"
+        elif ctype == 'platinum': badge_html = "<div class='status-badge badge-plat'>💎 PLATINUM</div>"; warm_msg = "Siz bizim ən sadiq qonağımızsınız!"
+        elif ctype == 'elite': badge_html = "<div class='status-badge badge-elite'>👑 ELITE VIP</div>"; warm_msg = "Siz bizim üçün çox özəlsiniz."
+        elif ctype == 'thermos': badge_html = "<div class='status-badge badge-eco'>🌿 EKO-TERM</div>"; warm_msg = "Təbiəti qoruduğunuz üçün təşəkkürlər!"
+        else: badge_html = "<div class='status-badge badge-standard'>CLUB MEMBER</div>"
 
         st.markdown(f"""
-        <div class="member-card-container {card_cls}">
-            <div class="card-top">
-                <span class="card-brand">EMALATKHANA</span>
-                <span class="card-status">{status_txt}</span>
-            </div>
-            <div class="card-balance">
-                <div class="star-count">{user['stars']}</div>
-                <div class="star-label">Balansınızdakı Ulduzlar</div>
-            </div>
-            <div class="card-msg">{warm_msg}</div>
+        <div class="digital-card">
+            {badge_html}
+            <p style="font-family: 'Inter', sans-serif; font-size:16px; margin:10px 0; color:#555;">{warm_msg}</p>
+            <h1 style="color:#2E7D32; font-size: 56px; margin:10px 0; font-weight:700;">{user['stars']} / 10</h1>
+            <p style="color:#888; font-size:14px; text-transform:uppercase; letter-spacing:1px;">Balansınız</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -328,6 +339,13 @@ if "id" in query_params:
         st.write("🎁 Hədiyyəyə gedən yol:")
         my_bar = st.progress(user['stars'] / 9)
         if user['stars'] >= 9: st.success("🎉 TƏBRİKLƏR! Növbəti Kofe HƏDİYYƏDİR!")
+        
+        html = '<div class="coffee-grid-container">'
+        for i in range(10):
+            icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" if i==9 else "https://cdn-icons-png.flaticon.com/512/751/751621.png"
+            style = "opacity: 1;" if i < user['stars'] or (i==9 and user['stars']>=9) else "opacity: 0.2; filter: grayscale(100%);"
+            html += f'<img src="{icon}" class="coffee-icon-img" style="{style}">'
+        st.markdown(html + '</div>', unsafe_allow_html=True)
 
         cps = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in cps.iterrows(): st.success(f"🎫 KUPON: {cp['coupon_type']}")
@@ -369,7 +387,7 @@ def render_menu_grid(cart_ref, key_prefix):
     if not prods.empty:
         gr = {}
         for _, r in prods.iterrows():
-            n = r['item_name']; pts = n.split()
+            n = r['item_name']; pts = n.split(); base = n
             if len(pts)>1 and pts[-1] in ['S','M','L','XL','Single','Double']: base = " ".join(pts[:-1]); gr.setdefault(base, []).append(r)
             else: gr[n] = [r]
         cols = st.columns(4); i=0
