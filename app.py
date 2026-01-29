@@ -14,13 +14,13 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.20 (PREMIUM FIX) ===
+# === EMALATKHANA POS - V5.21 (STAMP & SECURITY) ===
 # ==========================================
 
-VERSION = "v5.20 (Receipt Logo + Elegant UI)"
+VERSION = "v5.21 (Staff Lock + Stamp UI)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
-# --- CONSTANTS (MOVED TOP FOR SAFETY) ---
+# --- CONSTANTS ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI</h4>
     <p>Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
@@ -31,7 +31,6 @@ COMPLIMENTS = [
     "Bu gün möhtəşəm görünürsünüz! ✨",
     "Sizi yenidən görmək necə xoşdur! ☕",
     "Uğurlu gün arzulayırıq! 🚀",
-    "Sizin üçün ən yaxşısını hazırlayırıq! ❤️",
     "Enerjinizə heyranıq! ⚡"
 ]
 
@@ -56,7 +55,7 @@ if 'selected_recipe_product' not in st.session_state: st.session_state.selected_
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap'); /* Receipt Font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
 
@@ -73,46 +72,75 @@ st.markdown("""
     div.stButton > button:hover { border-color: #2E7D32 !important; color: #2E7D32 !important; background-color: #F1F8E9 !important; }
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="primary"] p { color: white !important; }
-    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 100px !important; font-size: 20px !important; }
+    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 100px !important; font-size: 20px !important; white-space: pre-wrap !important; }
     div.stButton > button[kind="secondary"] p { color: white !important; }
     .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
 
-    /* CUSTOMER CARD (ROYAL) */
-    .digital-card { background: white; border-radius: 24px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.08); text-align: center; margin-bottom: 25px; position: relative; overflow: hidden; font-family: 'Playfair Display', serif; border: 1px solid #f0f0f0; }
-    .royal-gold { border: 2px solid #D4AF37; box-shadow: 0 10px 30px rgba(212, 175, 55, 0.2); }
-    .royal-plat { border: 2px solid #B0BEC5; box-shadow: 0 10px 30px rgba(176, 190, 197, 0.2); }
-    .royal-elite { border: 3px solid #37474F; box-shadow: 0 10px 30px rgba(55, 71, 79, 0.3); }
-    .royal-eco { border: 2px solid #2E7D32; }
-    .royal-std { border: 1px solid #ccc; }
-
-    .member-title { font-size: 24px; letter-spacing: 1px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; }
-    .discount-subtitle { font-family: 'Inter', sans-serif; font-size: 14px; color: #777; font-style: italic; margin-bottom: 15px; }
-    .balance-display { font-size: 80px; font-weight: 400; line-height: 1; margin: 10px 0; font-family: 'Oswald', sans-serif; color: #333; }
+    /* --- STAMP STYLE CUSTOMER CARD --- */
+    .stamp-container {
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 30px;
+    }
     
+    .stamp-card {
+        background: white;
+        padding: 20px 40px;
+        text-align: center;
+        font-family: 'Courier Prime', monospace;
+        text-transform: uppercase;
+        font-weight: bold;
+        transform: rotate(-3deg); /* The visual tilt */
+        border-radius: 15px;
+        transition: transform 0.3s ease;
+        position: relative;
+    }
+    
+    .stamp-card:hover { transform: rotate(0deg) scale(1.05); }
+
+    /* Double Border Effect for Stamp */
+    .stamp-gold { border: 4px solid #D4AF37; color: #D4AF37; box-shadow: 0 0 0 4px white, 0 0 0 7px #D4AF37; }
+    .stamp-plat { border: 4px solid #78909C; color: #546E7A; box-shadow: 0 0 0 4px white, 0 0 0 7px #78909C; }
+    .stamp-elite { border: 4px solid #800020; color: #800020; box-shadow: 0 0 0 4px white, 0 0 0 7px #800020; }
+    .stamp-eco  { border: 4px solid #2E7D32; color: #2E7D32; box-shadow: 0 0 0 4px white, 0 0 0 7px #2E7D32; }
+    .stamp-std  { border: 4px solid #333; color: #333; box-shadow: 0 0 0 4px white, 0 0 0 7px #333; }
+
+    .stamp-title { font-size: 28px; letter-spacing: 2px; border-bottom: 2px solid; padding-bottom: 5px; margin-bottom: 10px; display: inline-block; }
+    .stamp-stars { font-size: 64px; margin: 10px 0; font-family: 'Oswald', sans-serif; }
+    .stamp-footer { font-size: 12px; letter-spacing: 1px; }
+
     .compliment-text { font-family: 'Dancing Script', cursive; color: #E65100; font-size: 26px; font-weight: 900; text-align: center; margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
 
-    /* PRINT RECEIPT (STACKBY STYLE) */
+    /* --- RECEIPT STYLE (receipt.jpg Clone) --- */
     @media print {
         body * { visibility: hidden; }
         #receipt-area, #receipt-area * { visibility: visible; }
         #receipt-area { 
-            position: absolute; left: 0; top: 0; width: 300px; 
-            margin: 0; padding: 15px; 
-            font-family: 'Inter', sans-serif; color: black; 
+            position: absolute; left: 0; top: 0; width: 320px; 
+            margin: 0; padding: 20px; 
+            font-family: 'Courier Prime', monospace; /* Monospace font */
+            color: black; 
             text-align: center;
+            background: white;
         }
-        .rec-logo { width: 80px; margin-bottom: 10px; filter: grayscale(100%); }
-        .rec-header { font-size: 18px; font-weight: 900; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-        .rec-meta { font-size: 12px; color: #555; margin-bottom: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; line-height: 1.4; }
-        .rec-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 14px; text-align: left; }
-        .rec-table th { border-bottom: 1px solid #000; padding: 5px 0; }
-        .rec-table td { padding: 5px 0; border-bottom: 1px dashed #eee; }
-        .rec-total { font-size: 20px; font-weight: 900; border-top: 2px solid #000; padding-top: 10px; display: flex; justify-content: space-between; }
-        .rec-footer { margin-top: 25px; font-size: 12px; font-style: italic; color: #555; }
+        .rec-logo { width: 100px; margin-bottom: 10px; filter: grayscale(100%); }
+        .rec-title { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
+        .rec-text { font-size: 12px; margin-bottom: 2px; }
+        .rec-dash { margin: 10px 0; border-bottom: 1px dashed black; }
+        .rec-table { width: 100%; text-align: left; font-size: 12px; border-collapse: collapse; margin-top: 5px; }
+        .rec-table th { text-transform: uppercase; padding-bottom: 5px; border-bottom: 1px dashed black; }
+        .rec-table td { padding: 5px 0; vertical-align: top; }
+        .col-qty { width: 15%; text-align: center; }
+        .col-name { width: 60%; }
+        .col-amt { width: 25%; text-align: right; }
+        .rec-total { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 10px; padding-top: 5px; }
+        .rec-footer { margin-top: 20px; font-size: 14px; font-weight: bold; text-transform: uppercase; }
         div[role="dialog"] { box-shadow: none !important; }
     }
     </style>
@@ -266,33 +294,37 @@ def calculate_smart_total(cart, customer=None, is_table=False):
     return total, discounted_total, max(status_discount_rate, thermos_discount_rate), free_coffees_to_apply, total_star_pool, 0, False
 
 # ==========================================
-# === RECEIPT GENERATOR HTML ===
+# === RECEIPT GENERATOR HTML (MONOSPACE) ===
 # ==========================================
 def get_receipt_html(cart, total):
     store = get_setting("receipt_store_name", BRAND_NAME)
     addr = get_setting("receipt_address", "Bakı, Azərbaycan")
     phone = get_setting("receipt_phone", "+994 50 000 00 00")
-    insta = get_setting("receipt_insta", "@emalatkhana")
-    foot = get_setting("receipt_footer", "Bizi seçdiyiniz üçün təşəkkürlər!")
+    foot = get_setting("receipt_footer", "THANK YOU!")
     logo = get_setting("receipt_logo_base64")
-    time_str = get_baku_now().strftime('%d.%m.%Y %H:%M')
+    time_str = get_baku_now().strftime('%d/%m/%Y   %I:%M:%S %p')
     
     img_tag = f'<img src="data:image/png;base64,{logo}" class="rec-logo"><br>' if logo else ""
     
     html = f"""
     <div id='receipt-area'>
         {img_tag}
-        <div class='rec-header'>{store}</div>
-        <div class='rec-meta'>{addr}<br>{phone}<br>{insta}<br>{time_str}</div>
+        <div class='rec-title'>RECEIPT OF SALE<br>{store}</div>
+        <div class='rec-text'>{addr}<br>Tel: {phone}</div>
+        <div class='rec-dash'></div>
+        <div class='rec-text'>{time_str}</div>
+        <div class='rec-dash'></div>
         <table class='rec-table'>
-            <tr><th style='text-align:left'>Məhsul</th><th style='text-align:right'>Cəm</th></tr>
+            <tr><th class='col-qty'>QTY</th><th class='col-name'>NAME</th><th class='col-amt'>AMT</th></tr>
     """
     for i in cart:
-        html += f"<tr><td>{i['item_name']} x{i['qty']}</td><td style='text-align:right'>{i['qty']*i['price']:.2f}</td></tr>"
+        html += f"<tr><td class='col-qty'>{int(i['qty'])}</td><td class='col-name'>{i['item_name']}</td><td class='col-amt'>${i['qty']*i['price']:.2f}</td></tr>"
     
     html += f"""
         </table>
-        <div class='rec-total'><span>CƏM:</span><span>{total:.2f} ₼</span></div>
+        <div class='rec-dash'></div>
+        <div class='rec-total'><span>Total</span><span>${total:.2f}</span></div>
+        <div class='rec-dash'></div>
         <div class='rec-footer'>{foot}</div>
     </div>
     """
@@ -309,7 +341,7 @@ def show_payment_popup(cart, total, customer):
     with c2:
         if customer and customer.get('email'):
             if st.button("📧 Email Göndər", use_container_width=True):
-                send_email(customer['email'], "Sizin Çekiniz", rec_html) # Send actual HTML
+                send_email(customer['email'], "Sizin Çekiniz", rec_html)
                 st.success("Göndərildi!")
         else: st.warning("⛔ Email yoxdur")
 
@@ -353,26 +385,24 @@ if "id" in query_params:
                     run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE, activated_at=:t WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id, "t":get_baku_now()}); st.rerun()
             st.stop()
 
-        # ELEGANT CARD
-        ctype = user['type']; card_style = "royal-std"; st_label = "MEMBER"; disc_txt = ""
-        if ctype == 'golden': card_style="royal-gold"; st_label="GOLDEN MEMBER"; disc_txt="✨ Sizə özəl 5% Endirim"
-        elif ctype == 'platinum': card_style="royal-plat"; st_label="PLATINUM MEMBER"; disc_txt="✨ Sizə özəl 10% Endirim"
-        elif ctype == 'elite': card_style="royal-elite"; st_label="ELITE VIP"; disc_txt="✨ Sizə özəl 20% Endirim"
-        elif ctype == 'thermos': card_style="royal-eco"; st_label="EKO-TERM MEMBER"; disc_txt="🌿 Təbiət Dostu (20%)"
-
-        color_style = "color:#D4AF37" if ctype=='golden' else "color:#333"
-        if ctype=='elite': color_style="color:#37474F"
+        # STAMP CARD
+        ctype = user['type']; stamp_class = "stamp-std"; st_label = "MEMBER"; disc_txt = ""
+        if ctype == 'golden': stamp_class="stamp-gold"; st_label="GOLDEN MEMBER"; disc_txt="✨ 5% ENDİRİM"
+        elif ctype == 'platinum': stamp_class="stamp-plat"; st_label="PLATINUM MEMBER"; disc_txt="✨ 10% ENDİRİM"
+        elif ctype == 'elite': stamp_class="stamp-elite"; st_label="ELITE VIP"; disc_txt="✨ 20% ENDİRİM"
+        elif ctype == 'thermos': stamp_class="stamp-eco"; st_label="EKO-TERM MEMBER"; disc_txt="🌿 20% ENDİRİM"
 
         st.markdown(f"""
-        <div class="digital-card {card_style}">
-            <div class="member-title" style="{color_style}">{st_label}</div>
-            <div class="discount-subtitle">{disc_txt}</div>
-            <div class="balance-display">{user['stars']} / 10</div>
-            <p style="color:#777; font-size:12px; letter-spacing:1px; text-transform:uppercase;">Ulduz Balansınız</p>
+        <div class="stamp-container">
+            <div class="stamp-card {stamp_class}">
+                <div class="stamp-title">{st_label}</div>
+                <div>{disc_txt}</div>
+                <div class="stamp-stars">{user['stars']} / 10</div>
+                <div class="stamp-footer">ULDUZ BALANSI</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # COFFEE GRID
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             icon = "https://cdn-icons-png.flaticon.com/512/3209/3209955.png" if i==9 else "https://cdn-icons-png.flaticon.com/512/751/751621.png"
@@ -563,13 +593,18 @@ def render_tables_main():
         tables = run_query("SELECT * FROM tables ORDER BY id"); cols = st.columns(3)
         for idx, row in tables.iterrows():
             with cols[idx % 3]:
-                if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary" if row['is_occupied'] else "secondary"):
+                if st.button(f"{row['label']}\n\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary" if row['is_occupied'] else "secondary"):
                     items = json.loads(row['items']) if row['items'] else []
                     st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
 
 def render_analytics(role):
     st.subheader("📊 Analitika")
-    t1, t2, t3 = st.tabs(["Satışlar", "Xərclər", "Mənfəət"])
+    
+    # STAFF LOCK: Staff sees only Sales, filtered by their own username
+    tabs_list = ["Satışlar", "Xərclər", "Mənfəət"]
+    if role == 'staff': tabs_list = ["Satışlar"]
+    
+    tabs = st.tabs(tabs_list)
     
     c1, c2 = st.columns([1, 2])
     f_type = c1.selectbox("Filtr", ["Bu Gün", "Bu Ay", "Tarix Aralığı"], label_visibility="collapsed")
@@ -579,9 +614,12 @@ def render_analytics(role):
         cd1, cd2 = c2.columns(2)
         d1 = cd1.date_input("Start"); d2 = cd2.date_input("End")
     
-    with t1:
-        sales_sql = f"SELECT * FROM sales WHERE created_at::date >= '{d1}' AND created_at::date <= '{d2}' ORDER BY created_at DESC"
-        df_sales = run_query(sales_sql)
+    with tabs[0]: # Sales
+        base_sql = f"SELECT * FROM sales WHERE created_at::date >= '{d1}' AND created_at::date <= '{d2}'"
+        if role == 'staff': base_sql += f" AND cashier = '{st.session_state.user}'" # STAFF FILTER
+        base_sql += " ORDER BY created_at DESC"
+        
+        df_sales = run_query(base_sql)
         st.metric("Toplam Satış", f"{df_sales['total'].sum():.2f} ₼")
         if role == 'admin':
             df_sales.insert(0, "Seç", False); ed = st.data_editor(df_sales, hide_index=True)
@@ -606,29 +644,30 @@ def render_analytics(role):
                     html += "</table>"
                     send_email(target, "Satış Hesabatı", html); st.success("Getdi!")
 
-    with t2:
-        exp_sql = f"SELECT * FROM expenses WHERE created_at::date >= '{d1}' AND created_at::date <= '{d2}'"
-        df_exp = run_query(exp_sql)
-        st.metric("Toplam Xərc", f"{df_exp['amount'].sum():.2f} ₼")
-        if role in ['admin', 'manager']:
-            with st.form("new_exp"):
-                t=st.text_input("Təyinat"); a=st.number_input("Məbləğ"); c=st.selectbox("Kat", ["Maaş","İcarə","Kommunal","Təchizat"])
-                if st.form_submit_button("Xərc Əlavə Et"):
-                    run_action("INSERT INTO expenses (title,amount,category,created_at) VALUES (:t,:a,:c,:time)", {"t":t,"a":a,"c":c,"time":get_baku_now()}); st.rerun()
-        if role == 'admin':
-            df_exp.insert(0, "Seç", False); ed_x = st.data_editor(df_exp, hide_index=True)
-            del_x = ed_x[ed_x["Seç"]]['id'].tolist()
-            if del_x:
-                px = st.text_input("Admin Şifrə", type="password", key="x_del")
-                if st.button("Xərci Sil"):
-                    adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
-                    if verify_password(px, adm.iloc[0]['password']):
-                        for d in del_x: run_action("DELETE FROM expenses WHERE id=:id", {"id":d})
-                        st.success("Silindi!"); st.rerun()
+    if role != 'staff':
+        with tabs[1]: # Expenses
+            exp_sql = f"SELECT * FROM expenses WHERE created_at::date >= '{d1}' AND created_at::date <= '{d2}'"
+            df_exp = run_query(exp_sql)
+            st.metric("Toplam Xərc", f"{df_exp['amount'].sum():.2f} ₼")
+            if role in ['admin', 'manager']:
+                with st.form("new_exp"):
+                    t=st.text_input("Təyinat"); a=st.number_input("Məbləğ"); c=st.selectbox("Kat", ["Maaş","İcarə","Kommunal","Təchizat"])
+                    if st.form_submit_button("Xərc Əlavə Et"):
+                        run_action("INSERT INTO expenses (title,amount,category,created_at) VALUES (:t,:a,:c,:time)", {"t":t,"a":a,"c":c,"time":get_baku_now()}); st.rerun()
+            if role == 'admin':
+                df_exp.insert(0, "Seç", False); ed_x = st.data_editor(df_exp, hide_index=True)
+                del_x = ed_x[ed_x["Seç"]]['id'].tolist()
+                if del_x:
+                    px = st.text_input("Admin Şifrə", type="password", key="x_del")
+                    if st.button("Xərci Sil"):
+                        adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
+                        if verify_password(px, adm.iloc[0]['password']):
+                            for d in del_x: run_action("DELETE FROM expenses WHERE id=:id", {"id":d})
+                            st.success("Silindi!"); st.rerun()
 
-    with t3:
-        inc = df_sales['total'].sum(); out = df_exp['amount'].sum()
-        st.metric("Xalis Mənfəət", f"{inc - out:.2f} ₼", delta=f"{inc} (Gəlir) - {out} (Xərc)")
+        with tabs[2]: # Profit
+            inc = df_sales['total'].sum(); out = df_exp['amount'].sum()
+            st.metric("Xalis Mənfəət", f"{inc - out:.2f} ₼", delta=f"{inc} (Gəlir) - {out} (Xərc)")
 
 def render_logs(role):
     st.subheader("📜 Sistem Logları")
@@ -848,6 +887,7 @@ else:
             with st.expander("🔧 Sistem"):
                 show = st.checkbox("İşçi Ekranında Masaları Göstər", value=(get_setting("staff_show_tables", "TRUE")=="TRUE"))
                 if st.button("Yadda Saxla", key="sv_sh"): set_setting("staff_show_tables", "TRUE" if show else "FALSE"); st.rerun()
+                # --- ADMIN RESTORE ---
                 rf = st.file_uploader("Restore (.xlsx)")
                 rp = st.text_input("Restore Password", type="password")
                 if rf and st.button("Bərpa Et"):
