@@ -12,13 +12,13 @@ from io import BytesIO
 import zipfile
 import requests
 import json
-import base64  # <--- UNUDULMUŞ QƏHRƏMAN BURADADIR
+import base64
 
 # ==========================================
-# === EMALATKHANA POS - V5.22 (BUG FIX) ===
+# === EMALATKHANA POS - V5.23 (PRINT FIX) ===
 # ==========================================
 
-VERSION = "v5.22 (Base64 Fix + Stable)"
+VERSION = "v5.23 (Print JS + Restore Visible)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONSTANTS ---
@@ -56,7 +56,7 @@ if 'selected_recipe_product' not in st.session_state: st.session_state.selected_
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap'); /* Receipt Font */
+    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
@@ -101,29 +101,32 @@ st.markdown("""
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
 
-    /* RECEIPT STYLE */
+    /* RECEIPT STYLE - FIXED FOR PRINT */
     @media print {
         body * { visibility: hidden; }
         #receipt-area, #receipt-area * { visibility: visible; }
         #receipt-area { 
-            position: absolute; left: 0; top: 0; width: 320px; 
-            margin: 0; padding: 20px; 
+            position: fixed; left: 0; top: 0; width: 100%; 
+            margin: 0; padding: 10px; 
             font-family: 'Courier Prime', monospace; color: black; 
             text-align: center; background: white;
         }
-        .rec-logo { width: 100px; margin-bottom: 10px; filter: grayscale(100%); }
-        .rec-title { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
+        .rec-logo { width: 80px; margin-bottom: 10px; filter: grayscale(100%); }
+        .rec-title { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; line-height: 1.2; }
         .rec-text { font-size: 12px; margin-bottom: 2px; }
-        .rec-dash { margin: 10px 0; border-bottom: 1px dashed black; }
+        .rec-dash { margin: 8px 0; border-bottom: 1px dashed black; width: 100%; }
         .rec-table { width: 100%; text-align: left; font-size: 12px; border-collapse: collapse; margin-top: 5px; }
         .rec-table th { text-transform: uppercase; padding-bottom: 5px; border-bottom: 1px dashed black; }
         .rec-table td { padding: 5px 0; vertical-align: top; }
-        .col-qty { width: 15%; text-align: center; }
-        .col-name { width: 60%; }
+        .col-qty { width: 10%; text-align: left; }
+        .col-name { width: 65%; text-align: left; }
         .col-amt { width: 25%; text-align: right; }
-        .rec-total { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 10px; padding-top: 5px; }
-        .rec-footer { margin-top: 20px; font-size: 14px; font-weight: bold; text-transform: uppercase; }
-        div[role="dialog"] { box-shadow: none !important; }
+        .rec-total { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 10px; padding-top: 5px; border-top: 1px dashed black; }
+        .rec-footer { margin-top: 20px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+        
+        /* HIDE BUTTONS IN PRINT */
+        button { display: none !important; }
+        div[role="dialog"] { box-shadow: none !important; border: none !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -276,7 +279,7 @@ def calculate_smart_total(cart, customer=None, is_table=False):
     return total, discounted_total, max(status_discount_rate, thermos_discount_rate), free_coffees_to_apply, total_star_pool, 0, False
 
 # ==========================================
-# === RECEIPT GENERATOR HTML (MONOSPACE) ===
+# === RECEIPT GENERATOR HTML (FIXED) ===
 # ==========================================
 def get_receipt_html(cart, total):
     store = get_setting("receipt_store_name", BRAND_NAME)
@@ -318,8 +321,14 @@ def show_payment_popup(cart, total, customer):
     st.markdown(rec_html, unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🖨️ Çap Et", type="primary", use_container_width=True):
-            st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+        # PURE JS PRINT BUTTON (Fixes "Print not functional")
+        st.markdown("""
+            <div style="text-align:center; margin-top:20px;">
+                <button onclick="window.print()" style="background-color:#FF6B35; color:white; padding:10px 20px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">
+                    🖨️ Çap Et (Print)
+                </button>
+            </div>
+        """, unsafe_allow_html=True)
     with c2:
         if customer and customer.get('email'):
             if st.button("📧 Email Göndər", use_container_width=True):
@@ -836,6 +845,25 @@ else:
 
         with tabs[8]: # Settings
             st.subheader("⚙️ Ayarlar")
+            
+            # --- RESTORE SECTION (MOVED TO TOP VISIBLE) ---
+            st.markdown("#### 🔄 DATABASE RESTORE (Bərpa)")
+            c_res1, c_res2 = st.columns(2)
+            rf = c_res1.file_uploader("Restore (.xlsx)", key="rest_file")
+            rp = c_res2.text_input("Restore Password", type="password", key="rest_pass")
+            if rf and c_res2.button("Bərpa Et", key="btn_rest"):
+                adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
+                if verify_password(rp, adm.iloc[0]['password']):
+                    xls = pd.ExcelFile(rf)
+                    try:
+                        for t in ["menu","ingredients","recipes","coupon_templates"]:
+                            if t in xls.sheet_names: run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
+                        log_system(st.session_state.user, "Restored Backup"); st.success("Bərpa olundu!")
+                    except: st.error("Xəta")
+                else: st.error("Şifrə Səhv")
+            
+            st.divider()
+
             with st.expander("🧾 Çek Dizaynı"):
                 s_name = st.text_input("Mağaza Adı", value=get_setting("receipt_store_name", BRAND_NAME))
                 s_addr = st.text_input("Ünvan", value=get_setting("receipt_address", "Bakı"))
@@ -869,18 +897,6 @@ else:
             with st.expander("🔧 Sistem"):
                 show = st.checkbox("İşçi Ekranında Masaları Göstər", value=(get_setting("staff_show_tables", "TRUE")=="TRUE"))
                 if st.button("Yadda Saxla", key="sv_sh"): set_setting("staff_show_tables", "TRUE" if show else "FALSE"); st.rerun()
-                # --- ADMIN RESTORE ---
-                rf = st.file_uploader("Restore (.xlsx)")
-                rp = st.text_input("Restore Password", type="password")
-                if rf and st.button("Bərpa Et"):
-                    adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
-                    if verify_password(rp, adm.iloc[0]['password']):
-                        xls = pd.ExcelFile(rf)
-                        try:
-                            for t in ["menu","ingredients","recipes","coupon_templates"]:
-                                if t in xls.sheet_names: run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
-                            log_system(st.session_state.user, "Restored Backup"); st.success("Bərpa olundu!")
-                        except: st.error("Xəta")
 
             with st.expander("📱 Müştəri Ekranı"):
                 lg = st.file_uploader("Logo")
