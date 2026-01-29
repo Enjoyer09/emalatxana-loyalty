@@ -19,11 +19,20 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V4.9 (CUSTOMER INTEGRATED) ===
+# === EMALATKHANA POS - V4.9.2 (DARK MODE FIX) ===
 # ==========================================
 
-VERSION = "v4.9 PRO (Customer View Active)"
+VERSION = "v4.9.2 PRO (Dark Mode Fixed)"
 BRAND_NAME = "Emalatkhana Daily Coffee and Drinks"
+
+# --- DEFAULT TERMS ---
+DEFAULT_TERMS = """<div style="font-size:14px; color:#333; line-height: 1.6;">
+<b>1. Sadiqlik Proqramı:</b> Bu rəqəmsal kartla həyata keçirilən hər kofe alış-verişi zamanı bonus (ulduz) toplayır və eksklüziv hədiyyələr əldə edirsiniz.<br>
+<b>2. Hədiyyə Sistemi:</b> Balansda 9 ulduz toplandıqda, növbəti kofe "Emalatxana" tərəfindən ödənişsiz (HƏDİYYƏ) təqdim olunur. ☕<br>
+<b>3. EKO-TERM Klubu:</b> "Emalatxana" termosu əldə edən müştərilərə ilk kofe hədiyyə edilir və növbəti sifarişlərdə endirim olur.<br>
+<b>4. Məxfilik Siyasəti:</b> İstifadəçinin şəxsi məlumatları yalnız fərdi kampaniyalar üçün istifadə olunur. Üçüncü tərəflərə ötürülməsi qadağandır.<br>
+<b>5. Kuponlar:</b> Kampaniya kuponları <b>7 gün</b>, Ad Günü hədiyyəsi isə <b>1 gün</b> keçərlidir. Ad günü hədiyyəsi üçün şəxsiyyət vəsiqəsi tələb edilə bilər.<br>
+</div>"""
 
 # --- INFRA ---
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -44,24 +53,89 @@ if 'last_sale' not in st.session_state: st.session_state.last_sale = None
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS ---
+# --- CSS (OPTIMIZED FOR ALL MODES) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap');
 
-    .stApp { font-family: 'Oswald', sans-serif !important; background-color: #F4F6F9; }
-    header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
+    /* --- GLOBAL THEME OVERRIDE (FORCE LIGHT MODE) --- */
+    :root {
+        --primary-color: #2E7D32;
+        --background-color: #F4F6F9;
+        --secondary-background-color: #FFFFFF;
+        --text-color: #333333;
+        --font: "Oswald", sans-serif;
+    }
+    
+    /* Force background and text color to ignore system dark mode */
+    .stApp {
+        background-color: #F4F6F9 !important;
+        color: #333333 !important;
+        font-family: 'Oswald', sans-serif !important;
+    }
+    
+    /* Ensure all basic text is dark */
+    p, h1, h2, h3, h4, h5, h6, li, span, label, div[data-testid="stMarkdownContainer"] p {
+        color: #333333 !important;
+    }
+    
+    /* Fix Input Fields (Inputs would turn dark grey otherwise) */
+    div[data-baseweb="input"] {
+        background-color: #FFFFFF !important;
+        border: 1px solid #ced4da !important; 
+        color: #333 !important;
+    }
+    input {
+        color: #333 !important;
+    }
+    div[data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
+        color: #333 !important;
+    }
+    div[data-baseweb="base-input"] {
+        background-color: #FFFFFF !important;
+    }
+
+    /* Hide Streamlit Elements */
+    header, #MainMenu, footer, [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; }
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
     /* CUSTOMER SCREEN STYLES */
-    .digital-card { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; }
-    .thermos-vip { background: linear-gradient(135deg, #2E7D32, #66BB6A); color: white; padding: 15px; border-radius: 15px; text-align: center; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3); }
+    .digital-card { 
+        background: white !important; 
+        border-radius: 20px; 
+        padding: 20px; 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
+        text-align: center; 
+        margin-bottom: 20px; 
+        border: 1px solid #eee; 
+    }
+    .thermos-vip { 
+        background: linear-gradient(135deg, #2E7D32, #66BB6A) !important; 
+        color: white !important; 
+        padding: 15px; 
+        border-radius: 15px; 
+        text-align: center; 
+        margin-bottom: 15px; 
+        box-shadow: 0 5px 15px rgba(46, 125, 50, 0.3); 
+    }
+    /* VIP Card Text Override to White */
+    .thermos-vip div, .thermos-vip p { color: white !important; }
+
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; filter: drop-shadow(0 0 5px gold); }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
-    .progress-text { font-size: 20px; color: #D84315; font-weight: bold; margin-top: 15px; background: #FBE9E7; padding: 10px; border-radius: 10px; }
+    .progress-text { 
+        font-size: 20px; 
+        color: #D84315 !important; 
+        font-weight: bold; 
+        margin-top: 15px; 
+        background: #FBE9E7 !important; 
+        padding: 10px; 
+        border-radius: 10px; 
+    }
 
     /* POS STYLES */
     button[data-baseweb="tab"] {
@@ -70,15 +144,52 @@ st.markdown("""
         margin: 0 4px !important; color: #555 !important; flex-grow: 1;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-        background: linear-gradient(135deg, #2E7D32, #1B5E20) !important; border-color: #2E7D32 !important; color: white !important;
+        background: linear-gradient(135deg, #2E7D32, #1B5E20) !important; border-color: #2E7D32 !important; 
         box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
     }
-    div.stButton > button { border-radius: 12px !important; height: 60px !important; font-weight: 700 !important; box-shadow: 0 4px 0 rgba(0,0,0,0.1) !important; transition: all 0.1s !important; }
+    /* Selected Tab Text Override to White */
+    button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
+
+    div[data-testid="stRadio"] label[data-baseweb="radio"] { 
+        background: white !important; border: 1px solid #ddd; color: #333 !important;
+    }
+    div[data-testid="stRadio"] label[aria-checked="true"] {
+        background: #2E7D32 !important; border-color: #2E7D32;
+    }
+    div[data-testid="stRadio"] label[aria-checked="true"] p { color: white !important; }
+
+    /* BUTTONS */
+    div.stButton > button { 
+        border-radius: 12px !important; height: 60px !important; font-weight: 700 !important; 
+        box-shadow: 0 4px 0 rgba(0,0,0,0.1) !important; transition: all 0.1s !important; 
+        background-color: white !important; color: #333 !important;
+    }
     div.stButton > button:active { transform: translateY(3px) !important; box-shadow: none !important; }
-    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; }
+    
+    div.stButton > button[kind="primary"] { 
+        background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; border: none !important;
+    }
+    div.stButton > button[kind="primary"] p { color: white !important; } /* Force text white on primary */
+
+    div.stButton > button[kind="secondary"] { 
+        background: linear-gradient(135deg, #43A047, #2E7D32) !important; 
+        border: 2px solid #1B5E20 !important; height: 120px !important; 
+        font-size: 24px !important; white-space: pre-wrap !important; 
+    }
+    div.stButton > button[kind="secondary"] p { color: white !important; }
+
+    div.stButton > button[kind="primary"].table-occ { 
+        background: linear-gradient(135deg, #E53935, #C62828) !important; 
+        border: 2px solid #B71C1C !important; height: 120px !important; 
+        font-size: 24px !important; white-space: pre-wrap !important; animation: pulse-red 2s infinite; 
+    }
+    div.stButton > button[kind="primary"].table-occ p { color: white !important; }
+
     .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
-    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 120px !important; font-size: 24px !important; white-space: pre-wrap !important; }
-    div.stButton > button[kind="primary"].table-occ { background: linear-gradient(135deg, #E53935, #C62828) !important; color: white !important; border: 2px solid #B71C1C !important; height: 120px !important; font-size: 24px !important; white-space: pre-wrap !important; animation: pulse-red 2s infinite; }
+
+    /* EXPANDER FIX */
+    .streamlit-expanderHeader { background-color: white !important; color: #333 !important; border-radius: 10px; }
+    .streamlit-expanderContent { background-color: white !important; color: #333 !important; }
 
     @media print {
         body * { visibility: hidden; }
@@ -323,15 +434,9 @@ if "id" in query_params:
                 gender = st.radio("Cinsiyyət:", ["Kişi", "Qadın", "Qeyd etmirəm"], horizontal=True)
                 
                 with st.expander("📜 Qaydalar və İstifadəçi Razılaşması"):
-                    st.markdown(f"""
-                    <div style="font-size:14px; color:#333; line-height: 1.6;">
-                        <b>1. Sadiqlik Proqramı:</b> Bu rəqəmsal kartla həyata keçirilən hər kofe alış-verişi zamanı bonus (ulduz) toplayır və eksklüziv hədiyyələr əldə edirsiniz.<br>
-                        <b>2. Hədiyyə Sistemi:</b> Balansda 9 ulduz toplandıqda, növbəti kofe "Emalatxana" tərəfindən ödənişsiz (HƏDİYYƏ) təqdim olunur. ☕<br>
-                        <b>3. EKO-TERM Klubu:</b> "Emalatxana" termosu əldə edən müştərilərə ilk kofe hədiyyə edilir və növbəti sifarişlərdə endirim olur.<br>
-                        <b>4. Məxfilik Siyasəti:</b> İstifadəçinin şəxsi məlumatları yalnız fərdi kampaniyalar üçün istifadə olunur. Üçüncü tərəflərə ötürülməsi qadağandır.<br>
-                        <b>5. Kuponlar:</b> Kampaniya kuponları <b>7 gün</b>, Ad Günü hədiyyəsi isə <b>1 gün</b> keçərlidir. Ad günü hədiyyəsi üçün şəxsiyyət vəsiqəsi tələb edilə bilər.<br>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    # DYNAMIC TERMS FETCH
+                    terms_html = get_setting("customer_terms", DEFAULT_TERMS)
+                    st.markdown(terms_html, unsafe_allow_html=True)
                 
                 agree = st.checkbox("Qaydalarla tanış oldum və razıyam")
                 if st.form_submit_button("Qeydiyyatı Tamamla"):
@@ -1061,6 +1166,14 @@ else:
                     set_setting("receipt_web", r_web); set_setting("receipt_insta", r_insta); set_setting("receipt_email", r_email)
                     st.success("Yadda saxlanıldı!")
                 
+                st.divider()
+                st.markdown("**📜 Müştəri Qaydaları**")
+                current_terms = get_setting("customer_terms", DEFAULT_TERMS)
+                new_terms = st.text_area("Qaydalar Mətni (HTML dəstəklənir)", value=current_terms, height=200)
+                if st.button("Qaydaları Saxla", key="sv_terms"):
+                    set_setting("customer_terms", new_terms)
+                    st.success("Yadda saxlanıldı!")
+
                 st.divider()
                 st.markdown("**🔧 Sistem Ayarları**")
                 show_tbl = st.checkbox("İşçi Panelində 'Masalar' bölməsini göstər", value=(get_setting("staff_show_tables", "TRUE")=="TRUE"))
