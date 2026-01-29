@@ -13,12 +13,13 @@ import zipfile
 import requests
 import json
 import base64
+import streamlit.components.v1 as components # Print fix üçün vacib
 
 # ==========================================
-# === EMALATKHANA POS - V5.26 (GREEN CUPS & RED STARS) ===
+# === EMALATKHANA POS - V5.27 RC (FINAL) ===
 # ==========================================
 
-VERSION = "v5.26 (Green Cups + Big Red Feedback)"
+VERSION = "v5.27 RC (Menu Lock + Print Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONSTANTS ---
@@ -77,7 +78,7 @@ st.markdown("""
     div.stButton > button[kind="secondary"] p { color: white !important; }
     .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
 
-    /* CUSTOMER CARD (ROYAL) */
+    /* CUSTOMER CARD */
     .digital-card { background: white; border-radius: 24px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.08); text-align: center; margin-bottom: 25px; position: relative; overflow: hidden; font-family: 'Playfair Display', serif; border: 1px solid #f0f0f0; }
     .royal-gold { border: 2px solid #D4AF37; box-shadow: 0 10px 30px rgba(212, 175, 55, 0.2); }
     .royal-plat { border: 2px solid #B0BEC5; box-shadow: 0 10px 30px rgba(176, 190, 197, 0.2); }
@@ -94,20 +95,14 @@ st.markdown("""
     /* COFFEE CUPS GRID */
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
-    
-    /* Green Cup Filter (Converts black cup to Green) */
     .cup-earned { filter: invert(33%) sepia(94%) saturate(403%) hue-rotate(93deg) brightness(92%) contrast(88%); opacity: 1; transform: scale(1.1); }
-    /* Gray Cup */
     .cup-empty { filter: grayscale(100%); opacity: 0.2; }
-
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
 
     /* BIG RED FEEDBACK STARS */
     .feedback-container { text-align: center; margin-top: 20px; background: white; padding: 20px; border-radius: 15px; border: 1px solid #eee; }
     .feedback-title { font-size: 22px; font-weight: bold; color: #333; margin-bottom: 10px; font-family: 'Oswald', sans-serif; }
-    
-    /* Force Streamlit Stars to be Big and Red */
     div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); margin-bottom: 15px; }
     div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
 
@@ -134,7 +129,7 @@ st.markdown("""
         .rec-total { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 10px; padding-top: 5px; border-top: 1px dashed black; }
         .rec-footer { margin-top: 20px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
         
-        button { display: none !important; }
+        button, .stButton { display: none !important; }
         div[role="dialog"] { box-shadow: none !important; border: none !important; }
     }
     </style>
@@ -345,12 +340,19 @@ def show_receipt_dialog(cart, total, customer_email):
     
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("""<div style="text-align:center;margin-top:10px;"><button onclick="window.print()" style="background:#2E7D32;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;font-weight:bold;">🖨️ ÇAP ET</button></div>""", unsafe_allow_html=True)
+        # PURE JS PRINT FIX
+        components.html(f"""
+            <button onclick="window.print()" style="background-color:#2E7D32; color:white; padding:12px 24px; border:none; border-radius:8px; font-weight:bold; font-size:16px; cursor:pointer; width:100%;">
+                🖨️ ÇAP ET
+            </button>
+        """, height=60)
+        
     with c2:
         if customer_email:
             if st.button("📧 Email Göndər", use_container_width=True):
-                send_email(customer_email, "Sizin Çekiniz", rec_html)
-                st.success("Göndərildi!")
+                res = send_email(customer_email, "Sizin Çekiniz", rec_html)
+                if res == "OK": st.success("Göndərildi!")
+                else: st.error(f"Xəta: {res}")
         else: st.caption("⛔ Email yoxdur")
 
 # ==========================================
@@ -416,9 +418,7 @@ if "id" in query_params:
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
-            # Logic: If current index < stars, it is EARNED (Green). Else EMPTY (Gray)
             if i < user['stars']:
-                # 9th star (10th cup) triggers animation if full
                 if i == 9: html += f'<img src="{icon}" class="cup-earned gift-box-anim">'
                 else: html += f'<img src="{icon}" class="cup-earned coffee-icon-img">'
             else:
@@ -432,7 +432,7 @@ if "id" in query_params:
         # BIG RED FEEDBACK
         st.markdown('<div class="feedback-container"><div class="feedback-title">Rəyiniz Bizim Üçün Önəmlidir</div>', unsafe_allow_html=True)
         with st.form("feed"):
-            s = st.feedback("stars") # Styled via CSS to be Red & Big
+            s = st.feedback("stars")
             m = st.text_input("Şərhiniz", key="feed_msg", placeholder="Fikirlərinizi yazın...")
             if st.form_submit_button("Göndər") and s:
                 run_action("INSERT INTO feedbacks (card_id, rating, comment, created_at) VALUES (:i,:r,:m, :t)", {"i":card_id, "r":s+1, "m":m, "t":get_baku_now()}); st.success("Təşəkkürlər!")
@@ -865,7 +865,8 @@ else:
                     run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee,printer_target,price_half) VALUES (:n,:p,:c,TRUE,:ic,:pt,:ph)", 
                                {"n":n,"p":p,"c":c,"ic":ic,"pt":pt,"ph":ph_val}); log_system(st.session_state.user, f"Created Menu Item: {n}"); st.rerun()
             ml = run_query("SELECT * FROM menu"); ml.insert(0, "Seç", False)
-            ed_m = st.data_editor(ml, hide_index=True)
+            # LOCKED TABLE (MENU FIX)
+            ed_m = st.data_editor(ml, hide_index=True, disabled=["id","item_name","price","category","is_active","is_coffee","printer_target","price_half"])
             del_m = ed_m[ed_m["Seç"]]['id'].tolist()
             if del_m:
                 mp = st.text_input("Şifrə", type="password", key="mp_del")
