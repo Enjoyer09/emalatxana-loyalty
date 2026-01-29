@@ -14,18 +14,17 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.8 (NEON SPEED) ===
+# === EMALATKHANA POS - V5.9 (FINAL NEON FIX) ===
 # ==========================================
 
-VERSION = "v5.8 (Neon Speed)"
+VERSION = "v5.9 (Neon Speed & Full Menu)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
-    <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ</h4>
-    <p><b>1. Ümumi Müddəalar</b><br>Bu loyallıq proqramı "Emalatkhana Daily Drinks and Coffee" tərəfindən təqdim edilir.</p>
-    <p><b>2. Sadiqlik Proqramı</b><br>2.1. Ulduzlar yalnız Kofe məhsullarına verilir.<br>2.2. 9 ulduzdan sonra 1 kofe hədiyyədir.</p>
-    <p><b>3. Məxfilik</b><br>Sizin məlumatlarınız (Email, Doğum tarixi) qorunur və üçüncü tərəflərlə paylaşılmır.</p>
+    <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI</h4>
+    <p><b>1. Ümumi:</b> Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
+    <p><b>2. Ulduzlar:</b> Yalnız Kofe məhsullarına şamil olunur (9 ulduz = 1 Hədiyyə).</p>
 </div>"""
 
 # --- INFRA ---
@@ -39,7 +38,7 @@ st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initia
 
 # --- INIT STATE ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'active_tab' not in st.session_state: st.session_state.active_tab = "Al-Apar" # Custom Nav State
+if 'active_tab' not in st.session_state: st.session_state.active_tab = "Al-Apar"
 if 'cart_takeaway' not in st.session_state: st.session_state.cart_takeaway = []
 if 'cart_table' not in st.session_state: st.session_state.cart_table = []
 if 'current_customer_ta' not in st.session_state: st.session_state.current_customer_ta = None
@@ -47,7 +46,7 @@ if 'current_customer_tb' not in st.session_state: st.session_state.current_custo
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (NEON GREEN #5ef265 & BLOCK NAV) ---
+# --- CSS (NEON GREEN #5ef265 FIX) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
@@ -61,64 +60,58 @@ st.markdown("""
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
     .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* --- CUSTOM NAVIGATION BLOCKS --- */
-    .nav-btn {
-        width: 100%;
-        height: 50px;
-        border-radius: 10px;
-        font-weight: bold;
-        font-size: 16px;
-        border: none;
-        cursor: pointer;
-        transition: 0.3s;
+    /* --- NAVIGATION BUTTONS (Secondary - White) --- */
+    div.stButton > button[kind="secondary"] {
+        background-color: white !important; 
+        color: #333 !important; 
+        border: 1px solid #ccc !important;
+        border-radius: 8px !important;
+        height: 50px !important;
+        font-weight: bold !important;
+        box-shadow: 0 2px 2px rgba(0,0,0,0.1) !important;
     }
-    
-    /* --- ORANGE FILTERS (CATEGORIES) --- */
-    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
-    div[role="radiogroup"] label { 
-        background-color: #FF6B35 !important; 
-        border: 1px solid #E65100 !important; 
-        padding: 10px 5px !important; 
-        border-radius: 8px !important; 
-        flex: 1; min-width: 70px; 
-        text-align: center; justify-content: center; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    div.stButton > button[kind="secondary"]:hover {
+        border-color: #2E7D32 !important; color: #2E7D32 !important;
     }
-    div[role="radiogroup"] label p { 
-        color: white !important; font-weight: bold !important; font-size: 14px !important; white-space: nowrap !important;
-    }
-    div[role="radiogroup"] label[data-checked="true"] { background-color: #BF360C !important; transform: translateY(1px); }
 
-    /* --- NEON GREEN PRODUCT BUTTONS (#5ef265) --- */
-    div.stButton > button {
+    /* --- POS & TABLE BUTTONS (Primary - NEON GREEN) --- */
+    div.stButton > button[kind="primary"] {
         background-color: #5ef265 !important; /* NEON GREEN */
         color: white !important;
         border: 2px solid #2E7D32 !important;
         border-radius: 15px !important;
-        height: 90px !important;
-        font-weight: 900 !important;
-        font-size: 20px !important;
-        text-shadow: 0px 1px 3px rgba(0,0,0,0.6); /* READABILITY SHADOW */
-        box-shadow: 0 4px 0 #2E7D32 !important;
+        height: 100px !important; /* BIGGER */
+        font-weight: 900 !important; /* EXTRA BOLD */
+        font-size: 24px !important; /* LARGE TEXT */
+        text-shadow: 2px 2px 4px #000000 !important; /* SHADOW FOR READABILITY */
+        box-shadow: 0 5px 0 #2E7D32 !important; /* 3D EFFECT */
         transition: all 0.1s !important;
         white-space: pre-wrap !important;
         line-height: 1.1 !important;
     }
-    div.stButton > button:active { transform: translateY(4px); box-shadow: none !important; }
-    
-    /* PRIMARY ACTIONS (PAY/DELETE) */
-    div.stButton > button[kind="primary"] { 
-        background: linear-gradient(135deg, #FF6B35, #E65100) !important; 
-        border: none !important; box-shadow: 0 4px 0 #BF360C !important;
+    div.stButton > button[kind="primary"]:active {
+        transform: translateY(4px);
+        box-shadow: none !important;
     }
-    /* SECONDARY (NAV/FILTERS) */
-    div.stButton > button[kind="secondary"] {
-        background-color: white !important; color: #333 !important; border: 1px solid #ccc !important; text-shadow: none !important; box-shadow: none !important;
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #4ce053 !important; /* Slightly darker on hover */
     }
-    /* NAV ACTIVE STATE */
-    div.stButton > button[data-testid="baseButton-secondary"]:focus {
-        border-color: #2E7D32 !important; color: #2E7D32 !important;
+
+    /* --- ORANGE CATEGORY TABS --- */
+    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
+    div[role="radiogroup"] label { 
+        background-color: #FF6B35 !important; 
+        border: 1px solid #E65100 !important; 
+        padding: 12px 5px !important; 
+        border-radius: 8px !important; 
+        flex: 1; min-width: 80px; 
+        text-align: center; justify-content: center; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
+    div[role="radiogroup"] label p { 
+        color: white !important; font-weight: bold !important; font-size: 16px !important; white-space: nowrap !important;
+    }
+    div[role="radiogroup"] label[data-checked="true"] { background-color: #BF360C !important; transform: translateY(1px); }
 
     /* CUSTOMER CARDS */
     .digital-card { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; }
@@ -132,17 +125,10 @@ st.markdown("""
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
     
-    /* VIRTUAL TABLES */
-    .table-box-red { border: 3px solid #D32F2F !important; background-color: #FFEBEE !important; color: #D32F2F; animation: pulse-red 2s infinite; }
-    .table-box-green { border: 3px solid #5ef265 !important; background-color: #F1F8E9 !important; color: #2E7D32; }
-    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); } }
-
-    /* ALERTS */
+    /* ALERTS & MSG */
     .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; }
     @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } }
-    
-    /* GLOBAL MESSAGE */
-    .public-msg-box { background-color: #FFF3CD; color: #856404; padding: 15px; border-radius: 10px; border: 1px solid #FFEEBA; text-align: center; font-weight: bold; margin-bottom: 15px; }
+    .public-msg-box { background-color: #FFF3CD; color: #856404; padding: 15px; border-radius: 10px; border: 1px solid #FFEEBA; text-align: center; font-weight: bold; margin-bottom: 15px; font-size: 18px; }
 
     @media print {
         body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; }
@@ -237,7 +223,7 @@ def send_email(to_email, subject, body):
     except: return "Connection Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
 
-# --- SMART CALC (COFFEE ONLY) ---
+# --- SMART CALC ---
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; discounted_total = 0.0; status_discount_rate = 0.0; thermos_discount_rate = 0.0; current_stars = 0; is_birthday = False
     if customer:
@@ -283,7 +269,7 @@ if "id" in query_params:
         public_msg = get_setting("public_msg", "")
         if public_msg: st.markdown(f"<div class='public-msg-box'>📢 {public_msg}</div>", unsafe_allow_html=True)
 
-        # --- MANUAL NOTIFICATION (NO AUTO DELETE) ---
+        # --- MANUAL NOTIFICATION ---
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         if not notifs.empty:
             for _, row in notifs.iterrows():
@@ -343,6 +329,7 @@ def add_to_cart(cart_ref, item):
     cart_ref.append(item)
 
 def render_menu_grid(cart_ref, key_prefix):
+    # ORANGE CATEGORY TABS
     cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
@@ -370,10 +357,12 @@ def render_menu_grid(cart_ref, key_prefix):
         for bn, its in gr.items():
             with cols[i % 3]:
                 if len(its) > 1: # Grouped -> Popup
-                    if st.button(f"{bn}", key=f"g_{bn}_{key_prefix}", use_container_width=True): show_variant_popup(bn, its)
-                else: # Simple -> Direct Add (SPEED MODE)
+                    # NEON GREEN BUTTON (Primary)
+                    if st.button(f"{bn}", key=f"g_{bn}_{key_prefix}", use_container_width=True, type="primary"): show_variant_popup(bn, its)
+                else: # Simple -> Direct Add
                     it = its[0]
-                    if st.button(f"{it['item_name']}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True):
+                    # NEON GREEN BUTTON (Primary)
+                    if st.button(f"{it['item_name']}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True, type="primary"):
                         add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
             i += 1
 
@@ -429,7 +418,7 @@ def render_takeaway():
         if free_count > 0: st.success(f"🎁 {free_count} ədəd Kofe HƏDİYYƏ!")
         
         pm = st.radio("Metod", ["Nəğd", "Kart"], horizontal=True, key="pm_ta")
-        if st.button("✅ ÖDƏNİŞ ET", type="primary", use_container_width=True, key="pay_ta"):
+        if st.button("✅ ÖDƏNİŞ ET", type="primary", use_container_width=True, key="pay_ta"): # THIS WILL BE ORANGE (Custom CSS)
             if not st.session_state.cart_takeaway: st.error("Boşdur!"); st.stop()
             try:
                 istr = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
@@ -450,7 +439,6 @@ def render_takeaway():
 
 def render_tables_main():
     if st.session_state.selected_table: 
-        # TABLE ORDER VIEW
         tbl = st.session_state.selected_table
         c_back, c_trans = st.columns([3, 1])
         if c_back.button("⬅️ Masalara Qayıt", key="back_tbl", use_container_width=True): st.session_state.selected_table = None; st.session_state.cart_table = []; st.rerun()
@@ -474,7 +462,6 @@ def render_tables_main():
                     except: pass
             if st.session_state.current_customer_tb:
                 c = st.session_state.current_customer_tb; st.success(f"👤 {c['card_id']} | ⭐ {c['stars']}")
-                
                 notifs = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
                 if not notifs.empty:
                     for _, n in notifs.iterrows():
@@ -519,7 +506,6 @@ def render_tables_main():
 
         with c2: render_menu_grid(st.session_state.cart_table, "tb")
     else: 
-        # TABLE GRID
         if st.session_state.role in ['admin', 'manager']:
             with st.expander("🛠️ Masa İdarəetməsi"):
                 n_l = st.text_input("Masa Adı"); 
@@ -530,7 +516,9 @@ def render_tables_main():
         tables = run_query("SELECT * FROM tables ORDER BY id"); cols = st.columns(3)
         for idx, row in tables.iterrows():
             with cols[idx % 3]:
-                if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary" if row['is_occupied'] else "secondary"):
+                # NEON TABLE BUTTONS
+                kind = "primary" if row['is_occupied'] else "primary" # Use Primary for color, logic can change border/text if needed in CSS but requested NEON GREEN
+                if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary"):
                     items = json.loads(row['items']) if row['items'] else []
                     st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
 
@@ -541,7 +529,6 @@ def render_crm():
         st.markdown("### 🎯 Hədəfli Mesajlaşma")
         msg_text = st.text_area("Mesaj Mətni", placeholder="Məsələn: Sizi çoxdandır görmürük, gəlin qonağımız olun!")
         target_type = st.radio("Kimə Göndərilsin?", ["🌍 Hamıya (Vitrin Elanı)", "👤 Fərdi (Seçilmiş Müştərilərə)"], horizontal=True)
-        
         selected_ids = []
         if "Fərdi" in target_type:
             all_cust = run_query("SELECT card_id, email, type, stars FROM customers")
@@ -580,22 +567,48 @@ if not st.session_state.logged_in:
     c1, c2, c3 = st.columns([1,1,1])
     with c2:
         st.markdown(f"<h1 style='text-align:center; color:#2E7D32;'>{BRAND_NAME}</h1><h5 style='text-align:center; color:#777;'>{VERSION}</h5>", unsafe_allow_html=True)
-        u = st.text_input("İstifadəçi"); p = st.text_input("Şifrə/PIN", type="password")
-        if st.button("Daxil Ol", use_container_width=True):
-            udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u)", {"u":u})
-            if not udf.empty and verify_password(p, udf.iloc[0]['password']):
-                st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=udf.iloc[0]['role']; st.rerun()
-            else: st.error("Səhv Məlumat!")
+        login_tabs = st.tabs(["İŞÇİ (STAFF)", "İDARƏETMƏ (ADMIN)"])
+        with login_tabs[0]:
+            with st.form("staff_login"):
+                pin = st.text_input("PIN", type="password"); 
+                if st.form_submit_button("Giriş", use_container_width=True):
+                    is_blocked, mins = check_login_block(pin) 
+                    if is_blocked: st.error(f"Gözləyin: {mins} dəq"); st.stop()
+                    udf = run_query("SELECT * FROM users WHERE role='staff'")
+                    found = False
+                    for _, row in udf.iterrows():
+                        if verify_password(pin, row['password']):
+                            clear_failed_login(row['username']); st.session_state.logged_in=True; st.session_state.user=row['username']; st.session_state.role='staff'; st.rerun(); found=True; break
+                    if not found: st.error("Yanlış PIN!")
+        with login_tabs[1]:
+            with st.form("admin_login"):
+                u = st.text_input("İstifadəçi"); p = st.text_input("Şifrə", type="password")
+                if st.form_submit_button("Daxil Ol", use_container_width=True):
+                    is_blocked, mins = check_login_block(u)
+                    if is_blocked: st.error(f"Gözləyin: {mins} dəq"); st.stop()
+                    udf = run_query("SELECT * FROM users WHERE LOWER(username)=LOWER(:u) AND role IN ('admin', 'manager')", {"u":u})
+                    if not udf.empty and verify_password(p, udf.iloc[0]['password']):
+                        clear_failed_login(u); st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=udf.iloc[0]['role']; st.rerun()
+                    else: register_failed_login(u); st.error("Səhv!")
 else:
-    # --- CUSTOM NAV BAR ---
-    nav_cols = st.columns(6)
-    if nav_cols[0].button("🏃‍♂️ AL-APAR", key="nav_pos", help="Takeaway"): st.session_state.active_tab = "Al-Apar"; st.rerun()
-    if nav_cols[1].button("🍽️ MASALAR", key="nav_table", help="Tables"): st.session_state.active_tab = "Masalar"; st.rerun()
-    if nav_cols[2].button("👥 CRM", key="nav_crm"): st.session_state.active_tab = "CRM"; st.rerun()
-    if nav_cols[3].button("📦 Anbar", key="nav_inv"): st.session_state.active_tab = "Anbar"; st.rerun()
-    if nav_cols[4].button("Analitika", key="nav_ana"): st.session_state.active_tab = "Analitika"; st.rerun()
-    if nav_cols[5].button("Çıxış", key="nav_out"): st.session_state.logged_in=False; st.rerun()
+    # --- BLOCK NAVIGATION (2 ROWS) ---
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    r1 = st.columns(5)
+    if r1[0].button("🏃‍♂️ AL-APAR", key="nav_pos", help="Takeaway", use_container_width=True, type="secondary"): st.session_state.active_tab = "Al-Apar"; st.rerun()
+    if r1[1].button("🍽️ MASALAR", key="nav_table", help="Tables", use_container_width=True, type="secondary"): st.session_state.active_tab = "Masalar"; st.rerun()
+    if r1[2].button("📦 Anbar", key="nav_inv", use_container_width=True, type="secondary"): st.session_state.active_tab = "Anbar"; st.rerun()
+    if r1[3].button("📜 Resept", key="nav_rec", use_container_width=True, type="secondary"): st.session_state.active_tab = "Resept"; st.rerun()
+    if r1[4].button("Analitika", key="nav_ana", use_container_width=True, type="secondary"): st.session_state.active_tab = "Analitika"; st.rerun()
     
+    r2 = st.columns(5)
+    if r2[0].button("👥 CRM", key="nav_crm", use_container_width=True, type="secondary"): st.session_state.active_tab = "CRM"; st.rerun()
+    if r2[1].button("📋 Menyu", key="nav_menu", use_container_width=True, type="secondary"): st.session_state.active_tab = "Menyu"; st.rerun()
+    if r2[2].button("⚙️ Ayarlar", key="nav_set", use_container_width=True, type="secondary"): st.session_state.active_tab = "Ayarlar"; st.rerun()
+    if r2[3].button("🛡️ Admin", key="nav_adm", use_container_width=True, type="secondary"): st.session_state.active_tab = "Admin"; st.rerun()
+    if r2[4].button("📷 QR", key="nav_qr", use_container_width=True, type="secondary"): st.session_state.active_tab = "QR"; st.rerun()
+    
+    st.markdown("<div style='height:15px'></div>", unsafe_allow_html=True)
+    if st.button("ÇIXIŞ", key="nav_out", type="secondary"): st.session_state.logged_in=False; st.rerun()
     st.divider()
     
     tab = st.session_state.active_tab
@@ -603,7 +616,6 @@ else:
     elif tab == "Masalar": render_tables_main()
     elif tab == "CRM": render_crm()
     elif tab == "Anbar":
-        # Smart Inventory
         st.subheader("📦 Anbar")
         cats = run_query("SELECT DISTINCT category FROM ingredients")['category'].tolist(); cat_list = ["Bütün"] + cats
         sel_inv_cat = st.selectbox("Filtr", cat_list)
@@ -617,8 +629,26 @@ else:
                 sel_cat = st.selectbox("Kateqoriya", cat_ops); final_cat = st.text_input("Yeni Kateqoriya Adı") if sel_cat == "➕ Yeni Kateqoriya..." else sel_cat
                 if st.form_submit_button("Yarat"): run_action("INSERT INTO ingredients (name,stock_qty,unit,category) VALUES (:n,:q,:u,:c)", {"n":n,"q":q,"u":u,"c":final_cat}); st.rerun()
     elif tab == "Analitika": 
-        # Analytics Logic
         df = run_query("SELECT * FROM sales ORDER BY created_at DESC LIMIT 50")
         st.dataframe(df, use_container_width=True)
+    elif tab == "Menyu": # Basic Menu Editor for quick access
+        st.subheader("📋 Menyu")
+        with st.form("nm"):
+                c1, c2, c3 = st.columns(3)
+                with c1: n=st.text_input("Ad"); p=st.number_input("Qiymət", min_value=0.0, key="menu_p")
+                with c2: c=st.text_input("Kat"); ic=st.checkbox("Kofe?"); pt=st.selectbox("Printer", ["kitchen", "bar"])
+                with c3: ph=st.number_input("Yarım Qiymət (Seçimli)", min_value=0.0, value=0.0)
+                if st.form_submit_button("Əlavə"): 
+                    ph_val = ph if ph > 0 else None
+                    run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee,printer_target,price_half) VALUES (:n,:p,:c,TRUE,:ic,:pt,:ph)", 
+                               {"n":n,"p":p,"c":c,"ic":ic,"pt":pt,"ph":ph_val}); st.rerun()
+        ml = run_query("SELECT * FROM menu"); st.dataframe(ml, use_container_width=True)
+    elif tab == "QR": # Quick QR
+        cnt = st.number_input("Say", 1, 100, 1)
+        if st.button("Yarat"):
+             for _ in range(cnt):
+                 i = str(random.randint(10000000, 99999999)); tok = secrets.token_hex(8)
+                 run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, 'standard', :st)", {"i":i, "st":tok})
+             st.success("Yaradil di!")
 
     st.markdown(f"<div class='footer'>Ironwaves POS {VERSION} | © 2026</div>", unsafe_allow_html=True)
