@@ -14,16 +14,17 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.10 (CLEAN SMART) ===
+# === EMALATKHANA POS - V5.11 (BEST OF BOTH) ===
 # ==========================================
 
-VERSION = "v5.10 (Mobile UI & Smart CRM)"
+VERSION = "v5.11 (v5.3 UI + Smart CRM)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI</h4>
-    <p>Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
+    <p><b>1. Ümumi:</b> Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
+    <p><b>2. Ulduzlar:</b> Yalnız Kofe məhsullarına şamil olunur (9 ulduz = 1 Hədiyyə).</p>
 </div>"""
 
 # --- INFRA ---
@@ -44,73 +45,76 @@ if 'current_customer_tb' not in st.session_state: st.session_state.current_custo
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (MOBILE FIRST & CLEAN UI) ---
+# --- CSS (V5.3 CLASSIC UI + V5.10 MOBILE CARD) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap'); /* For minimalist text */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
 
+    /* GLOBAL */
     :root { --primary-color: #2E7D32; }
-    .stApp { background-color: #F8F9FA !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
+    .stApp { background-color: #F4F6F9 !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
     p, h1, h2, h3, h4, h5, h6, li, span, label, div[data-testid="stMarkdownContainer"] p { color: #333333 !important; }
     div[data-baseweb="input"] { background-color: #FFFFFF !important; border: 1px solid #ced4da !important; color: #333 !important; }
     input, textarea { color: #333 !important; }
-    
+    div[data-baseweb="select"] > div { background-color: #FFFFFF !important; color: #333 !important; }
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
-    .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* --- MOBILE FIRST CUSTOMER CARD (MINIMALIST) --- */
-    .member-card-container {
-        width: 100%;
-        border-radius: 24px;
-        padding: 25px;
-        margin-bottom: 20px;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        color: white !important;
-        font-family: 'Inter', sans-serif !important;
+    /* --- V5.3 CLASSIC BUTTONS (CLEAN WHITE) --- */
+    div.stButton > button { 
+        border-radius: 12px !important; 
+        height: 60px !important; 
+        font-weight: 700 !important; 
+        box-shadow: 0 4px 0 rgba(0,0,0,0.1) !important; 
+        transition: all 0.1s !important; 
+        background: white !important; 
+        color: #333 !important; 
+        border: 1px solid #ddd !important; 
     }
+    div.stButton > button:active { transform: translateY(3px) !important; box-shadow: none !important; }
+    div.stButton > button:hover { border-color: #2E7D32 !important; color: #2E7D32 !important; background-color: #F1F8E9 !important; }
+
+    /* PRIMARY ACTIONS (ORANGE) */
+    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
+    div.stButton > button[kind="primary"] p { color: white !important; }
     
-    /* Card Variants */
+    /* TABLE BUTTONS */
+    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 100px !important; font-size: 20px !important; }
+    div.stButton > button[kind="secondary"] p { color: white !important; }
+    
+    /* TABS (V5.3 Style) */
+    button[data-baseweb="tab"] {
+        font-family: 'Oswald', sans-serif !important; font-size: 18px !important; font-weight: 700 !important;
+        background-color: white !important; border: 2px solid #FFCCBC !important; border-radius: 12px !important;
+        margin: 0 4px !important; color: #555 !important; flex-grow: 1;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #2E7D32, #1B5E20) !important; border-color: #2E7D32 !important; 
+        box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
+    }
+    button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
+
+    /* --- MOBILE CUSTOMER CARD (FROM V5.10) --- */
+    .member-card-container {
+        width: 100%; border-radius: 24px; padding: 25px; margin-bottom: 20px; position: relative; overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1); color: white !important; font-family: 'Inter', sans-serif !important;
+    }
     .card-standard { background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%); }
     .card-golden { background: linear-gradient(135deg, #FFC107 0%, #FF8C00 100%); box-shadow: 0 10px 30px rgba(255, 193, 7, 0.3); }
     .card-platinum { background: linear-gradient(135deg, #B0BEC5 0%, #78909C 100%); }
     .card-elite { background: linear-gradient(135deg, #212121 0%, #000000 100%); border: 1px solid #FFD700; }
     .card-thermos { background: linear-gradient(135deg, #43A047 0%, #2E7D32 100%); border: 2px solid #A5D6A7; }
-
     .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
     .card-brand { font-size: 14px; opacity: 0.8; letter-spacing: 2px; font-weight: 600; }
-    .card-status { 
-        font-size: 12px; font-weight: bold; text-transform: uppercase; 
-        background: rgba(255,255,255,0.2); padding: 5px 12px; border-radius: 20px; backdrop-filter: blur(5px);
-    }
+    .card-status { font-size: 12px; font-weight: bold; text-transform: uppercase; background: rgba(255,255,255,0.2); padding: 5px 12px; border-radius: 20px; backdrop-filter: blur(5px); }
     .card-balance { text-align: center; margin-bottom: 30px; }
     .star-count { font-size: 64px; font-weight: 700; line-height: 1; text-shadow: 0 2px 10px rgba(0,0,0,0.2); }
     .star-label { font-size: 14px; opacity: 0.9; font-weight: 300; }
     .card-msg { font-size: 16px; font-weight: 500; text-align: center; opacity: 0.95; font-style: italic; }
 
-    /* --- POS BUTTONS (CLEAN v5.3 STYLE) --- */
-    div.stButton > button { 
-        background-color: white !important; 
-        color: #333 !important; 
-        border: 1px solid #ddd !important; 
-        border-radius: 12px !important; 
-        height: 60px !important; 
-        font-weight: 700 !important; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
-    }
-    div.stButton > button:hover {
-        border-color: #2E7D32 !important; color: #2E7D32 !important; background-color: #F1F8E9 !important;
-    }
-    div.stButton > button[kind="primary"] { 
-        background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; 
-        color: white !important; border: none !important; 
-    }
-
     /* ALERTS */
-    .birthday-alert { border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; padding: 10px; border-radius: 10px; text-align: center; margin-bottom: 10px; }
-    .global-msg { background-color: #E3F2FD; border-left: 5px solid #2196F3; padding: 10px; margin-bottom: 10px; border-radius: 4px; }
+    .global-msg { background-color: #E3F2FD; border-left: 5px solid #2196F3; padding: 15px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; }
     
     @media print {
         body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; }
@@ -323,7 +327,7 @@ if "id" in query_params:
         # PROGRESS
         st.write("🎁 Hədiyyəyə gedən yol:")
         my_bar = st.progress(user['stars'] / 9)
-        if user['stars'] >= 9: st.markdown("<div class='birthday-alert'>🎉 TƏBRİKLƏR! Növbəti Kofe HƏDİYYƏDİR!</div>", unsafe_allow_html=True)
+        if user['stars'] >= 9: st.success("🎉 TƏBRİKLƏR! Növbəti Kofe HƏDİYYƏDİR!")
 
         cps = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in cps.iterrows(): st.success(f"🎫 KUPON: {cp['coupon_type']}")
@@ -365,7 +369,7 @@ def render_menu_grid(cart_ref, key_prefix):
     if not prods.empty:
         gr = {}
         for _, r in prods.iterrows():
-            n = r['item_name']; pts = n.split(); base = n
+            n = r['item_name']; pts = n.split()
             if len(pts)>1 and pts[-1] in ['S','M','L','XL','Single','Double']: base = " ".join(pts[:-1]); gr.setdefault(base, []).append(r)
             else: gr[n] = [r]
         cols = st.columns(4); i=0
@@ -401,7 +405,7 @@ def render_takeaway():
                 except: pass
         if st.session_state.current_customer_ta:
             c = st.session_state.current_customer_ta
-            # ALERT FOR MSG/COUPON
+            # ALERT FOR MSG/COUPON (The Brain Function)
             nts = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
             if not nts.empty:
                 st.warning(f"🔔 BU MÜŞTƏRİYƏ {len(nts)} OXUNMAMIŞ MESAJ/KUPON VAR!")
@@ -465,8 +469,10 @@ def render_tables_main():
                  if not r.empty: st.session_state.current_customer_tb = r.iloc[0].to_dict()
             if st.session_state.current_customer_tb:
                 c = st.session_state.current_customer_tb; st.success(f"👤 {c['card_id']} | ⭐ {c['stars']}")
+                # TABLE ALERT
                 nts = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
                 if not nts.empty: st.warning("🔔 MÜŞTƏRİYƏ ÖZƏL TƏKLİFLƏR VAR!")
+            
             raw_total, final_total, _, _, _, serv_chg, _ = calculate_smart_total(st.session_state.cart_table, st.session_state.current_customer_tb, is_table=True)
             if st.session_state.cart_table:
                 for i, it in enumerate(st.session_state.cart_table):
@@ -490,6 +496,12 @@ def render_tables_main():
                 run_action("UPDATE tables SET is_occupied=FALSE, items='[]', total=0, active_customer_id=NULL WHERE id=:id", {"id":tbl['id']}); st.session_state.selected_table = None; st.session_state.cart_table = []; st.rerun()
         with c2: render_menu_grid(st.session_state.cart_table, "tb")
     else: 
+        if st.session_state.role in ['admin', 'manager']:
+            with st.expander("🛠️ Masa İdarəetməsi"):
+                n_l = st.text_input("Masa Adı"); 
+                if st.button("➕ Yarat"): run_action("INSERT INTO tables (label) VALUES (:l)", {"l":n_l}); st.rerun()
+                d_l = st.selectbox("Silinəcək", run_query("SELECT label FROM tables")['label'].tolist() if not run_query("SELECT label FROM tables").empty else [])
+                if st.button("❌ Sil"): run_action("DELETE FROM tables WHERE label=:l", {"l":d_l}); st.rerun()
         st.markdown("### 🍽️ ZAL PLAN")
         tables = run_query("SELECT * FROM tables ORDER BY id"); cols = st.columns(3)
         for idx, row in tables.iterrows():
