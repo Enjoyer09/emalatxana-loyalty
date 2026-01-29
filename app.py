@@ -19,28 +19,33 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V5.5 (AESTHETIC & SMART) ===
+# === EMALATKHANA POS - V5.6 (GREEN POWER) ===
 # ==========================================
 
-VERSION = "v5.5 (Aesthetic & Smart)"
+VERSION = "v5.6 (Green UI + CRM Msg)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ</h4>
+    
     <p><b>1. Ümumi Müddəalar</b><br>
     Bu loyallıq proqramı "Emalatkhana Daily Drinks and Coffee" tərəfindən təqdim edilir və "Ironwaves POS" sistemi vasitəsilə idarə olunur. Bu rəqəmsal kartdan istifadə etməklə və qeydiyyatdan keçməklə siz aşağıdakı şərtləri qəbul etmiş olursunuz.</p>
+    
     <p><b>2. Sadiqlik Proqramı və Ulduzlar</b><br>
     2.1. <b>Hesablama:</b> Loyallıq ulduzları və endirimlər yalnız Kofe və Kofe əsaslı içkilərə (isti və soyuq) şamil olunur. Çay, su, şirniyyat və digər qida məhsullarına ulduz verilmir və endirim tətbiq edilmir.<br>
     2.2. <b>Hədiyyə:</b> Balansda 9 ulduz toplandıqda, növbəti kofe sistem tərəfindən avtomatik olaraq ödənişsiz (Hədiyyə) təqdim olunur.</p>
+    
     <p><b>3. Bonuslar və Hədiyyələrin İstifadəsi</b><br>
     3.1. <b>Maddi Dəyər:</b> Toplanılan ulduzlar, status endirimləri və bonuslar heç bir halda nağd pula çevrilə, başqa hesaba köçürülə və ya geri qaytarıla bilməz.<br>
     3.2. <b>Endirimlərin Hesablanması:</b> Endirimlər toplanmır. Əgər istifadəçinin həm xüsusi statusu (Elite/Platinum), həm də Termos endirimi varsa, sistem avtomatik olaraq müştəri üçün ən sərfəli olan bir ən yüksək endirimi tətbiq edir.<br>
-    3.3. <b>Şəxsiyyətin Təsdiqi:</b> Ad günü və ya xüsusi kampaniya hədiyyələrinin təqdim edilməsi zamanı, sui-istifadə hallarınin qarşısını almaq və təvəllüdü dəqiqləşdirmək məqsədilə, şirkət əməkdaşı müştəridən şəxsiyyət vəsiqəsini təqdim etməsini tələb etmək hüququna malikdir.</p>
+    3.3. <b>Şəxsiyyətin Təsdiqi:</b> Ad günü və ya xüsusi kampaniya hədiyyələrinin təqdim edilməsi zamanı, sui-istifadə hallarınin qarşısını almaq və təvəllüdü dəqiqləşdirmək məqsədilə, şirkət əməkdaşı müştəridən şəxsiyyət vəsiqəsini təqdim etməsini tələb etmək hüququna malikdir. Sənəd təqdim edilmədikdə hədiyyə verilməyə bilər.</p>
+    
     <p><b>4. Dəyişikliklər və İmtina Hüququ</b><br>
     4.1. Şirkət, bu razılaşmanın şərtlərini və bonus sistemini əvvəlcədən xəbərdarlıq etmədən dəyişdirmək hüququnu özündə saxlayır.<br>
     4.2. Şərtlərdə əsaslı dəyişikliklər edildiyi təqdirdə, qeydiyyatlı e-poçt ünvanınıza bildiriş göndəriləcək.<br>
     4.3. Əgər yeni şərtlərlə razılaşmırsınızsa, sistemdən qeydiyyatınızın və fərdi məlumatlarınızın silinməsini tələb etmək hüququnuz var.</p>
+    
     <p><b>5. Məxfilik və Məlumatların Qorunması</b><br>
     5.1. Sizin təqdim etdiyiniz məlumatlar (Ad, Email, Doğum tarixi) "Ironwaves" serverlərində şifrələnmiş şəkildə qorunur.<br>
     5.2. Bu məlumatlar üçüncü tərəflərlə paylaşılmır və yalnız xidmət keyfiyyətinin artırılması, sizə özəl kampaniyaların təqdim edilməsi üçün istifadə olunur.</p>
@@ -65,12 +70,12 @@ if 'last_sale' not in st.session_state: st.session_state.last_sale = None
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (AESTHETIC & APP-LIKE) ---
+# --- CSS (GREEN BLOCKS & APP FEEL) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     
-    /* GLOBAL LIGHT MODE FORCE */
+    /* GLOBAL */
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F4F6F9 !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
     
@@ -80,21 +85,38 @@ st.markdown("""
     input, textarea { color: #333 !important; }
     div[data-baseweb="select"] > div { background-color: #FFFFFF !important; color: #333 !important; }
     
-    /* HIDE CHROME & PADDING */
+    /* HIDE CHROME */
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
     .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* TOUCH BUTTONS (RADIO -> BLOCKS) */
-    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
-    div[role="radiogroup"] label { 
-        background-color: white !important; border: 2px solid #e0e0e0 !important; padding: 15px !important; border-radius: 12px !important; 
-        flex: 1; min-width: 80px; text-align: center; justify-content: center; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    /* --- THE GREEN BLOCK BUTTONS (REQUESTED STYLE) --- */
+    div.stButton > button {
+        background-color: #2E7D32 !important; /* DARK GREEN */
+        color: white !important;
+        border: 1px solid #1B5E20 !important;
+        border-radius: 12px !important;
+        height: 70px !important;
+        font-weight: bold !important;
+        font-size: 18px !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2) !important;
+        transition: all 0.2s !important;
     }
-    div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #2E7D32 !important; border-color: #2E7D32 !important; color: white !important; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(46, 125, 50, 0.3);
+    div.stButton > button:hover {
+        background-color: #1B5E20 !important;
+        transform: translateY(-2px);
     }
-    div[role="radiogroup"] label[data-checked="true"] p { color: white !important; }
+    div.stButton > button:active {
+        transform: translateY(2px);
+        box-shadow: none !important;
+    }
     
+    /* PRIMARY ACTIONS (ORANGE) */
+    div.stButton > button[kind="primary"] { 
+        background: linear-gradient(135deg, #FF6B35, #E65100) !important; 
+        color: white !important; 
+        border: none !important; 
+    }
+
     /* TABS */
     button[data-baseweb="tab"] {
         font-family: 'Oswald', sans-serif !important; font-size: 16px !important; font-weight: 700 !important;
@@ -103,14 +125,19 @@ st.markdown("""
     button[data-baseweb="tab"][aria-selected="true"] { background: #2E7D32 !important; border-color: #2E7D32 !important; color: white !important; }
     button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
 
-    /* BUTTONS */
-    div.stButton > button { border-radius: 12px !important; height: 55px !important; font-weight: 700 !important; font-size: 18px !important; }
-    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #E65100) !important; color: white !important; border: none !important; }
-    div.stButton > button[kind="primary"] p { color: white !important; }
+    /* TOUCH RADIO BUTTONS (BLOCKS) */
+    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
+    div[role="radiogroup"] label { 
+        background-color: white !important; border: 2px solid #e0e0e0 !important; padding: 15px !important; border-radius: 12px !important; 
+        flex: 1; min-width: 80px; text-align: center; justify-content: center; transition: all 0.2s;
+    }
+    div[role="radiogroup"] label[data-checked="true"] {
+        background-color: #2E7D32 !important; border-color: #2E7D32 !important; color: white !important;
+    }
+    div[role="radiogroup"] label[data-checked="true"] p { color: white !important; }
 
-    /* CUSTOMER CARDS (MINIMALIST) */
+    /* CUSTOMER CARDS */
     .digital-card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; position: relative; overflow: hidden; }
-    .status-text { font-size: 18px; margin-bottom: 5px; color: #555; }
     .status-badge { font-size: 24px; font-weight: bold; padding: 10px 20px; border-radius: 50px; display: inline-block; margin-bottom: 15px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
     .badge-gold { background: linear-gradient(135deg, #FFC107, #FF9800); }
     .badge-plat { background: linear-gradient(135deg, #90A4AE, #546E7A); }
@@ -123,12 +150,7 @@ st.markdown("""
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
     .progress-text { font-size: 20px; color: #D84315 !important; font-weight: bold; margin-top: 15px; background: #FBE9E7; padding: 10px; border-radius: 10px; }
 
-    /* VIRTUAL TABLES (TRAFFIC LIGHT) */
-    .table-box-red { border: 2px solid #D32F2F !important; background-color: #FFEBEE !important; animation: pulse-red 2s infinite; }
-    .table-box-green { border: 2px solid #388E3C !important; background-color: #E8F5E9 !important; }
-    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); } }
-
-    /* BIRTHDAY ALERT */
+    /* ALERTS */
     @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
     .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; }
 
@@ -280,7 +302,7 @@ def clear_failed_login(username):
     try: run_action("DELETE FROM failed_logins WHERE username=:u", {"u":username})
     except: pass
 
-# --- SMART CALCULATION ENGINE (COFFEE FILTER) ---
+# --- SMART CALCULATION ENGINE ---
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; discounted_total = 0.0; 
     status_discount_rate = 0.0 
@@ -354,6 +376,11 @@ if "id" in query_params:
         if user['secret_token'] and token and user['secret_token'] != token:
             st.warning("⚠️ QR kod köhnəlib. Xahiş olunur kassadan yeni QR istəyin.")
 
+        # --- GLOBAL MESSAGE (NEW FEATURE) ---
+        public_msg = get_setting("public_msg", "")
+        if public_msg:
+            st.warning(f"📢 {public_msg}")
+
         # Notifications
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
@@ -379,7 +406,7 @@ if "id" in query_params:
                     else: st.error("Email yazın və qaydaları qəbul edin.")
             st.stop()
 
-        # DASHBOARD (AESTHETIC WARM TEXT)
+        # DASHBOARD
         ctype = user['type']
         badge_html = ""
         warm_msg = ""
@@ -469,7 +496,6 @@ def toggle_portion(idx):
         if not r.empty: item['price'] = float(r.iloc[0]['price'])
 
 def render_menu_grid(cart_ref, key_prefix):
-    # COLORFUL TABS
     cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
@@ -484,6 +510,11 @@ def render_menu_grid(cart_ref, key_prefix):
     prods = run_query(sql, p)
 
     if not prods.empty:
+        gr = {}
+        for _, r in prods.iterrows():
+            n = r['item_name']; pts = n.split()
+            if len(pts)>1 and pts[-1] in ['S','M','L','XL','Single','Double']: base = " ".join(pts[:-1]); gr.setdefault(base, []).append(r)
+            else: gr[n] = [r]
         cols = st.columns(4); i=0
         @st.dialog("Ölçü Seçimi")
         def show_v(bn, its):
@@ -491,29 +522,13 @@ def render_menu_grid(cart_ref, key_prefix):
             for it in its:
                 if st.button(f"{it['item_name'].replace(bn,'').strip()}\n{it['price']} ₼", key=f"v_{it['id']}_{key_prefix}", use_container_width=True):
                     add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
-        
-        # Group logic
-        gr = {}
-        for _, r in prods.iterrows():
-            n = r['item_name']; pts = n.split()
-            if len(pts)>1 and pts[-1] in ['S','M','L','XL','Single','Double']: base = " ".join(pts[:-1]); gr.setdefault(base, []).append(r)
-            else: gr[n] = [r]
-
         for bn, its in gr.items():
             with cols[i%4]:
-                # EMOJI LOGIC
-                icon = "📦"
-                if "kofe" in sc.lower() or its[0]['is_coffee']: icon = "☕"
-                elif "çay" in sc.lower(): icon = "🍵"
-                elif "şirniyyat" in sc.lower() or "desert" in sc.lower(): icon = "🍰"
-                elif "içki" in sc.lower() or "limonad" in sc.lower(): icon = "🍹"
-                
-                label = f"{icon} {bn}"
                 if len(its)>1:
-                    if st.button(f"{label}\n(Seçim)", key=f"g_{bn}_{key_prefix}", use_container_width=True): show_v(bn, its)
+                    if st.button(f"{bn}\n(Seçim)", key=f"g_{bn}_{key_prefix}", use_container_width=True): show_v(bn, its)
                 else:
                     it = its[0]
-                    if st.button(f"{label}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True):
+                    if st.button(f"{it['item_name']}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True):
                         add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
             i+=1
 
@@ -604,23 +619,8 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
-            # VIRTUAL TABLE LOGIC
-            status_cls = "table-box-green"
-            status_icon = "🟢"
-            if row['is_occupied']:
-                status_cls = "table-box-red"
-                status_icon = "🔴"
-            
-            # Custom HTML button for Table
-            st.markdown(f"""
-            <div class="{status_cls}" style="border-radius:15px; padding:15px; text-align:center; margin-bottom:10px; cursor:pointer;">
-                <h3 style="margin:0;">{status_icon} {row['label']}</h3>
-                <p style="margin:0; font-weight:bold;">{row['total']} ₼</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Invisible button on top to catch click
-            if st.button(f"Aç: {row['label']}", key=f"tbl_btn_{row['id']}", use_container_width=True):
+            # Use same block style for tables
+            if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary" if row['is_occupied'] else "secondary"):
                 items = json.loads(row['items']) if row['items'] else []
                 st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
 
@@ -1045,6 +1045,16 @@ else:
                         st.success("Yadda saxlandı!")
             
             with crm_tabs[1]:
+                # --- GLOBAL MESSAGE FEATURE ---
+                st.markdown("#### 📢 Müştəri Ekranı Mesajı")
+                cur_msg = get_setting("public_msg", "")
+                new_msg = st.text_input("Müştərilərin görəcəyi mesaj", value=cur_msg, help="Boş buraxsanız heç nə görünməyəcək.")
+                if st.button("Mesajı Yenilə"):
+                    set_setting("public_msg", new_msg)
+                    st.success("Müştəri ekranında yeniləndi!")
+                
+                st.divider()
+                # --- TEMPLATES ---
                 templates = run_query("SELECT * FROM coupon_templates ORDER BY created_at DESC")
                 if not templates.empty:
                     for _, t in templates.iterrows():
