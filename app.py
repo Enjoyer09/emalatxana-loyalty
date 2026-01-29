@@ -12,12 +12,13 @@ from io import BytesIO
 import zipfile
 import requests
 import json
+import base64  # <--- UNUDULMUŞ QƏHRƏMAN BURADADIR
 
 # ==========================================
-# === EMALATKHANA POS - V5.21 (STAMP & SECURITY) ===
+# === EMALATKHANA POS - V5.22 (BUG FIX) ===
 # ==========================================
 
-VERSION = "v5.21 (Staff Lock + Stamp UI)"
+VERSION = "v5.22 (Base64 Fix + Stable)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONSTANTS ---
@@ -56,6 +57,7 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap'); /* Receipt Font */
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
 
@@ -76,37 +78,19 @@ st.markdown("""
     div.stButton > button[kind="secondary"] p { color: white !important; }
     .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
 
-    /* --- STAMP STYLE CUSTOMER CARD --- */
-    .stamp-container {
-        padding: 20px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-bottom: 30px;
-    }
-    
+    /* STAMP CARD */
+    .stamp-container { padding: 20px; display: flex; justify-content: center; align-items: center; margin-bottom: 30px; }
     .stamp-card {
-        background: white;
-        padding: 20px 40px;
-        text-align: center;
-        font-family: 'Courier Prime', monospace;
-        text-transform: uppercase;
-        font-weight: bold;
-        transform: rotate(-3deg); /* The visual tilt */
-        border-radius: 15px;
-        transition: transform 0.3s ease;
-        position: relative;
+        background: white; padding: 20px 40px; text-align: center;
+        font-family: 'Courier Prime', monospace; text-transform: uppercase; font-weight: bold;
+        transform: rotate(-3deg); border-radius: 15px; transition: transform 0.3s ease; position: relative;
     }
-    
     .stamp-card:hover { transform: rotate(0deg) scale(1.05); }
-
-    /* Double Border Effect for Stamp */
     .stamp-gold { border: 4px solid #D4AF37; color: #D4AF37; box-shadow: 0 0 0 4px white, 0 0 0 7px #D4AF37; }
     .stamp-plat { border: 4px solid #78909C; color: #546E7A; box-shadow: 0 0 0 4px white, 0 0 0 7px #78909C; }
     .stamp-elite { border: 4px solid #800020; color: #800020; box-shadow: 0 0 0 4px white, 0 0 0 7px #800020; }
     .stamp-eco  { border: 4px solid #2E7D32; color: #2E7D32; box-shadow: 0 0 0 4px white, 0 0 0 7px #2E7D32; }
     .stamp-std  { border: 4px solid #333; color: #333; box-shadow: 0 0 0 4px white, 0 0 0 7px #333; }
-
     .stamp-title { font-size: 28px; letter-spacing: 2px; border-bottom: 2px solid; padding-bottom: 5px; margin-bottom: 10px; display: inline-block; }
     .stamp-stars { font-size: 64px; margin: 10px 0; font-family: 'Oswald', sans-serif; }
     .stamp-footer { font-size: 12px; letter-spacing: 1px; }
@@ -117,17 +101,15 @@ st.markdown("""
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
 
-    /* --- RECEIPT STYLE (receipt.jpg Clone) --- */
+    /* RECEIPT STYLE */
     @media print {
         body * { visibility: hidden; }
         #receipt-area, #receipt-area * { visibility: visible; }
         #receipt-area { 
             position: absolute; left: 0; top: 0; width: 320px; 
             margin: 0; padding: 20px; 
-            font-family: 'Courier Prime', monospace; /* Monospace font */
-            color: black; 
-            text-align: center;
-            background: white;
+            font-family: 'Courier Prime', monospace; color: black; 
+            text-align: center; background: white;
         }
         .rec-logo { width: 100px; margin-bottom: 10px; filter: grayscale(100%); }
         .rec-title { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
