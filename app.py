@@ -14,10 +14,10 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.13 (ULTIMATE) ===
+# === EMALATKHANA POS - V5.14 (PERFECT HYBRID) ===
 # ==========================================
 
-VERSION = "v5.13 (Neon POS + Smart Analytics)"
+VERSION = "v5.14 (Classic UI + Smart Brain)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
@@ -54,75 +54,69 @@ if 'current_customer_tb' not in st.session_state: st.session_state.current_custo
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (NEON POS #5ef265 + CLEAN CUSTOMER UI) ---
+# --- CSS (V5.3 CLASSIC RESTORED) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap'); /* For Compliments */
 
+    /* GLOBAL LIGHT MODE FORCE */
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F4F6F9 !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
+    
+    /* TEXT & INPUTS */
     p, h1, h2, h3, h4, h5, h6, li, span, label, div[data-testid="stMarkdownContainer"] p { color: #333333 !important; }
     div[data-baseweb="input"] { background-color: #FFFFFF !important; border: 1px solid #ced4da !important; color: #333 !important; }
     input, textarea { color: #333 !important; }
+    div[data-baseweb="select"] > div { background-color: #FFFFFF !important; color: #333 !important; }
+    
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* --- NAVIGATION BUTTONS (White/Clean) --- */
-    div.stButton > button[kind="secondary"] {
-        background-color: white !important; 
-        color: #333 !important; 
-        border: 1px solid #ccc !important;
-        border-radius: 8px !important;
-        height: 50px !important;
-        font-weight: bold !important;
-        box-shadow: 0 2px 2px rgba(0,0,0,0.1) !important;
+    /* TABS (Classic V5.3) */
+    button[data-baseweb="tab"] {
+        font-family: 'Oswald', sans-serif !important; font-size: 18px !important; font-weight: 700 !important;
+        background-color: white !important; border: 2px solid #FFCCBC !important; border-radius: 12px !important;
+        margin: 0 4px !important; color: #555 !important; flex-grow: 1;
     }
-
-    /* --- POS & TABLE BUTTONS (NEON GREEN #5ef265) --- */
-    div.stButton > button[kind="primary"] {
-        background-color: #5ef265 !important; /* NEON GREEN */
-        color: white !important;
-        border: 2px solid #2E7D32 !important;
-        border-radius: 15px !important;
-        height: 100px !important;
-        font-weight: 900 !important; /* EXTRA BOLD */
-        font-size: 24px !important; /* LARGE TEXT */
-        text-shadow: 1px 1px 3px rgba(0,0,0,0.8) !important; /* SHADOW FOR READABILITY */
-        box-shadow: 0 5px 0 #2E7D32 !important; /* 3D EFFECT */
-        transition: all 0.1s !important;
-        white-space: pre-wrap !important;
-        line-height: 1.1 !important;
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #2E7D32, #1B5E20) !important; border-color: #2E7D32 !important; 
+        box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
     }
-    div.stButton > button[kind="primary"]:active { transform: translateY(4px); box-shadow: none !important; }
-    div.stButton > button[kind="primary"]:hover { filter: brightness(1.1); }
-
-    /* --- CUSTOMER UI (Clean White) --- */
-    .digital-card { 
-        background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
-        text-align: center; margin-bottom: 20px; border: 1px solid #eee; position: relative; overflow: hidden; 
-    }
-    .status-badge { 
-        font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600; text-transform: uppercase;
-        padding: 8px 20px; border-radius: 50px; display: inline-block; margin-bottom: 15px; color: white; 
-        box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-    }
-    .badge-gold { background: linear-gradient(135deg, #FFC107, #FF9800); }
-    .badge-standard { background: #9E9E9E; }
+    button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
     
-    .compliment-box {
-        text-align: center; font-family: 'Dancing Script', cursive; font-size: 22px; 
-        color: #D84315; font-weight: bold; font-style: italic; margin-bottom: 15px;
+    /* BUTTONS (Classic V5.3 - Clean White) */
+    div.stButton > button { 
+        border-radius: 12px !important; height: 60px !important; font-weight: 700 !important; 
+        box-shadow: 0 4px 0 rgba(0,0,0,0.1) !important; transition: all 0.1s !important; 
+        background: white !important; color: #333 !important; border: 1px solid #ddd !important; 
     }
+    div.stButton > button:active { transform: translateY(3px) !important; box-shadow: none !important; }
+    
+    /* PRIMARY ACTIONS (Orange Gradient) */
+    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
+    div.stButton > button[kind="primary"] p { color: white !important; }
+    
+    /* TABLE BUTTONS (Green Gradient) */
+    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; border: 2px solid #1B5E20 !important; height: 120px !important; font-size: 24px !important; white-space: pre-wrap !important; }
+    div.stButton > button[kind="secondary"] p { color: white !important; }
+    
+    .small-btn button { height: 35px !important; min-height: 35px !important; font-size: 14px !important; padding: 0 !important; }
 
+    /* CUSTOMER SCREEN (Classic Clean) */
+    .digital-card { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; }
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
-    .coffee-icon-img { width: 50px; height: 50px; }
-    
+    .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
+    .compliment-text { font-family: 'Dancing Script', cursive; color: #E65100; font-size: 24px; text-align: center; margin-bottom: 10px; }
+
     /* ALERTS */
-    .global-msg { background-color: #E3F2FD; border-left: 5px solid #2196F3; padding: 15px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; }
-    
+    .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; }
+    @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
+
     @media print {
-        body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; }
+        body * { visibility: hidden; }
+        .paper-receipt, .paper-receipt * { visibility: visible; }
+        .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; margin: 0; padding: 0; border: none; box-shadow: none; }
         div[data-testid="stDialog"], div[role="dialog"] { box-shadow: none !important; background: none !important; }
     }
     </style>
@@ -246,19 +240,11 @@ def clear_failed_login(username):
 
 # --- STOCK CHECKER ---
 def get_low_stock_map():
-    # Returns a list of menu_item_names that have ingredients below limit
     low_stock_items = []
     try:
-        # Complex join: Find menu items where related ingredients are < min_limit
-        q = """
-        SELECT DISTINCT r.menu_item_name 
-        FROM recipes r
-        JOIN ingredients i ON r.ingredient_name = i.name
-        WHERE i.stock_qty <= i.min_limit
-        """
+        q = "SELECT DISTINCT r.menu_item_name FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE i.stock_qty <= i.min_limit"
         df = run_query(q)
-        if not df.empty:
-            low_stock_items = df['menu_item_name'].tolist()
+        if not df.empty: low_stock_items = df['menu_item_name'].tolist()
     except: pass
     return low_stock_items
 
@@ -295,8 +281,6 @@ query_params = st.query_params
 if "id" in query_params:
     card_id = query_params["id"]; token = query_params.get("t")
     c1, c2, c3 = st.columns([1,2,1]); logo_b64 = get_setting("receipt_logo_base64")
-    
-    # CUSTOM TITLE/LOGO
     cust_title = get_setting("customer_ui_title", BRAND_NAME)
     with c2:
         if logo_b64: st.markdown(f'<div style="text-align:center; margin-bottom:10px;"><img src="data:image/png;base64,{logo_b64}" width="160"></div>', unsafe_allow_html=True)
@@ -309,13 +293,13 @@ if "id" in query_params:
         
         # RANDOM COMPLIMENT
         comp = random.choice(COMPLIMENTS)
-        st.markdown(f"<div class='compliment-box'>{comp}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='compliment-text'>{comp}</div>", unsafe_allow_html=True)
 
         # GLOBAL MSG
         public_msg = get_setting("public_msg", "")
-        if public_msg: st.markdown(f"<div class='global-msg'>📢 {public_msg}</div>", unsafe_allow_html=True)
+        if public_msg: st.info(f"📢 {public_msg}")
 
-        # NOTIFICATIONS (Fix: Show unread)
+        # NOTIFICATIONS (Unread)
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
             with st.container(border=True):
@@ -333,23 +317,15 @@ if "id" in query_params:
                     run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE, activated_at=:t WHERE card_id=:i", {"e":em, "b":dob.strftime("%Y-%m-%d"), "i":card_id, "t":get_baku_now()}); st.rerun()
             st.stop()
 
-        # CLEAN CARD UI
-        ctype = user['type']; badge_html = ""; warm_msg = "Xoş Gəldiniz!"
-        if ctype == 'golden': badge_html = "<div class='status-badge badge-gold'>🌟 GOLDEN</div>"; warm_msg = "Siz bizim Qızıl ulduzumuzsunuz!"
-        else: badge_html = "<div class='status-badge badge-standard'>CLUB MEMBER</div>"
-
-        st.markdown(f"""
-        <div class="digital-card">
-            {badge_html}
-            <p style="font-family: 'Inter', sans-serif; font-size:16px; margin:10px 0; color:#555;">{warm_msg}</p>
-            <h1 style="color:#2E7D32; font-size: 56px; margin:10px 0; font-weight:700;">{user['stars']} / 10</h1>
-            <p style="color:#888; font-size:14px; text-transform:uppercase; letter-spacing:1px;">Balansınız</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # CLASSIC CLEAN CARD UI
+        ctype = user['type']; st_label = ""
+        if ctype == 'golden': st_label = "GOLDEN MEMBER"
+        elif ctype == 'platinum': st_label = "PLATINUM MEMBER"
+        elif ctype == 'elite': st_label = "ELITE MEMBER"
+        elif ctype == 'thermos': st_label = "EKO-TERM MEMBER"
+        if st_label: st.success(f"🛡️ STATUS: {st_label}")
         
-        # PROGRESS
-        my_bar = st.progress(user['stars'] / 9)
-        if user['stars'] >= 9: st.success("🎉 TƏBRİKLƏR! Növbəti Kofe HƏDİYYƏDİR!")
+        st.markdown(f"""<div class="digital-card"><h1 style="color:#2E7D32; font-size: 48px; margin:0;">{user['stars']} / 10</h1><p>Balansınız</p></div>""", unsafe_allow_html=True)
         
         html = '<div class="coffee-grid-container">'
         for i in range(10):
@@ -357,6 +333,8 @@ if "id" in query_params:
             style = "opacity: 1;" if i < user['stars'] or (i==9 and user['stars']>=9) else "opacity: 0.2; filter: grayscale(100%);"
             html += f'<img src="{icon}" class="coffee-icon-img" style="{style}">'
         st.markdown(html + '</div>', unsafe_allow_html=True)
+        
+        if user['stars'] >= 9: st.markdown("<div class='birthday-alert'>🎉 TƏBRİKLƏR! Növbəti Kofe HƏDİYYƏDİR!</div>", unsafe_allow_html=True)
 
         cps = run_query("SELECT * FROM customer_coupons WHERE card_id = :id AND is_used = FALSE AND (expires_at IS NULL OR expires_at > NOW())", {"id": card_id})
         for _, cp in cps.iterrows(): st.success(f"🎫 KUPON: {cp['coupon_type']}")
@@ -388,7 +366,7 @@ def toggle_portion(idx):
     elif item['qty'] == 0.5: item['qty'] = 1.0
 
 def render_menu_grid(cart_ref, key_prefix):
-    # STOCK CHECK
+    # STOCK CHECKER (New Brain)
     low_stock = get_low_stock_map()
     
     cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")
@@ -409,20 +387,18 @@ def render_menu_grid(cart_ref, key_prefix):
         @st.dialog("Seçim")
         def show_v(bn, its):
             for it in its:
-                name_clean = it['item_name'].replace(bn,'').strip()
-                stock_marker = " 🟡" if it['item_name'] in low_stock else ""
-                # NEON BUTTON (Primary)
-                if st.button(f"{name_clean}{stock_marker}\n{it['price']} ₼", key=f"v_{it['id']}_{key_prefix}", use_container_width=True, type="primary"):
+                marker = " 🟡" if it['item_name'] in low_stock else ""
+                if st.button(f"{it['item_name'].replace(bn,'').strip()}{marker}\n{it['price']} ₼", key=f"v_{it['id']}_{key_prefix}", use_container_width=True):
                     add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
         
         for bn, its in gr.items():
             with cols[i%4]:
-                stock_marker = " 🟡" if any(x['item_name'] in low_stock for x in its) else ""
+                marker = " 🟡" if any(x['item_name'] in low_stock for x in its) else ""
                 if len(its)>1:
-                    if st.button(f"{bn}{stock_marker}", key=f"g_{bn}_{key_prefix}", use_container_width=True, type="primary"): show_v(bn, its)
+                    if st.button(f"{bn}{marker}", key=f"g_{bn}_{key_prefix}", use_container_width=True): show_v(bn, its)
                 else:
                     it = its[0]
-                    if st.button(f"{it['item_name']}{stock_marker}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True, type="primary"):
+                    if st.button(f"{it['item_name']}{marker}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True):
                         add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
             i+=1
 
@@ -441,10 +417,10 @@ def render_takeaway():
                 except: pass
         if st.session_state.current_customer_ta:
             c = st.session_state.current_customer_ta
-            # ALERT FOR MSG/COUPON
+            # NOTIFICATION ALERT
             nts = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
             if not nts.empty:
-                st.warning(f"🔔 BU MÜŞTƏRİYƏ {len(nts)} OXUNMAMIŞ MESAJ/KUPON VAR!")
+                st.warning(f"🔔 BU MÜŞTƏRİYƏ {len(nts)} MESAJ VAR!")
                 for _, n in nts.iterrows():
                     if n['attached_coupon']: 
                         if st.button(f"🎁 Tətbiq Et: {n['attached_coupon']}", key=f"ap_{n['id']}"):
@@ -460,12 +436,16 @@ def render_takeaway():
                 st.markdown(f"<div style='background:white;padding:10px;margin-bottom:5px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid #ddd;'><div style='flex:2'><b>{it['item_name']}</b></div><div style='flex:1'>{it['price']}</div><div style='flex:1;color:#E65100'>x{it['qty']}</div><div style='flex:1;text-align:right'>{it['qty']*it['price']:.1f}</div></div>", unsafe_allow_html=True)
                 b1,b2,b3=st.columns([1,1,4])
                 with b1: 
+                    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                     if st.button("➖", key=f"m_ta_{i}"): 
                         if it['qty']>1: it['qty']-=1 
                         else: st.session_state.cart_takeaway.pop(i)
                         st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
                 with b2:
+                    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                     if st.button("➕", key=f"p_ta_{i}"): it['qty']+=1; st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='text-align:right; color:#E65100'>{final_total:.2f} ₼</h2>", unsafe_allow_html=True)
@@ -495,7 +475,7 @@ def render_tables_main():
     if st.session_state.selected_table: 
         tbl = st.session_state.selected_table
         c_back, c_trans = st.columns([3, 1])
-        if c_back.button("⬅️ Masalara Qayıt", key="back_tbl", use_container_width=True, type="secondary"): st.session_state.selected_table = None; st.session_state.cart_table = []; st.rerun()
+        if c_back.button("⬅️ Masalara Qayıt", key="back_tbl", use_container_width=True): st.session_state.selected_table = None; st.session_state.cart_table = []; st.rerun()
         st.markdown(f"### 📝 Sifariş: {tbl['label']}")
         c1, c2 = st.columns([1.5, 3])
         with c1:
@@ -514,10 +494,14 @@ def render_tables_main():
                     st.markdown(f"<div style='background:{bg_col};padding:10px;margin-bottom:5px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid #ddd;'><div style='flex:2'><b>{it['item_name']}</b></div><div style='flex:1'>{it['price']}</div><div style='flex:1;color:#E65100'>x{it['qty']}</div><div style='flex:1;text-align:right'>{it['qty']*it['price']:.1f}</div></div>", unsafe_allow_html=True)
                     b1,b2,b3=st.columns([1,1,1])
                     with b1:
+                        st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                         if st.button("➖", key=f"m_tb_{i}"): 
                             if status != 'sent': st.session_state.cart_table.pop(i); st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
                     with b2:
+                        st.markdown('<div class="small-btn">', unsafe_allow_html=True)
                         if st.button("➕", key=f"p_tb_{i}"): it['qty']+=1; st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
             st.markdown(f"<h2 style='text-align:right; color:#E65100'>{final_total:.2f} ₼</h2>", unsafe_allow_html=True)
             if serv_chg > 0: st.caption(f"ℹ️ Servis Haqqı (7%): {serv_chg:.2f} ₼ daxildir")
@@ -530,6 +514,12 @@ def render_tables_main():
                 run_action("UPDATE tables SET is_occupied=FALSE, items='[]', total=0, active_customer_id=NULL WHERE id=:id", {"id":tbl['id']}); st.session_state.selected_table = None; st.session_state.cart_table = []; st.rerun()
         with c2: render_menu_grid(st.session_state.cart_table, "tb")
     else: 
+        if st.session_state.role in ['admin', 'manager']:
+            with st.expander("🛠️ Masa İdarəetməsi"):
+                n_l = st.text_input("Masa Adı"); 
+                if st.button("➕ Yarat"): run_action("INSERT INTO tables (label) VALUES (:l)", {"l":n_l}); st.rerun()
+                d_l = st.selectbox("Silinəcək", run_query("SELECT label FROM tables")['label'].tolist() if not run_query("SELECT label FROM tables").empty else [])
+                if st.button("❌ Sil"): run_action("DELETE FROM tables WHERE label=:l", {"l":d_l}); st.rerun()
         st.markdown("### 🍽️ ZAL PLAN")
         tables = run_query("SELECT * FROM tables ORDER BY id"); cols = st.columns(3)
         for idx, row in tables.iterrows():
@@ -542,47 +532,26 @@ def render_analytics(is_admin=False):
     st.subheader("📊 Analitika")
     df = run_query("SELECT * FROM sales ORDER BY created_at DESC LIMIT 50")
     st.dataframe(df, use_container_width=True)
-    
     if is_admin:
         st.divider()
         st.markdown("#### 📤 Hesabatı Göndər (Detallı)")
         c1, c2 = st.columns([3,1])
-        target = c1.text_input("Kimə (Email)", placeholder="mudir@mail.com")
-        
+        target = c1.text_input("Kimə (Email)", placeholder="nümuna@mail.com")
         if c2.button("Göndər"):
             if target:
                 today = get_baku_now().date()
                 sales_today = run_query(f"SELECT * FROM sales WHERE created_at::date = '{today}'")
-                
                 if not sales_today.empty:
-                    # Summary
                     total = sales_today['total'].sum()
                     count = len(sales_today)
                     cashier_stats = sales_today.groupby('cashier')['total'].sum().reset_index()
-                    
-                    # Construct HTML Table
-                    html_table = """
-                    <table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse; width:100%; font-family:Arial;'>
-                        <tr style='background-color:#f2f2f2;'><th>Saat</th><th>Kassir</th><th>Məhsullar</th><th>Məbləğ</th></tr>
-                    """
+                    html_table = "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse; width:100%;'><tr><th>Saat</th><th>Kassir</th><th>Məhsullar</th><th>Məbləğ</th></tr>"
                     for _, row in sales_today.iterrows():
-                        time_str = row['created_at'].strftime('%H:%M')
-                        html_table += f"<tr><td>{time_str}</td><td>{row['cashier']}</td><td>{row['items']}</td><td>{row['total']}</td></tr>"
+                        html_table += f"<tr><td>{row['created_at'].strftime('%H:%M')}</td><td>{row['cashier']}</td><td>{row['items']}</td><td>{row['total']}</td></tr>"
                     html_table += "</table>"
-                    
-                    body = f"""
-                    <h2>📅 Günlük Hesabat ({today})</h2>
-                    <p><b>Cəm Dövriyyə:</b> {total} AZN</p>
-                    <p><b>Çek Sayı:</b> {count}</p>
-                    <hr>
-                    <h3>Kassir Performansı:</h3>
-                    {cashier_stats.to_html(index=False)}
-                    <hr>
-                    <h3>📜 Satış Siyahısı:</h3>
-                    {html_table}
-                    """
+                    body = f"<h2>📅 Hesabat ({today})</h2><p><b>Cəm:</b> {total} AZN | <b>Çek:</b> {count}</p><hr>{cashier_stats.to_html()}<hr>{html_table}"
                     send_email(target, f"Satış Hesabatı - {today}", body)
-                    st.success("Detallı hesabat göndərildi!")
+                    st.success("Göndərildi!")
                 else: st.warning("Bu gün satış yoxdur.")
             else: st.error("Email yazın")
 
@@ -629,7 +598,6 @@ def render_crm():
         del_df = run_query("SELECT card_id, email, type FROM customers"); del_df.insert(0, "Seç", False)
         del_ed = st.data_editor(del_df, hide_index=True)
         del_ids = del_ed[del_ed["Seç"]]['card_id'].tolist()
-        
         if del_ids:
             st.warning(f"{len(del_ids)} müştəri seçilib!")
             adm_pass = st.text_input("Admin Şifrəsi", type="password")
