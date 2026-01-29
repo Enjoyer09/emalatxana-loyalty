@@ -19,13 +19,13 @@ import json
 from collections import Counter
 
 # ==========================================
-# === EMALATKHANA POS - V5.6 (GREEN POWER) ===
+# === EMALATKHANA POS - V5.7 (SMART & SPEED) ===
 # ==========================================
 
-VERSION = "v5.6 (Green UI + CRM Msg)"
+VERSION = "v5.7 (Smart Marketing)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
-# --- DEFAULT TERMS ---
+# --- DEFAULT TERMS (USER PROVIDED) ---
 DEFAULT_TERMS = """<div style="font-family: sans-serif; color: #333; line-height: 1.6;">
     <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ</h4>
     
@@ -70,94 +70,95 @@ if 'last_sale' not in st.session_state: st.session_state.last_sale = None
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'selected_recipe_product' not in st.session_state: st.session_state.selected_recipe_product = None
 
-# --- CSS (GREEN BLOCKS & APP FEEL) ---
+# --- CSS (ORANGE TABS, GREEN BLOCKS, BOLD TEXT) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     
-    /* GLOBAL */
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F4F6F9 !important; color: #333333 !important; font-family: 'Oswald', sans-serif !important; }
-    
-    /* TEXT & INPUTS */
     p, h1, h2, h3, h4, h5, h6, li, span, label, div[data-testid="stMarkdownContainer"] p { color: #333333 !important; }
     div[data-baseweb="input"] { background-color: #FFFFFF !important; border: 1px solid #ced4da !important; color: #333 !important; }
     input, textarea { color: #333 !important; }
     div[data-baseweb="select"] > div { background-color: #FFFFFF !important; color: #333 !important; }
-    
-    /* HIDE CHROME */
     header, #MainMenu, footer, [data-testid="stSidebar"] { display: none !important; }
     .block-container { padding-top: 0.5rem !important; padding-bottom: 2rem !important; max-width: 100% !important; }
     
-    /* --- THE GREEN BLOCK BUTTONS (REQUESTED STYLE) --- */
+    /* --- ORANGE TABS (CATEGORIES) --- */
+    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
+    div[role="radiogroup"] label { 
+        background-color: #FF6B35 !important; /* ORANGE */
+        border: 2px solid #E65100 !important; 
+        padding: 10px 15px !important; 
+        border-radius: 8px !important; 
+        flex: 1; min-width: 80px; 
+        text-align: center; justify-content: center; 
+        transition: all 0.2s;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    div[role="radiogroup"] label p { 
+        color: white !important; 
+        font-weight: bold !important; 
+        font-size: 16px !important;
+        white-space: nowrap !important; /* NO WRAPPING */
+    }
+    div[role="radiogroup"] label[data-checked="true"] {
+        background-color: #BF360C !important; /* DARKER ORANGE */
+        transform: translateY(1px);
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* --- GREEN PRODUCT BUTTONS (THE "HEAVY" LOOK) --- */
     div.stButton > button {
         background-color: #2E7D32 !important; /* DARK GREEN */
         color: white !important;
-        border: 1px solid #1B5E20 !important;
+        border: 2px solid #1B5E20 !important;
         border-radius: 12px !important;
-        height: 70px !important;
-        font-weight: bold !important;
-        font-size: 18px !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2) !important;
-        transition: all 0.2s !important;
-    }
-    div.stButton > button:hover {
-        background-color: #1B5E20 !important;
-        transform: translateY(-2px);
+        height: 90px !important; /* LARGE */
+        font-weight: 900 !important; /* BOLD */
+        font-size: 22px !important; /* BIG TEXT */
+        box-shadow: 0 5px 0 #1B5E20 !important; /* 3D EFFECT */
+        transition: all 0.1s !important;
+        white-space: pre-wrap !important; /* Allow wrapping inside button if needed */
+        line-height: 1.1 !important;
     }
     div.stButton > button:active {
-        transform: translateY(2px);
-        box-shadow: none !important;
+        transform: translateY(4px);
+        box-shadow: 0 1px 0 #1B5E20 !important;
     }
     
-    /* PRIMARY ACTIONS (ORANGE) */
+    /* PRIMARY ACTIONS (PAY, ETC) */
     div.stButton > button[kind="primary"] { 
         background: linear-gradient(135deg, #FF6B35, #E65100) !important; 
-        color: white !important; 
-        border: none !important; 
+        border: none !important; box-shadow: 0 5px 0 #BF360C !important;
     }
-
-    /* TABS */
-    button[data-baseweb="tab"] {
-        font-family: 'Oswald', sans-serif !important; font-size: 16px !important; font-weight: 700 !important;
-        background-color: white !important; border: 1px solid #ccc !important; border-radius: 8px !important; margin: 0 2px !important; color: #555 !important; flex-grow: 1;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] { background: #2E7D32 !important; border-color: #2E7D32 !important; color: white !important; }
-    button[data-baseweb="tab"][aria-selected="true"] p { color: white !important; }
-
-    /* TOUCH RADIO BUTTONS (BLOCKS) */
-    div[role="radiogroup"] { flex-direction: row; gap: 8px; width: 100%; display: flex; flex-wrap: wrap; }
-    div[role="radiogroup"] label { 
-        background-color: white !important; border: 2px solid #e0e0e0 !important; padding: 15px !important; border-radius: 12px !important; 
-        flex: 1; min-width: 80px; text-align: center; justify-content: center; transition: all 0.2s;
-    }
-    div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #2E7D32 !important; border-color: #2E7D32 !important; color: white !important;
-    }
-    div[role="radiogroup"] label[data-checked="true"] p { color: white !important; }
 
     /* CUSTOMER CARDS */
     .digital-card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; border: 1px solid #eee; position: relative; overflow: hidden; }
-    .status-badge { font-size: 24px; font-weight: bold; padding: 10px 20px; border-radius: 50px; display: inline-block; margin-bottom: 15px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+    .status-badge { font-size: 20px; font-weight: bold; padding: 5px 15px; border-radius: 50px; display: inline-block; margin-bottom: 10px; color: white; }
     .badge-gold { background: linear-gradient(135deg, #FFC107, #FF9800); }
     .badge-plat { background: linear-gradient(135deg, #90A4AE, #546E7A); }
     .badge-elite { background: linear-gradient(135deg, #212121, #000000); border: 1px solid gold; }
     .badge-eco { background: linear-gradient(135deg, #66BB6A, #2E7D32); }
-    
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; justify-items: center; margin-top: 20px; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.3s ease; }
     .gift-box-anim { width: 60px; height: 60px; animation: bounce 2s infinite; filter: drop-shadow(0 0 5px gold); }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-10px);} }
-    .progress-text { font-size: 20px; color: #D84315 !important; font-weight: bold; margin-top: 15px; background: #FBE9E7; padding: 10px; border-radius: 10px; }
+    
+    /* VIRTUAL TABLES */
+    .table-box-red { border: 3px solid #D32F2F !important; background-color: white !important; color: #D32F2F; animation: pulse-red 2s infinite; }
+    .table-box-green { border: 3px solid #388E3C !important; background-color: white !important; color: #388E3C; }
+    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); } 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); } }
 
     /* ALERTS */
     @keyframes pulse-gold { 0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); } }
     .birthday-alert { animation: pulse-gold 2s infinite; border: 2px solid gold !important; background-color: #FFF8E1 !important; color: #333 !important; }
+    
+    /* GLOBAL MESSAGE */
+    .public-msg-box { background-color: #FFF3CD; color: #856404; padding: 15px; border-radius: 10px; border: 1px solid #FFEEBA; text-align: center; font-weight: bold; margin-bottom: 15px; }
 
     @media print {
-        body * { visibility: hidden; }
-        .paper-receipt, .paper-receipt * { visibility: visible; }
-        .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; margin: 0; padding: 0; border: none; box-shadow: none; }
+        body * { visibility: hidden; } .paper-receipt, .paper-receipt * { visibility: visible; } .paper-receipt { position: fixed; left: 0; top: 0; width: 100%; }
         div[data-testid="stDialog"], div[role="dialog"] { box-shadow: none !important; background: none !important; }
     }
     </style>
@@ -191,6 +192,11 @@ def ensure_schema():
         
         s.execute(text("CREATE TABLE IF NOT EXISTS customer_coupons (id SERIAL PRIMARY KEY, card_id TEXT, coupon_type TEXT, is_used BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # New Column for Notifications: Attached Coupon
+        try: s.execute(text("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS attached_coupon TEXT"))
+        except: pass
+
         s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, title TEXT, amount DECIMAL(10,2), category TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
@@ -302,7 +308,7 @@ def clear_failed_login(username):
     try: run_action("DELETE FROM failed_logins WHERE username=:u", {"u":username})
     except: pass
 
-# --- SMART CALCULATION ENGINE ---
+# --- SMART CALCULATION ENGINE (COFFEE FILTER) ---
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; discounted_total = 0.0; 
     status_discount_rate = 0.0 
@@ -361,7 +367,7 @@ if "id" in query_params:
     card_id = query_params["id"]
     token = query_params.get("t")
     
-    # Header Logic
+    # Header
     c1, c2, c3 = st.columns([1,2,1])
     logo_b64 = get_setting("receipt_logo_base64")
     with c2:
@@ -376,15 +382,17 @@ if "id" in query_params:
         if user['secret_token'] and token and user['secret_token'] != token:
             st.warning("⚠️ QR kod köhnəlib. Xahiş olunur kassadan yeni QR istəyin.")
 
-        # --- GLOBAL MESSAGE (NEW FEATURE) ---
+        # --- GLOBAL MESSAGE ---
         public_msg = get_setting("public_msg", "")
         if public_msg:
-            st.warning(f"📢 {public_msg}")
+            st.markdown(f"<div class='public-msg-box'>📢 {public_msg}</div>", unsafe_allow_html=True)
 
-        # Notifications
+        # Notifications (Private)
         notifs = run_query("SELECT * FROM notifications WHERE card_id = :id AND is_read = FALSE", {"id": card_id})
         for _, row in notifs.iterrows():
-            st.info(f"📩 {row['message']}"); run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
+            st.info(f"💌 {row['message']}")
+            if row['attached_coupon']: st.success(f"🎁 HƏDİYYƏ: {row['attached_coupon']}")
+            run_action("UPDATE notifications SET is_read = TRUE WHERE id = :nid", {"nid": row['id']})
 
         # Registration
         if not user['is_active']:
@@ -430,7 +438,7 @@ if "id" in query_params:
         st.markdown(f"""
         <div class="digital-card">
             {badge_html}
-            <p class="status-text">{warm_msg}</p>
+            <p style="font-size:18px; margin:5px 0;">{warm_msg}</p>
             <h1 style="color:#2E7D32; font-size: 48px; margin:10px 0;">{user['stars']} / 10</h1>
             <p style="color:#777;">Balansınız</p>
         </div>
@@ -496,6 +504,7 @@ def toggle_portion(idx):
         if not r.empty: item['price'] = float(r.iloc[0]['price'])
 
 def render_menu_grid(cart_ref, key_prefix):
+    # ORANGE TABS
     cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")
     cat_list = ["Hamısı"] + sorted(cats['category'].tolist()) if not cats.empty else ["Hamısı"]
     sc = st.radio("Kataloq", cat_list, horizontal=True, label_visibility="collapsed", key=f"cat_{key_prefix}")
@@ -510,27 +519,45 @@ def render_menu_grid(cart_ref, key_prefix):
     prods = run_query(sql, p)
 
     if not prods.empty:
+        # SMART GROUPING
         gr = {}
         for _, r in prods.iterrows():
-            n = r['item_name']; pts = n.split()
-            if len(pts)>1 and pts[-1] in ['S','M','L','XL','Single','Double']: base = " ".join(pts[:-1]); gr.setdefault(base, []).append(r)
-            else: gr[n] = [r]
-        cols = st.columns(4); i=0
-        @st.dialog("Ölçü Seçimi")
-        def show_v(bn, its):
-            st.write(f"### {bn}")
+            n = r['item_name']
+            # Simple grouping logic: Split by space, if last word is size (S,M,L), group by base
+            pts = n.split()
+            base = n
+            if len(pts) > 1 and pts[-1] in ['S','M','L','XL','Single','Double']:
+                base = " ".join(pts[:-1])
+                gr.setdefault(base, []).append(r)
+            else:
+                gr[n] = [r] # Simple item
+
+        # GRID LAYOUT (3 COLUMNS)
+        cols = st.columns(3)
+        i = 0
+        
+        # --- POPUP RENDERER ---
+        @st.dialog("Seçim Edin")
+        def show_variant_popup(bn, its):
+            st.markdown(f"<h2 style='text-align:center; color:#2E7D32'>{bn}</h2>", unsafe_allow_html=True)
             for it in its:
-                if st.button(f"{it['item_name'].replace(bn,'').strip()}\n{it['price']} ₼", key=f"v_{it['id']}_{key_prefix}", use_container_width=True):
-                    add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
+                label = it['item_name'].replace(bn, "").strip() or "Standard"
+                if st.button(f"{label} - {it['price']} ₼", key=f"v_{it['id']}_{key_prefix}", use_container_width=True):
+                    add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'})
+                    st.rerun()
+
         for bn, its in gr.items():
-            with cols[i%4]:
-                if len(its)>1:
-                    if st.button(f"{bn}\n(Seçim)", key=f"g_{bn}_{key_prefix}", use_container_width=True): show_v(bn, its)
-                else:
+            with cols[i % 3]:
+                # BIG GREEN BUTTONS logic
+                if len(its) > 1: # Grouped (e.g. Americano)
+                    if st.button(f"{bn}", key=f"g_{bn}_{key_prefix}", use_container_width=True):
+                        show_variant_popup(bn, its)
+                else: # Simple (e.g. Water) -> IMMEDIATE ADD (SPEED MODE)
                     it = its[0]
                     if st.button(f"{it['item_name']}\n{it['price']} ₼", key=f"s_{it['id']}_{key_prefix}", use_container_width=True):
-                        add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
-            i+=1
+                        add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'})
+                        st.rerun()
+            i += 1
 
 def render_takeaway():
     c1, c2 = st.columns([1.5, 3])
@@ -542,13 +569,37 @@ def render_takeaway():
                 try: 
                     cid = qv.strip().split("id=")[1].split("&")[0] if "id=" in qv else qv.strip()
                     r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
-                    if not r.empty: st.session_state.current_customer_ta = r.iloc[0].to_dict(); st.toast("✅"); st.rerun()
+                    if not r.empty: 
+                        st.session_state.current_customer_ta = r.iloc[0].to_dict(); 
+                        
+                        # --- CHECK FOR COUPONS/MSG ---
+                        nts = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":cid})
+                        if not nts.empty:
+                            st.toast("🔔 MÜŞTƏRİYƏ MESAJ/KUPON VAR!", icon="🎁")
+                        
+                        st.rerun()
                     else: st.error("Tapılmadı")
                 except: pass
+                
         if st.session_state.current_customer_ta:
             c = st.session_state.current_customer_ta; 
             bd_alert_cls = ""
-            if calculate_smart_total([], c)[6]: bd_alert_cls = "birthday-alert"; st.toast("🎂 BU GÜN MÜŞTƏRİNİN AD GÜNÜDÜR!", icon="🎉")
+            if calculate_smart_total([], c)[6]: bd_alert_cls = "birthday-alert"; st.toast("🎂 AD GÜNÜDÜR!", icon="🎉")
+            
+            # --- NOTIFICATION ALERT BOX ---
+            notifs = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
+            if not notifs.empty:
+                for _, n in notifs.iterrows():
+                    st.warning(f"📢 **MESAJ:** {n['message']}")
+                    if n['attached_coupon']:
+                        c_cp1, c_cp2 = st.columns([3, 1])
+                        c_cp1.info(f"🏷️ **KUPON:** {n['attached_coupon']}")
+                        if c_cp2.button("Tətbiq Et ✅", key=f"apply_{n['id']}"):
+                            # Here we would normally logic to apply discount (Future)
+                            run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id":n['id']})
+                            st.success("Kupon tətbiq edildi!")
+                            time.sleep(1); st.rerun()
+
             st.markdown(f"<div class='{bd_alert_cls}' style='padding:10px; border-radius:10px; margin-bottom:10px; border:1px solid #ddd;'>👤 <b>{c['card_id']}</b><br>⭐ {c['stars']} | 🏷️ {c.get('type','standard').upper()} { '🎂' if bd_alert_cls else ''}</div>", unsafe_allow_html=True)
             if st.button("Ləğv Et", key="ta_cl"): st.session_state.current_customer_ta=None; st.rerun()
         
@@ -570,9 +621,12 @@ def render_takeaway():
                     if st.button("➕", key=f"p_ta_{i}"): it['qty']+=1; st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
         
-        if raw_total != final_total: st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
+        if raw_total != final_total:
+            st.markdown(f"<h3 style='text-align:right; color:#777; text-decoration: line-through;'>{raw_total:.2f} ₼</h3>", unsafe_allow_html=True)
         st.markdown(f"<h2 style='text-align:right; color:#E65100'>{final_total:.2f} ₼</h2>", unsafe_allow_html=True)
-        if free_count > 0: st.success(f"🎁 {free_count} ədəd Kofe HƏDİYYƏ!")
+        
+        if free_count > 0: st.success(f"🎁 {free_count} ədəd Kofe HƏDİYYƏ! (-{free_count * 10} ulduz)")
+        if disc_rate > 0: st.caption(f"⚡ {int(disc_rate*100)}% Kofe Endirimi")
         if is_bd: st.warning("🎂 AD GÜNÜDÜR! TƏBRİK EDİN!")
 
         pm = st.radio("Metod", ["Nəğd", "Kart"], horizontal=True, key="pm_ta")
@@ -619,8 +673,18 @@ def render_table_grid():
     cols = st.columns(3)
     for idx, row in tables.iterrows():
         with cols[idx % 3]:
-            # Use same block style for tables
-            if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary" if row['is_occupied'] else "secondary"):
+            # VIRTUAL TABLE
+            status_cls = "table-box-green"; status_icon = "🟢"
+            if row['is_occupied']: status_cls = "table-box-red"; status_icon = "🔴"
+            
+            st.markdown(f"""
+            <div class="{status_cls}" style="border-radius:15px; padding:15px; text-align:center; margin-bottom:10px;">
+                <h3 style="margin:0;">{status_icon} {row['label']}</h3>
+                <p style="margin:0; font-weight:bold;">{row['total']} ₼</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button(f"Aç: {row['label']}", key=f"tbl_btn_{row['id']}", use_container_width=True):
                 items = json.loads(row['items']) if row['items'] else []
                 st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
 
@@ -645,12 +709,28 @@ def render_table_order():
                 try: 
                     cid = qv.strip().split("id=")[1].split("&")[0] if "id=" in qv else qv.strip()
                     r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
-                    if not r.empty: st.session_state.current_customer_tb = r.iloc[0].to_dict(); st.toast("✅"); st.rerun()
+                    if not r.empty: 
+                        st.session_state.current_customer_tb = r.iloc[0].to_dict(); 
+                        nts = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":cid})
+                        if not nts.empty: st.toast("🔔 MÜŞTƏRİYƏ MESAJ VAR!", icon="🎁")
+                        st.rerun()
                     else: st.error("Tapılmadı")
                 except: pass
+                
         if st.session_state.current_customer_tb:
             c = st.session_state.current_customer_tb; st.success(f"👤 {c['card_id']} | ⭐ {c['stars']}")
             if calculate_smart_total([], c)[6]: st.toast("🎂 AD GÜNÜDÜR!", icon="🎉")
+            
+            # NOTIFICATIONS FOR TABLE CUSTOMER
+            notifs = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":c['card_id']})
+            if not notifs.empty:
+                for _, n in notifs.iterrows():
+                    st.warning(f"📢 {n['message']}")
+                    if n['attached_coupon']:
+                        if st.button(f"🎁 KUPONU QƏBUL ET ({n['attached_coupon']})", key=f"tbl_apply_{n['id']}"):
+                            run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id":n['id']})
+                            st.success("Tətbiq olundu!"); st.rerun()
+
             if st.button("Ləğv Et", key="tb_cl"): st.session_state.current_customer_tb=None; st.rerun()
         
         raw_total, final_total, disc_rate, free_count, total_pool, serv_chg, is_bd = calculate_smart_total(st.session_state.cart_table, st.session_state.current_customer_tb, is_table=True)
@@ -707,7 +787,8 @@ def render_table_order():
                 run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t, active_customer_id=:c WHERE id=:id", 
                            {"i":json.dumps(st.session_state.cart_table), "t":final_total, "c":act_cust_id, "id":tbl['id']})
                 st.success("Göndərildi!"); time.sleep(1); st.rerun()
-            else: st.warning("Yeni sifariş yoxdur!")
+            else:
+                st.warning("Yeni sifariş yoxdur!")
 
         if col_p.button("✅ ÖDƏNİŞ ET", key="pay_tbl", type="primary", use_container_width=True):
             if not st.session_state.cart_table: st.error("Boşdur!"); st.stop()
@@ -912,7 +993,7 @@ else:
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "📜 Resept", "Analitika", "👥 CRM", "Menyu", "⚙️ Ayarlar", "Admin", "QR"])
         with tabs[0]: render_takeaway()
         with tabs[1]: render_tables_main()
-        with tabs[2]: # Anbar (SMART CATEGORIES V5.5)
+        with tabs[2]: # Anbar (SMART CATEGORIES)
             st.subheader("📦 Anbar")
             cats = run_query("SELECT DISTINCT category FROM ingredients ORDER BY category")['category'].tolist()
             if not cats: cats = ["Ümumi"]
@@ -959,8 +1040,7 @@ else:
                         with st.expander("➕ Yeni Mal Yarat"):
                             with st.form("new_inv"):
                                 n=st.text_input("Ad"); q=st.number_input("Say", min_value=0.0, key="ni_q"); u=st.selectbox("Vahid",["gr","ml","ədəd","litr","kq"]); 
-                                
-                                # SMART CATEGORY SELECTOR
+                                # SMART CAT
                                 exist_cats = run_query("SELECT DISTINCT category FROM ingredients")['category'].tolist()
                                 cat_ops = exist_cats + ["➕ Yeni Kateqoriya..."]
                                 sel_cat = st.selectbox("Kateqoriya", cat_ops)
@@ -1031,11 +1111,57 @@ else:
                 else: st.info("👈 Soldan məhsul seçin")
 
         with tabs[4]: render_analytics(is_admin=True) # ADMIN MODE
-        with tabs[5]: # CRM (UPDATED)
-            st.subheader("👥 CRM")
-            crm_tabs = st.tabs(["Kupon Yarat", "Şablonlar", "Email & Təbrik", "💬 Rəylər"])
+        with tabs[5]: # CRM (UPDATED MARKETING)
+            st.subheader("👥 CRM & Marketinq")
+            crm_tabs = st.tabs(["📢 Mesaj & Kupon", "Kupon Şablonları", "💬 Rəylər"])
             
             with crm_tabs[0]:
+                st.markdown("### 🎯 Hədəfli Mesajlaşma")
+                
+                # 1. MESSAGE INPUT
+                msg_text = st.text_area("Mesaj Mətni", placeholder="Məsələn: Sizi çoxdandır görmürük, gəlin qonağımız olun!")
+                
+                # 2. TARGET SELECTION
+                target_type = st.radio("Kimə Göndərilsin?", ["🌍 Hamıya (Vitrin Elanı)", "👤 Fərdi (Seçilmiş Müştərilərə)"], horizontal=True)
+                
+                selected_ids = []
+                if "Fərdi" in target_type:
+                    st.caption("Aşağıdakı siyahıdan müştəriləri seçin:")
+                    all_cust = run_query("SELECT card_id, email, type, stars FROM customers")
+                    all_cust.insert(0, "Seç", False)
+                    edited_df = st.data_editor(all_cust, hide_index=True, use_container_width=True)
+                    selected_ids = edited_df[edited_df["Seç"] == True]['card_id'].tolist()
+                
+                # 3. COUPON ATTACHMENT
+                st.markdown("#### 🎁 Kupon Əlavə Et (İstəyə bağlı)")
+                coupon_ops = ["(Kuponsuz)"] + run_query("SELECT name FROM coupon_templates")['name'].tolist()
+                sel_coupon = st.selectbox("Kupon Şablonu", coupon_ops)
+                
+                # SEND ACTION
+                if st.button("🚀 GÖNDƏR", type="primary", use_container_width=True):
+                    final_coupon = None if sel_coupon == "(Kuponsuz)" else sel_coupon
+                    
+                    if "Hamıya" in target_type:
+                        # Update Public Message setting
+                        set_setting("public_msg", msg_text)
+                        st.success("Vitrin elanı yeniləndi!")
+                    else:
+                        # Send Private Notifications
+                        if not selected_ids:
+                            st.error("Heç kim seçilməyib!")
+                        else:
+                            for cid in selected_ids:
+                                run_action("INSERT INTO notifications (card_id, message, attached_coupon, created_at) VALUES (:c, :m, :cp, :t)", 
+                                           {"c":cid, "m":msg_text, "cp":final_coupon, "t":get_baku_now()})
+                            st.success(f"{len(selected_ids)} nəfərə mesaj göndərildi!")
+
+                # --- DELETE BUTTON ---
+                st.divider()
+                if "Fərdi" in target_type and selected_ids:
+                    if st.button("🗑️ SEÇİLƏNLƏRİ SİL (Bazadan)", type="secondary"):
+                        admin_auth_dialog(customers_to_delete=selected_ids)
+
+            with crm_tabs[1]:
                 with st.form("custom_coupon"):
                     cc_name = st.text_input("Kupon Kodu (Məs: YAY2026)")
                     cc_perc = st.number_input("Endirim (%)", 1, 100, 10)
@@ -1043,87 +1169,11 @@ else:
                     if st.form_submit_button("Şablonu Yadda Saxla"):
                         run_action("INSERT INTO coupon_templates (name, percent, days_valid) VALUES (:n, :p, :d)", {"n":cc_name, "p":cc_perc, "d":cc_days})
                         st.success("Yadda saxlandı!")
-            
-            with crm_tabs[1]:
-                # --- GLOBAL MESSAGE FEATURE ---
-                st.markdown("#### 📢 Müştəri Ekranı Mesajı")
-                cur_msg = get_setting("public_msg", "")
-                new_msg = st.text_input("Müştərilərin görəcəyi mesaj", value=cur_msg, help="Boş buraxsanız heç nə görünməyəcək.")
-                if st.button("Mesajı Yenilə"):
-                    set_setting("public_msg", new_msg)
-                    st.success("Müştəri ekranında yeniləndi!")
                 
-                st.divider()
-                # --- TEMPLATES ---
-                templates = run_query("SELECT * FROM coupon_templates ORDER BY created_at DESC")
-                if not templates.empty:
-                    for _, t in templates.iterrows():
-                        c_t1, c_t2 = st.columns([3, 1])
-                        c_t1.write(f"🏷️ **{t['name']}** - {t['percent']}% ({t['days_valid']} gün)")
-                        if c_t2.button("Payla", key=f"dist_{t['id']}"):
-                            ctype = f"custom_{t['percent']}_{t['name']}"
-                            for _, r in run_query("SELECT card_id FROM customers").iterrows(): 
-                                run_action(f"INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES ('{r['card_id']}', '{ctype}', NOW() + INTERVAL '{t['days_valid']} days')")
-                            st.success("Göndərildi!")
-                else: st.info("Şablon yoxdur")
+                st.write("Mövcud Şablonlar:")
+                st.dataframe(run_query("SELECT name, percent, days_valid FROM coupon_templates"), use_container_width=True)
 
             with crm_tabs[2]:
-                st.markdown("#### 📧 Email & Təbrik")
-                
-                # FILTERS (WITH DELETE BTN AT TOP)
-                c_fil1, c_fil2, c_del_top = st.columns([2, 2, 1])
-                fil_date = c_fil1.selectbox("Tarix Filtri", ["Hamısı", "📅 Bu Gün Ad Günü Olanlar", "🗓️ Bu Ay Ad Günü Olanlar"])
-                fil_status = c_fil2.selectbox("Status Filtri", ["Hamısı", "Elite", "Platinum", "Golden", "Termos"])
-                
-                base_sql = "SELECT card_id, email, type, birth_date, stars, created_at, activated_at FROM customers WHERE 1=1"
-                
-                if "Bu Gün" in fil_date:
-                    now = get_baku_now()
-                    base_sql += f" AND EXTRACT(MONTH FROM birth_date::date) = {now.month} AND EXTRACT(DAY FROM birth_date::date) = {now.day}"
-                elif "Bu Ay" in fil_date:
-                    now = get_baku_now()
-                    base_sql += f" AND EXTRACT(MONTH FROM birth_date::date) = {now.month}"
-                
-                if fil_status != "Hamısı":
-                    base_sql += f" AND type = '{fil_status.lower()}'"
-
-                try:
-                    all_customers = run_query(base_sql)
-                except:
-                    all_customers = pd.DataFrame()
-
-                if not all_customers.empty:
-                    all_customers.insert(0, "Seç", False)
-                    edited_df = st.data_editor(all_customers, hide_index=True, use_container_width=True)
-                    selected_rows = edited_df[edited_df["Seç"] == True]
-                    selected_emails = selected_rows['email'].tolist()
-                    selected_ids = selected_rows['card_id'].tolist()
-                    
-                    # DELETE BUTTON AT TOP RIGHT
-                    with c_del_top:
-                        st.write("") # Spacer
-                        if selected_ids:
-                            if st.button("🗑️ SİL", type="primary", key="del_top_btn"):
-                                admin_auth_dialog(customers_to_delete=selected_ids)
-
-                    # TEMPLATES
-                    tmpl = st.selectbox("Şablon", ["Boş", "🎂 Ad Günü Təbriki"])
-                    def_sub = ""; def_msg = ""
-                    if tmpl == "🎂 Ad Günü Təbriki":
-                        def_sub = "🎂 Emalatxana Sizi Təbrik Edir!"
-                        def_msg = "Dəyərli qonağımız! Ad gününüz mübarək. Bu gün sizə bir kofe bizdən hədiyyədir. Yolunuzu gözləyirik! Sevgilərlə, Emalatxana komandası."
-
-                    with st.form("mail"):
-                        sub = st.text_input("Mövzu", value=def_sub); msg = st.text_area("Mesaj", value=def_msg); 
-                        if st.form_submit_button("📩 Seçilənlərə Göndər"):
-                            c = 0
-                            for e in selected_emails: 
-                                if e and send_email(e, sub, msg) == "OK": c+=1
-                            st.success(f"{c} email getdi!")
-                else:
-                    st.info("Filtrə uyğun müştəri tapılmadı")
-            
-            with crm_tabs[3]:
                 st.markdown("### 💬 Müştəri Rəyləri")
                 fbs = run_query("SELECT * FROM feedbacks ORDER BY created_at DESC")
                 if not fbs.empty:
