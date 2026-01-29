@@ -14,10 +14,10 @@ import requests
 import json
 
 # ==========================================
-# === EMALATKHANA POS - V5.9 (FINAL NEON FIX) ===
+# === EMALATKHANA POS - V5.9.1 (BUG FIX) ===
 # ==========================================
 
-VERSION = "v5.9 (Neon Speed & Full Menu)"
+VERSION = "v5.9.1 (Neon Speed Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- DEFAULT TERMS ---
@@ -222,6 +222,37 @@ def send_email(to_email, subject, body):
         else: return f"API Error {r.status_code}"
     except: return "Connection Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
+
+# --- LOGIN SECURITY HELPERS (FIXED - RESTORED) ---
+def check_login_block(username):
+    try:
+        row = run_query("SELECT attempt_count, blocked_until FROM failed_logins WHERE username=:u", {"u":username})
+        if not row.empty:
+            data = row.iloc[0]
+            if data['blocked_until'] and data['blocked_until'] > get_baku_now():
+                delta = data['blocked_until'] - get_baku_now()
+                return True, int(delta.total_seconds() // 60) + 1
+    except: pass
+    return False, 0
+
+def register_failed_login(username):
+    now = get_baku_now()
+    try:
+        row = run_query("SELECT attempt_count FROM failed_logins WHERE username=:u", {"u":username})
+        if row.empty:
+            run_action("INSERT INTO failed_logins (username, attempt_count, last_attempt) VALUES (:u, 1, :t)", {"u":username, "t":now})
+        else:
+            new_count = row.iloc[0]['attempt_count'] + 1
+            blocked_until = None
+            if new_count >= 5: 
+                blocked_until = now + datetime.timedelta(minutes=5)
+            run_action("UPDATE failed_logins SET attempt_count=:c, last_attempt=:t, blocked_until=:b WHERE username=:u", 
+                       {"c":new_count, "t":now, "b":blocked_until, "u":username})
+    except: pass
+
+def clear_failed_login(username):
+    try: run_action("DELETE FROM failed_logins WHERE username=:u", {"u":username})
+    except: pass
 
 # --- SMART CALC ---
 def calculate_smart_total(cart, customer=None, is_table=False):
@@ -517,7 +548,7 @@ def render_tables_main():
         for idx, row in tables.iterrows():
             with cols[idx % 3]:
                 # NEON TABLE BUTTONS
-                kind = "primary" if row['is_occupied'] else "primary" # Use Primary for color, logic can change border/text if needed in CSS but requested NEON GREEN
+                kind = "primary" if row['is_occupied'] else "primary" 
                 if st.button(f"{row['label']}\n{row['total']} ₼", key=f"tbl_btn_{row['id']}", use_container_width=True, type="primary"):
                     items = json.loads(row['items']) if row['items'] else []
                     st.session_state.selected_table = row.to_dict(); st.session_state.cart_table = items; st.rerun()
