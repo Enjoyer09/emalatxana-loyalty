@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.41 (INVENTORY EDIT + FIX) ===
+# === EMALATKHANA POS - V5.43 (INTEGRITY MASTER FIX) ===
 # ==========================================
 
-VERSION = "v5.41 (Inventory Edit + Syntax Fix)"
+VERSION = "v5.43 (Smart Integrity Check + ID Repair)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -155,7 +155,6 @@ def get_setting(key, default=""):
 def set_setting(key, value): run_action("INSERT INTO settings (key, value) VALUES (:k, :v) ON CONFLICT (key) DO UPDATE SET value=:v", {"k":key, "v":value})
 def image_to_base64(image_file): return base64.b64encode(image_file.getvalue()).decode()
 
-# --- QR GEN ---
 def generate_styled_qr(data):
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=1)
     qr.add_data(data); qr.make(fit=True)
@@ -267,8 +266,6 @@ if "id" in query_params:
         elif ctype=='ikram': st_lbl="İKRAM (100%)"; b_col="#00C853"
         elif ctype=='thermos': st_lbl="EKO-TERM (20%)"; b_col="#2E7D32"
         st.markdown(f"<div class='stamp-container'><div class='stamp-card' style='border-color:{b_col};color:{b_col};box-shadow:0 0 0 4px white, 0 0 0 7px {b_col};'><div style='font-size:20px;border-bottom:2px solid;'>{st_lbl}</div><div style='font-size:50px;'>{user['stars']}/10</div><div>ULDUZ BALANSI</div></div></div>", unsafe_allow_html=True)
-        
-        # 10TH CUP GRADUAL RED LOGIC
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
@@ -453,7 +450,7 @@ else:
                         if st.button(f"{r['label']}\n{r['total']} ₼", key=f"t_{r['id']}", type="primary" if r['is_occupied'] else "secondary", use_container_width=True):
                             st.session_state.selected_table = r.to_dict(); st.session_state.cart_table = json.loads(r['items']) if r['items'] else []; st.rerun()
 
-    # --- ANBAR (Pack Calculation) ---
+    # --- ANBAR (Pack Calculation & Edit Fix) ---
     if role in ['admin','manager']:
         with tabs[2]:
             try: asset_val = run_query("SELECT SUM(stock_qty * unit_cost) as total FROM ingredients").iloc[0]['total'] or 0.0
@@ -474,19 +471,24 @@ else:
                     except: st.error("Format Xətası")
             
             df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category FROM ingredients WHERE type=:t", {"t":db_type})
-            df_i['Value'] = df_i['stock_qty'] * df_i['unit_cost']
+            df_i['Total Value'] = df_i['stock_qty'] * df_i['unit_cost']
             df_i.insert(0, "Seç", False)
-            ed = st.data_editor(df_i, hide_index=True, disabled=True, num_rows="fixed")
             
-            # --- ADMIN ACTIONS (EDIT & DELETE) ---
+            # FIX: Only disable non-checkbox columns
+            locked_cols = ["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value"]
+            ed = st.data_editor(
+                df_i, 
+                hide_index=True, 
+                column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
+                disabled=locked_cols
+            )
+            
             if role == 'admin':
                 sel_ids = ed[ed["Seç"]]['id'].tolist()
                 
-                # DELETE
                 if sel_ids and st.button("Seçilənləri Sil"):
                     admin_confirm_dialog("Silinsin?", lambda: [run_action("DELETE FROM ingredients WHERE id=:id", {"id":i}) for i in sel_ids])
                 
-                # EDIT
                 if len(sel_ids) == 1:
                     row = df_i[df_i['id'] == sel_ids[0]].iloc[0]
                     with st.expander("✏️ Seçilən Malı Düzəlt", expanded=True):
@@ -515,16 +517,17 @@ else:
                         c_sel = st.selectbox("Kateqoriya", cats); c_new = st.text_input("Yeni Kateqoriya") if c_sel == "Yeni..." else c_sel
                         
                         if st.form_submit_button("Yarat"): 
-                            try:
+                            # INTEGRITY FIX: Check existence first!
+                            check = run_query("SELECT id FROM ingredients WHERE name ILIKE :n", {"n":n.strip()})
+                            if not check.empty:
+                                st.error("⚠️ Bu adda mal artıq mövcuddur! Zəhmət olmasa aşağıdakı siyahıdan tapıb 'Mədaxil' düyməsini istifadə edin.")
+                            else:
                                 total_qty = packs * per_pack
                                 unit_cost = tot_price / total_qty if total_qty > 0 else 0
                                 f_type = 'ingredient' if typ=="Ərzaq" else 'consumable'
                                 run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) VALUES (:n,:q,:u,:c,:t,:uc,:ac)", 
-                                           {"n":n,"q":total_qty,"u":u,"c":c_new,"t":f_type,"uc":unit_cost,"ac":packs})
+                                           {"n":n.strip(),"q":total_qty,"u":u,"c":c_new,"t":f_type,"uc":unit_cost,"ac":packs})
                                 st.rerun()
-                            except Exception as e:
-                                if "unique constraint" in str(e).lower(): st.error("Bu mal artıq mövcuddur! Zəhmət olmasa aşağıdakı siyahıdan 'Mədaxil' düyməsini istifadə edin.")
-                                else: st.error(f"Xəta: {e}")
 
             if role == 'manager':
                 cols = st.columns(4)
@@ -676,6 +679,13 @@ else:
             with st.expander("🔧 Sistem"):
                 st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
                 if st.button("Yadda Saxla"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
+                # --- ID REPAIR BUTTON ---
+                if st.button("🛠️ Bazanı Düzəlt (Reset IDs)"):
+                    try: 
+                        run_action("SELECT setval('ingredients_id_seq', (SELECT MAX(id) FROM ingredients))")
+                        st.success("Baza düzəldildi! İndi 'Yeni Mal' əlavə edə bilərsiniz.")
+                    except Exception as e: st.error(f"Xəta: {e}")
+                
                 rules = st.text_area("Qaydalar", value=get_setting("customer_rules", DEFAULT_TERMS))
                 if st.button("Qaydaları Yenilə"): set_setting("customer_rules", rules); st.success("Yeniləndi")
             lg = st.file_uploader("Logo"); 
