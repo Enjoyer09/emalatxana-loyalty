@@ -8,6 +8,9 @@ import bcrypt
 import secrets
 import datetime
 import qrcode
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers import SquareModuleDrawer
+from qrcode.image.styles.colormasks import SolidFillColorMask
 from io import BytesIO
 import zipfile
 import requests
@@ -16,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.35 (VISUAL POLISH) ===
+# === EMALATKHANA POS - V5.36 (CREATIVE STAFF & SMART QR) ===
 # ==========================================
 
-VERSION = "v5.35 (Comfortaa Font + Smart Staff UI + Cup Progress)"
+VERSION = "v5.36 (Transparent QR + Pro Staff Dashboard)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -49,50 +52,36 @@ if 'selected_table' not in st.session_state: st.session_state.selected_table = N
 if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_popup = False
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
 
-# --- CSS (COMFORTAA & COMPACT UI) ---
+# --- CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap'); /* NEW FONT */
+    @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap');
 
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F8F9FA !important; color: #333 !important; font-family: 'Arial', sans-serif !important; }
     
-    /* BUTTONS */
-    div.stButton > button { 
-        border-radius: 12px !important; 
-        min-height: 60px !important; 
-        font-weight: bold !important; 
-        font-size: 16px !important;
-        border: 1px solid #ccc !important;
-        box-shadow: 0 3px 5px rgba(0,0,0,0.05) !important;
-    }
-    div.stButton > button:active { transform: scale(0.98); }
+    div.stButton > button { border-radius: 12px !important; min-height: 60px !important; font-weight: bold !important; font-size: 16px !important; border: 1px solid #ccc !important; box-shadow: 0 3px 5px rgba(0,0,0,0.05) !important; }
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; }
 
-    /* CUSTOMER UI - COMFORTAA FONT FIX */
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
     @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-8px);} 100% {transform: translateY(0px);} }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
     @keyframes pulse { 0% {transform: scale(1);} 50% {transform: scale(1.02);} 100% {transform: scale(1);} }
 
-    /* STAMP CARD */
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
     .stamp-card { background: white; padding: 15px 30px; text-align: center; font-family: 'Courier Prime', monospace; font-weight: bold; transform: rotate(-3deg); border-radius: 12px; border: 4px solid #B71C1C; color: #B71C1C; box-shadow: 0 0 0 4px white, 0 0 0 7px #B71C1C; }
 
-    /* COFFEE GRID */
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; justify-items: center; margin-top: 20px; max-width: 400px; margin-left: auto; margin-right: auto; }
     .coffee-icon-img { width: 50px; height: 50px; transition: all 0.5s ease; }
     .cup-earned { filter: invert(24%) sepia(96%) saturate(1720%) hue-rotate(94deg) brightness(92%) contrast(102%); opacity: 1; transform: scale(1.1); }
-    /* RED CUP BASE FILTER */
     .cup-red-base { filter: invert(18%) sepia(90%) saturate(6329%) hue-rotate(356deg) brightness(96%) contrast(116%); }
     .cup-anim { animation: bounce 1s infinite; }
     .cup-empty { filter: grayscale(100%); opacity: 0.2; }
     @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-5px);} }
 
-    /* RATING & PRINT */
     div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); }
     div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
     @media print { body * { visibility: hidden; } #hidden-print-area, #hidden-print-area * { visibility: visible; } #hidden-print-area { position: fixed; left: 0; top: 0; width: 100%; } }
@@ -153,10 +142,20 @@ def get_setting(key, default=""):
     except: return default
 def set_setting(key, value): run_action("INSERT INTO settings (key, value) VALUES (:k, :v) ON CONFLICT (key) DO UPDATE SET value=:v", {"k":key, "v":value})
 def image_to_base64(image_file): return base64.b64encode(image_file.getvalue()).decode()
-@st.cache_data(ttl=60)
-def generate_custom_qr(data, center_text):
-    qr = qrcode.QRCode(box_size=10, border=1); qr.add_data(data); qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert('RGBA'); buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
+
+# --- GREEN TRANSPARENT QR GEN ---
+def generate_styled_qr(data):
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=1)
+    qr.add_data(data)
+    qr.make(fit=True)
+    # Create Green (0, 128, 0) on Transparent (255, 255, 255, 0)
+    img = qr.make_image(image_factory=StyledPilImage, module_drawer=SquareModuleDrawer(), 
+                        color_mask=SolidFillColorMask(front_color=(0, 128, 0), back_color=(255, 255, 255, 0)))
+    buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
+
+def generate_custom_qr(data, center_text): # Keep for compatibility, redirect to styled
+    return generate_styled_qr(data)
+
 def send_email(to_email, subject, body):
     if not RESEND_API_KEY: return "API_KEY_MISSING"
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
@@ -198,10 +197,7 @@ def calculate_smart_total(cart, customer=None, is_table=False):
         if ctype == 'ikram': return sum([i['qty']*i['price'] for i in cart]), 0.0, 1.0, 0, 0, 0, True
         rates = {'golden':0.05, 'platinum':0.10, 'elite':0.20, 'thermos':0.20}
         disc_rate = rates.get(ctype, 0.0)
-        
-        cps = run_query("SELECT * FROM customer_coupons WHERE card_id=:id AND is_used=FALSE", {"id":customer['card_id']})
-        if not cps.empty: pass 
-
+    
     coffee_qty = sum([i['qty'] for i in cart if i.get('is_coffee')])
     free_cof = min(int((current_stars + coffee_qty) // 10), coffee_qty)
     final_total = 0.0
@@ -263,25 +259,17 @@ if "id" in query_params:
         elif ctype=='ikram': st_lbl="İKRAM (100%)"; b_col="#00C853"
         elif ctype=='thermos': st_lbl="EKO-TERM (20%)"; b_col="#2E7D32"
         st.markdown(f"<div class='stamp-container'><div class='stamp-card' style='border-color:{b_col};color:{b_col};box-shadow:0 0 0 4px white, 0 0 0 7px {b_col};'><div style='font-size:20px;border-bottom:2px solid;'>{st_lbl}</div><div style='font-size:50px;'>{user['stars']}/10</div><div>ULDUZ BALANSI</div></div></div>", unsafe_allow_html=True)
-        
-        # 10TH CUP GRADUAL RED LOGIC
         html = '<div class="coffee-grid-container">'
         for i in range(10):
             icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
             style = ""
-            if i == 9: # The 10th Cup
-                if user['stars'] >= 10: 
-                    cls = "cup-red-base cup-anim"; style = "opacity: 1;"
-                else: 
-                    # Calculate Opacity: 0.1 (min) -> 1.0 (max) based on stars
-                    op = 0.1 + (user['stars'] * 0.09)
-                    cls = "cup-red-base"; style = f"opacity: {op};"
+            if i == 9: 
+                if user['stars'] >= 10: cls = "cup-red-base cup-anim"; style = "opacity: 1;"
+                else: op = 0.1 + (user['stars'] * 0.09); cls = "cup-red-base"; style = f"opacity: {op};"
             elif i < user['stars']: cls = "cup-earned"
             else: cls = "cup-empty"
-            
             html += f'<img src="{icon}" class="{cls} coffee-icon-img" style="{style}">'
         st.markdown(html + "</div>", unsafe_allow_html=True)
-        
         if user['stars'] >= 10: st.success("🎉 Təbriklər! Bu kofeniz bizdəndir!")
         st.markdown("<div style='text-align:center; margin-top:20px; font-family:Comfortaa;'><b>Xidmətimizi bəyəndinizmi?</b></div>", unsafe_allow_html=True)
         with st.form("fd"):
@@ -521,19 +509,32 @@ else:
 
     if role == 'staff':
         with tabs[-1]:
-            st.subheader("Mənim Satışlarım")
-            # COMPACT TABLE VIEW
-            mys = run_query("SELECT id, created_at as Tarix, total as Mebleg, payment_method as Metod FROM sales WHERE cashier=:u ORDER BY created_at DESC LIMIT 50", {"u":st.session_state.user})
-            st.dataframe(mys, hide_index=True, use_container_width=True)
+            # CREATIVE STAFF DASHBOARD
+            now = get_baku_now(); today_start = now.replace(hour=0,minute=0,second=0)
             
-            # RECEIPT VIEWER
-            c1, c2 = st.columns([3,1])
-            sel_id = c1.selectbox("Çek detalları üçün ID seçin:", mys['id'].tolist() if not mys.empty else [])
-            if c2.button("🔍 Bax") and sel_id:
-                r = run_query("SELECT * FROM sales WHERE id=:id", {"id":sel_id}).iloc[0]
-                try: items = [{"item_name": x.split(" x")[0], "qty": float(x.split(" x")[1]), "price": 0} for x in r['items'].split(", ")]
-                except: items = []
-                st.session_state.last_receipt_data = {'cart':items, 'total':float(r['total']), 'email':None}; st.session_state.show_receipt_popup = True; st.rerun()
+            # 1. KPI
+            daily_sales = run_query("SELECT total FROM sales WHERE cashier=:u AND created_at >= :d", {"u":st.session_state.user, "d":today_start})
+            total_today = daily_sales['total'].sum() if not daily_sales.empty else 0.0
+            st.metric("BUGÜN", f"{total_today:.2f} ₼")
+            
+            # 2. SMART TABLE (Joined with Customers to show Name/Type)
+            st.caption("Satış Tarixçəsi")
+            
+            # Complex Query to get readable names
+            q = """
+                SELECT s.id, s.created_at, s.items, s.total, s.payment_method, 
+                       COALESCE(c.email, c.type, 'Qonaq') as Customer
+                FROM sales s
+                LEFT JOIN customers c ON s.customer_card_id = c.card_id
+                WHERE s.cashier = :u
+                ORDER BY s.created_at DESC LIMIT 50
+            """
+            mys = run_query(q, {"u":st.session_state.user})
+            
+            # Display Clean Table (Hide ID, formatted columns)
+            display_df = mys[['created_at', 'items', 'total', 'payment_method', 'customer']].copy()
+            display_df.columns = ['Saat', 'Mallar', 'Məbləğ', 'Ödəniş', 'Müştəri']
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
 
     if role in ['admin','manager']:
         with tabs[idx+1]: st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100"), hide_index=True)
@@ -627,12 +628,32 @@ else:
                          st.success("Bərpa Olundu!"); st.rerun()
                      except: st.error("Xəta")
         
-        with tabs[10]: # QR
+        with tabs[10]: # QR (UPDATED)
+            st.subheader("QR Kodlar")
             cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
             if st.button("QR Yarat"):
                 type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
+                generated_qrs = []
                 for _ in range(cnt):
-                    run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":str(random.randint(10000000,99999999)), "t":type_map[kt], "s":secrets.token_hex(8)})
-                st.success("Hazır!")
+                    cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
+                    run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[kt], "s":tok})
+                    url = f"{APP_URL}/?id={cid}&t={tok}"
+                    img_bytes = generate_styled_qr(url) # Using New Green/Transparent
+                    generated_qrs.append((cid, img_bytes))
+                
+                # Logic: <= 3 Show Images, > 3 Show Zip
+                if cnt <= 3:
+                    cols = st.columns(cnt)
+                    for idx, (cid, img) in enumerate(generated_qrs):
+                        with cols[idx]:
+                            st.image(img, caption=f"{cid} ({kt})")
+                            st.download_button(f"⬇️ {cid}", img, f"{cid}.png", "image/png")
+                else:
+                    zip_buf = BytesIO()
+                    with zipfile.ZipFile(zip_buf, "w") as zf:
+                        for cid, img in generated_qrs:
+                            zf.writestr(f"{cid}_{type_map[kt]}.png", img)
+                    st.success(f"{cnt} QR Kod yaradıldı!")
+                    st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
 
     st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
