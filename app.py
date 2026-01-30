@@ -7,6 +7,7 @@ import os
 import bcrypt
 import secrets
 import datetime
+import math
 import qrcode
 from qrcode.image.styledpil import StyledPilImage
 from qrcode.image.styles.moduledrawers import SquareModuleDrawer
@@ -19,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.49 (CLEAN UI & SMART REPORT) ===
+# === EMALATKHANA POS - V5.50 (RC2: PRO REPORTING & PAGINATION) ===
 # ==========================================
 
-VERSION = "v5.49 (Click-to-Edit + Smart Email + Clean UI)"
+VERSION = "v5.50 (RC2: Pagination + Detailed Email Report)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -51,6 +52,8 @@ if 'current_customer_ta' not in st.session_state: st.session_state.current_custo
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_popup = False
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
+if 'anbar_page' not in st.session_state: st.session_state.anbar_page = 0
+if 'anbar_rows_per_page' not in st.session_state: st.session_state.anbar_rows_per_page = 20
 
 # --- CSS ---
 st.markdown("""
@@ -111,7 +114,15 @@ def ensure_schema():
     with conn.session as s:
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
+        
+        # SALES TABLE UPDATE: Added original_total and discount_amount
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
+        try:
+            s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0"))
+            s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0"))
+            s.commit()
+        except: pass
+
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         
@@ -406,7 +417,12 @@ else:
                                 res = s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":r[0]})
                                 if res.rowcount == 0: raise Exception(f"Stok yoxdur: {r[0]}")
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
-                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id) VALUES (:i,:t,:p,:c,:time,:cid)"), {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None})
+                        
+                        # SAVE ORIGINAL AND DISCOUNT
+                        discount_amt = raw - final
+                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da)"), 
+                                  {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":discount_amt})
+                        
                         if cust and not is_ikram:
                             cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')])
                             new_s = (cust['stars'] + cf_cnt) - (free * 10)
@@ -432,7 +448,8 @@ else:
                         try:
                             with conn.session as s:
                                 s.execute(text("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id"), {"id":tbl['id']})
-                                s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at) VALUES (:i,:t,'Table',:c,:tm)"), {"i":"Table Order", "t":final, "c":st.session_state.user, "tm":get_baku_now()})
+                                s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i,:t,'Table',:c,:tm, :ot, 0)"), 
+                                          {"i":"Table Order", "t":final, "c":st.session_state.user, "tm":get_baku_now(), "ot":final})
                                 s.commit()
                             st.session_state.selected_table=None; st.session_state.cart_table=[]; st.rerun()
                         except: st.error("Xəta")
@@ -450,7 +467,7 @@ else:
                         if st.button(f"{r['label']}\n{r['total']} ₼", key=f"t_{r['id']}", type="primary" if r['is_occupied'] else "secondary", use_container_width=True):
                             st.session_state.selected_table = r.to_dict(); st.session_state.cart_table = json.loads(r['items']) if r['items'] else []; st.rerun()
 
-    # --- ANBAR (CLEAN & CLICKABLE) ---
+    # --- ANBAR (PAGINATION + CLEAN UI) ---
     if role in ['admin','manager']:
         with tabs[2]:
             c1, c2 = st.columns([3,1])
@@ -471,21 +488,24 @@ else:
 
             st.markdown(f"### 📦 Anbar (Cəmi: {asset_val:.2f} ₼)")
 
-            with st.expander("📤 İmport / Export"):
-                if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
-                upl = st.file_uploader("📥 Import", type="xlsx")
-                if upl and st.button("Yüklə"):
-                    try:
-                        df_imp = pd.read_excel(upl); df_imp['type'] = 'ingredient'
-                        for _, r in df_imp.iterrows(): run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost) VALUES (:n, :s, :u, :c, :t, :uc) ON CONFLICT (name) DO UPDATE SET stock_qty=ingredients.stock_qty+:s, unit_cost=:uc", r.to_dict())
-                        st.success("Yükləndi!"); st.rerun()
-                    except: st.error("Format Xətası")
+            # PAGINATION LOGIC
+            rows_per_page = st.selectbox("Səhifədə neçə mal olsun?", [20, 40, 60], index=0)
+            if rows_per_page != st.session_state.anbar_rows_per_page:
+                st.session_state.anbar_rows_per_page = rows_per_page
+                st.session_state.anbar_page = 0
             
-            df_i['Total Value'] = df_i['stock_qty'] * df_i['unit_cost']
+            total_rows = len(df_i)
+            total_pages = math.ceil(total_rows / rows_per_page)
             
-            # CLICKABLE TABLE LOGIC
+            start_idx = st.session_state.anbar_page * rows_per_page
+            end_idx = start_idx + rows_per_page
+            
+            df_page = df_i.iloc[start_idx:end_idx].copy()
+            df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
+
+            # CLICKABLE TABLE
             event = st.dataframe(
-                df_i, 
+                df_page, 
                 hide_index=True, 
                 on_select="rerun",
                 selection_mode="single-row",
@@ -496,6 +516,29 @@ else:
                 use_container_width=True
             )
 
+            # PAGINATION CONTROLS
+            pc1, pc2, pc3 = st.columns([1,2,1])
+            with pc1:
+                if st.button("⬅️ Əvvəlki", disabled=(st.session_state.anbar_page == 0)):
+                    st.session_state.anbar_page -= 1
+                    st.rerun()
+            with pc2:
+                st.markdown(f"<div style='text-align:center; padding-top:10px;'>Səhifə {st.session_state.anbar_page + 1} / {max(1, total_pages)}</div>", unsafe_allow_html=True)
+            with pc3:
+                if st.button("Növbəti ➡️", disabled=(st.session_state.anbar_page >= total_pages - 1)):
+                    st.session_state.anbar_page += 1
+                    st.rerun()
+
+            with st.expander("📤 İmport / Export"):
+                if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
+                upl = st.file_uploader("📥 Import", type="xlsx")
+                if upl and st.button("Yüklə"):
+                    try:
+                        df_imp = pd.read_excel(upl); df_imp['type'] = 'ingredient'
+                        for _, r in df_imp.iterrows(): run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost) VALUES (:n, :s, :u, :c, :t, :uc) ON CONFLICT (name) DO UPDATE SET stock_qty=ingredients.stock_qty+:s, unit_cost=:uc", r.to_dict())
+                        st.success("Yükləndi!"); st.rerun()
+                    except: st.error("Format Xətası")
+            
             @st.dialog("📦 Mal Əməliyyatı")
             def item_op_dialog(row):
                 st.subheader(f"{row['name']}")
@@ -534,7 +577,7 @@ else:
                         st.warning("Yalnız Admin üçündür.")
 
             if event.selection.rows:
-                selected_row = df_i.iloc[event.selection.rows[0]]
+                selected_row = df_page.iloc[event.selection.rows[0]]
                 item_op_dialog(selected_row)
 
             if role == 'admin':
@@ -605,13 +648,12 @@ else:
                     s_i = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); s_q = st.number_input("Miqdar")
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":s_i,"q":s_q}); st.rerun()
 
-    # --- ANALITIKA (SMART EMAIL) ---
+    # --- ANALITIKA (SMART EMAIL + PRO REPORT) ---
     if role != 'staff':
         idx = 5 if role == 'admin' else 4
         with tabs[idx]:
             st.subheader("📊 Analitika & Mənfəəti")
             
-            # EMAIL REPORT SECTION
             with st.container():
                 c_mail, c_btn = st.columns([3,1])
                 target_email = c_mail.text_input("Hesabat Emaili", value=get_setting("admin_email", DEFAULT_SENDER_EMAIL))
@@ -619,10 +661,14 @@ else:
                     now = get_baku_now()
                     start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
                     end_time = (now + datetime.timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0) if now.hour >= 8 else now.replace(hour=1, minute=0, second=0, microsecond=0)
-                    if now.hour < 8: start_time -= datetime.timedelta(days=1) # If early morning, show previous shift
+                    if now.hour < 8: start_time -= datetime.timedelta(days=1)
+                    
+                    # Month Start
+                    month_start = now.replace(day=1, hour=0, minute=0, second=0)
 
+                    # Query for Daily Report
                     q_rep = """
-                        SELECT s.created_at, s.cashier, s.items, s.total, 
+                        SELECT s.created_at, s.cashier, s.items, s.original_total, s.discount_amount, s.total,
                                COALESCE(c.type, 'Standart') as status
                         FROM sales s 
                         LEFT JOIN customers c ON s.customer_card_id = c.card_id 
@@ -631,11 +677,30 @@ else:
                     """
                     rep_data = run_query(q_rep, {"s":start_time, "e":end_time})
                     
+                    # Query for Monthly Total
+                    q_month = "SELECT SUM(total) as m_total FROM sales WHERE created_at >= :ms"
+                    m_total = run_query(q_month, {"ms":month_start}).iloc[0]['m_total'] or 0.0
+
                     if not rep_data.empty:
-                        html_table = "<table border='1' style='border-collapse:collapse; width:100%;'><tr><th>Saat</th><th>Kassir</th><th>Mallar</th><th>Məbləğ</th><th>Status</th></tr>"
+                        d_total = rep_data['total'].sum()
+                        
+                        html_table = """
+                        <table border='1' style='border-collapse:collapse; width:100%; font-family:Arial, sans-serif;'>
+                            <tr style='background-color:#f2f2f2;'>
+                                <th>SAAT</th><th>KASSIR</th><th>MALLAR</th><th>MEBLEG</th><th>ENDIRIM</th><th>CEMI</th><th>STATUS</th>
+                            </tr>
+                        """
                         for _, r in rep_data.iterrows():
-                            html_table += f"<tr><td>{r['created_at'].strftime('%H:%M')}</td><td>{r['cashier']}</td><td>{r['items']}</td><td>{r['total']:.2f}</td><td>{r['status']}</td></tr>"
+                            # Fallback if original_total is 0 (old data)
+                            orig = r['original_total'] if r['original_total'] > 0 else r['total']
+                            disc = r['discount_amount']
+                            
+                            html_table += f"<tr><td>{r['created_at'].strftime('%H:%M')}</td><td>{r['cashier']}</td><td>{r['items']}</td><td>{orig:.2f}</td><td>{disc:.2f}</td><td>{r['total']:.2f}</td><td>{r['status']}</td></tr>"
+                        
                         html_table += "</table>"
+                        html_table += f"<h3 style='text-align:right;'>📅 Bu Günün Cəmi: {d_total:.2f} AZN</h3>"
+                        html_table += f"<h3 style='text-align:right; color:#2E7D32;'>📅 Bu Ayın Cəmi: {m_total:.2f} AZN</h3>"
+
                         send_email(target_email, f"Günlük Hesabat ({start_time.date()})", html_table)
                         st.success("Hesabat göndərildi!")
                     else:
