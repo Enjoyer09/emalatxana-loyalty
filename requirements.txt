@@ -1,11 +1,10 @@
 streamlit
 pandas
+sqlalchemy
+psycopg2-binary
+bcrypt
 qrcode
 Pillow
-sqlalchemy
-bcrypt
-requests
-psycopg2-binary
 xlsxwriter
 openpyxl
-reportlab
+requests
