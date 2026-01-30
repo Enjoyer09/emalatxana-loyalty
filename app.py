@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.45 (FINAL POLISH) ===
+# === EMALATKHANA POS - V5.46 (PRECISION & CATEGORIES) ===
 # ==========================================
 
-VERSION = "v5.45 (Global Search + Decimal Fix + Auto Clear)"
+VERSION = "v5.46 (5-Decimal Precision + Category Manager)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -114,9 +114,19 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(10,2) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
-        try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
+        
+        # HIGH PRECISION COSTING (DECIMAL 18,5)
+        s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
+        
+        # Migration attempt for existing tables to increase precision
+        try: 
+            s.execute(text("ALTER TABLE ingredients ALTER COLUMN unit_cost TYPE DECIMAL(18,5)"))
+            s.commit()
         except: pass
+
+        try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(18,5) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
+        except: pass
+        
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
@@ -187,6 +197,14 @@ def admin_confirm_dialog(action_name, callback, *args):
         if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
             callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
         else: st.error("Yanlış Şifrə!")
+
+def get_low_stock_map():
+    low = []
+    try:
+        q = "SELECT DISTINCT r.menu_item_name FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE i.stock_qty <= i.min_limit"
+        low = run_query(q)['menu_item_name'].tolist()
+    except: pass
+    return low
 
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; disc_rate = 0.0; current_stars = 0
@@ -450,15 +468,11 @@ else:
             c1, c2 = st.columns([3,1])
             st.markdown(f"### 📦 Anbar ({asset_val:.2f} ₼)")
             
-            # GLOBAL SEARCH
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
             
-            # Filter Logic
             if search_query:
-                # Show everything matching search, ignore type
                 df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE name ILIKE :s", {"s":f"%{search_query}%"})
             else:
-                # Standard View
                 itype = st.radio("Növ", ["Ərzaq (Xammal)", "Sərfiyyat (Qablaşdırma)"], horizontal=True)
                 db_type = 'ingredient' if itype.startswith("Ərzaq") else 'consumable'
                 df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE type=:t", {"t":db_type})
@@ -480,11 +494,13 @@ else:
             ed = st.data_editor(
                 df_i, 
                 hide_index=True, 
-                column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
+                column_config={
+                    "Seç": st.column_config.CheckboxColumn(required=True),
+                    "unit_cost": st.column_config.NumberColumn(format="%.5f") # 5 DECIMAL SHOW
+                },
                 disabled=locked_cols
             )
             
-            # SHARED DIALOGS
             @st.dialog("Mədaxil (Restock)")
             def shared_restock(id, name, unit, current_cost):
                 st.write(f"**{name}**")
@@ -506,6 +522,19 @@ else:
             sel_ids = ed[ed["Seç"]]['id'].tolist()
 
             if role == 'admin':
+                with st.expander("📂 Kateqoriya İdarəetməsi"):
+                    all_cats = run_query("SELECT DISTINCT category FROM ingredients")['category'].tolist()
+                    t1, t2 = st.tabs(["Düzəliş Et", "Sil"])
+                    with t1:
+                        old_c = st.selectbox("Köhnə Ad", all_cats, key="ren_old")
+                        new_c = st.text_input("Yeni Ad", key="ren_new")
+                        if st.button("Dəyişdir"):
+                            run_action("UPDATE ingredients SET category=:n WHERE category=:o", {"n":new_c, "o":old_c}); st.success("Hazır!"); st.rerun()
+                    with t2:
+                        del_c = st.selectbox("Silinəcək", all_cats, key="del_cat")
+                        if st.button("Kateqoriyanı Sil (Mallar Qalsın)"):
+                            run_action("UPDATE ingredients SET category='Təyinsiz' WHERE category=:o", {"o":del_c}); st.success("Silindi!"); st.rerun()
+
                 if sel_ids and st.button("Seçilənləri Sil"):
                     admin_confirm_dialog("Silinsin?", lambda: [run_action("DELETE FROM ingredients WHERE id=:id", {"id":i}) for i in sel_ids])
                 
@@ -517,7 +546,7 @@ else:
                             ec = st.text_input("Kateqoriya", row['category'])
                             eu = st.selectbox("Vahid", ["gr","ml","ədəd","kq","L"], index=["gr","ml","ədəd","kq","L"].index(row['unit']) if row['unit'] in ["gr","ml","ədəd","kq","L"] else 0)
                             et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
-                            ecost = st.number_input("Maya Dəyəri", float(row['unit_cost']))
+                            ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":row['id']})
                                 st.success("Yeniləndi!"); st.rerun()
@@ -548,7 +577,6 @@ else:
                                            {"n":n.strip(),"q":total_qty,"u":u,"c":c_new,"t":f_type,"uc":unit_cost,"ac":packs})
                                 st.rerun()
 
-            # --- RESTOCK BUTTONS FOR ALL ---
             cols = st.columns(4)
             for i, r in df_i.iterrows():
                 with cols[i%4]:
