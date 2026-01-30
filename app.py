@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.37 (ENTERPRISE FINANCE) ===
+# === EMALATKHANA POS - V5.38 (BUG FIX & CLEAN UI) ===
 # ==========================================
 
-VERSION = "v5.37 (Expenses, Costing, Smart Menu, CRM)"
+VERSION = "v5.38 (QR Fix + Hidden Runner)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -53,7 +53,7 @@ if 'selected_table' not in st.session_state: st.session_state.selected_table = N
 if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_popup = False
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
 
-# --- CSS ---
+# --- CSS (CLEAN UI & FONTS) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
@@ -63,6 +63,12 @@ st.markdown("""
     :root { --primary-color: #2E7D32; }
     .stApp { background-color: #F8F9FA !important; color: #333 !important; font-family: 'Arial', sans-serif !important; }
     
+    /* HIDE STREAMLIT RUNNER & HEADER */
+    div[data-testid="stStatusWidget"] { visibility: hidden; }
+    #MainMenu { visibility: hidden; }
+    header { visibility: hidden; }
+    footer { visibility: hidden; }
+
     /* BIG TOUCH BUTTONS */
     div.stButton > button { 
         border-radius: 12px !important; min-height: 80px !important; 
@@ -109,18 +115,14 @@ except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 @st.cache_resource
 def ensure_schema():
     with conn.session as s:
-        # Tables
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
-        # Ingredients with Costing & Dual Tracking
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(10,2) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
         except: pass
-
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
@@ -159,12 +161,13 @@ def get_setting(key, default=""):
 def set_setting(key, value): run_action("INSERT INTO settings (key, value) VALUES (:k, :v) ON CONFLICT (key) DO UPDATE SET value=:v", {"k":key, "v":value})
 def image_to_base64(image_file): return base64.b64encode(image_file.getvalue()).decode()
 
-# --- QR GEN (Green Transparent) ---
+# --- QR GEN (FIXED FOR RGBA) ---
 def generate_styled_qr(data):
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=1)
     qr.add_data(data); qr.make(fit=True)
+    # FIX: Use 4-tuple for front_color to match RGBA back_color
     img = qr.make_image(image_factory=StyledPilImage, module_drawer=SquareModuleDrawer(), 
-                        color_mask=SolidFillColorMask(front_color=(0, 128, 0), back_color=(255, 255, 255, 0)))
+                        color_mask=SolidFillColorMask(front_color=(0, 128, 0, 255), back_color=(255, 255, 255, 0)))
     buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 def generate_custom_qr(data, center_text): return generate_styled_qr(data)
 
@@ -463,13 +466,11 @@ else:
     # --- ANBAR (Dual Tracking & Costing) ---
     if role in ['admin','manager']:
         with tabs[2]:
-            # ASSET VALUE CALCULATION
             try: 
                 asset_df = run_query("SELECT SUM(stock_qty * unit_cost) as total_asset FROM ingredients")
                 asset_val = asset_df.iloc[0]['total_asset'] if not asset_df.empty and asset_df.iloc[0]['total_asset'] else 0.0
             except: asset_val = 0.0
             st.markdown(f"### 📦 Anbar (Toplam Dəyər: {asset_val:.2f} ₼)")
-            
             c1, c2 = st.columns(2)
             itype = c1.radio("Növ", ["Ərzaq (Xammal)", "Sərfiyyat (Qablaşdırma)"], horizontal=True)
             db_type = 'ingredient' if itype.startswith("Ərzaq") else 'consumable'
@@ -482,14 +483,10 @@ else:
                         for _, r in df_imp.iterrows(): run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost) VALUES (:n, :s, :u, :c, :t, :uc) ON CONFLICT (name) DO UPDATE SET stock_qty=ingredients.stock_qty+:s, unit_cost=:uc", r.to_dict())
                         st.success("Yükləndi!"); st.rerun()
                     except: st.error("Format Xətası")
-            
-            # Inventory Table
             df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category FROM ingredients WHERE type=:t", {"t":db_type})
-            # Add 'Total Value' column for display
             df_i['Total Value'] = df_i['stock_qty'] * df_i['unit_cost']
             df_i.insert(0, "Seç", False)
             ed = st.data_editor(df_i, hide_index=True, disabled=True, num_rows="fixed")
-            
             if role == 'admin':
                 with st.expander("➕ Yeni Mal"):
                     with st.form("ninv"):
@@ -509,27 +506,20 @@ else:
                         def add_stock(id, current_qty):
                             st.write(f"Cari: {current_qty} {r['unit']}")
                             w = st.number_input(f"Miqdar ({r['unit']})", 0.0)
-                            
                             st.write("--- Qiymət Seçimi ---")
                             p_mode = st.radio("Metod", ["Yekun Məbləğ (Total Price)", "Vahid Qiyməti (Unit Price)"])
-                            
                             new_cost = 0.0
                             if p_mode.startswith("Yekun"):
                                 total_paid = st.number_input("Ödənilən Məbləğ (AZN)", 0.0)
                                 if w > 0: new_cost = total_paid / w
-                            else:
-                                new_cost = st.number_input("Vahid Qiyməti", 0.0)
-                            
+                            else: new_cost = st.number_input("Vahid Qiyməti", 0.0)
                             approx = st.number_input("Təxmini Say (Qeyd üçün)", 0, help="Yeşikdə neçə dənədir?")
-                            
                             if st.button("Təsdiq"): 
-                                # Update Stock, Cost and Approx Count
                                 run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", {"q":w,"id":id, "uc":new_cost if new_cost > 0 else r['unit_cost'], "ac":approx})
                                 st.rerun()
-                        
                         if st.button(f"{r['name']}\n{format_qty(r['stock_qty'])}", key=f"mi_{r['id']}"): add_stock(r['id'], r['stock_qty'])
 
-    # --- EXPENSES (NEW) ---
+    # --- EXPENSES ---
     if role in ['admin','manager']:
         with tabs[3]:
             st.subheader("💸 Xərclər")
@@ -539,7 +529,6 @@ else:
                 who = c1.selectbox("Xərcləyən", SPENDERS); src = c2.radio("Növ", ["Kassadan (Cash)", "Cibdən (Pocket)"])
                 if st.form_submit_button("Əlavə Et"):
                     run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":amt,"r":rsn,"s":who,"src":src}); st.success("Yazıldı!"); st.rerun()
-            
             exp_df = run_query("SELECT * FROM expenses ORDER BY created_at DESC LIMIT 50")
             if role == 'admin':
                 exp_df.insert(0, "Seç", False)
@@ -569,19 +558,15 @@ else:
             t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit (01:00 = Ertəsi)", datetime.time(1,0))
             ts_start = datetime.datetime.combine(d1, t1)
             ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
-            
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
-            
             rev = sales['total'].sum()
             cost = exps['amount'].sum()
             profit = rev - cost
-            
             c1,c2,c3 = st.columns(3)
             c1.metric("Toplam Satış", f"{rev:.2f} ₼")
             c2.metric("Toplam Xərc", f"{cost:.2f} ₼")
             c3.metric("Xalis (Cash Flow)", f"{profit:.2f} ₼", delta_color="normal")
-            
             st.caption("Satışlar")
             st.dataframe(sales, hide_index=True)
 
@@ -689,7 +674,7 @@ else:
                          st.success("Bərpa Olundu!"); st.rerun()
                      except: st.error("Xəta")
         
-        with tabs[11]: # QR (Green Transp)
+        with tabs[11]: # QR
             st.subheader("QR Kodlar")
             cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
             if st.button("QR Yarat"):
