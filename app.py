@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.43 (INTEGRITY MASTER FIX) ===
+# === EMALATKHANA POS - V5.45 (FINAL POLISH) ===
 # ==========================================
 
-VERSION = "v5.43 (Smart Integrity Check + ID Repair)"
+VERSION = "v5.45 (Global Search + Decimal Fix + Auto Clear)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -48,7 +48,6 @@ if 'session_token' not in st.session_state: st.session_state.session_token = Non
 if 'cart_takeaway' not in st.session_state: st.session_state.cart_takeaway = []
 if 'cart_table' not in st.session_state: st.session_state.cart_table = []
 if 'current_customer_ta' not in st.session_state: st.session_state.current_customer_ta = None
-if 'current_customer_tb' not in st.session_state: st.session_state.current_customer_tb = None
 if 'selected_table' not in st.session_state: st.session_state.selected_table = None
 if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_popup = False
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
@@ -188,14 +187,6 @@ def admin_confirm_dialog(action_name, callback, *args):
         if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
             callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
         else: st.error("Yanlış Şifrə!")
-
-def get_low_stock_map():
-    low = []
-    try:
-        q = "SELECT DISTINCT r.menu_item_name FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE i.stock_qty <= i.min_limit"
-        low = run_query(q)['menu_item_name'].tolist()
-    except: pass
-    return low
 
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; disc_rate = 0.0; current_stars = 0
@@ -450,32 +441,42 @@ else:
                         if st.button(f"{r['label']}\n{r['total']} ₼", key=f"t_{r['id']}", type="primary" if r['is_occupied'] else "secondary", use_container_width=True):
                             st.session_state.selected_table = r.to_dict(); st.session_state.cart_table = json.loads(r['items']) if r['items'] else []; st.rerun()
 
-    # --- ANBAR (Pack Calculation & Edit Fix) ---
+    # --- ANBAR (Global Search & Fixes) ---
     if role in ['admin','manager']:
         with tabs[2]:
             try: asset_val = run_query("SELECT SUM(stock_qty * unit_cost) as total FROM ingredients").iloc[0]['total'] or 0.0
             except: asset_val = 0.0
+            
+            c1, c2 = st.columns([3,1])
             st.markdown(f"### 📦 Anbar ({asset_val:.2f} ₼)")
             
-            c1, c2 = st.columns(2)
-            itype = c1.radio("Növ", ["Ərzaq (Xammal)", "Sərfiyyat (Qablaşdırma)"], horizontal=True)
-            db_type = 'ingredient' if itype.startswith("Ərzaq") else 'consumable'
-            with c2:
+            # GLOBAL SEARCH
+            search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
+            
+            # Filter Logic
+            if search_query:
+                # Show everything matching search, ignore type
+                df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE name ILIKE :s", {"s":f"%{search_query}%"})
+            else:
+                # Standard View
+                itype = st.radio("Növ", ["Ərzaq (Xammal)", "Sərfiyyat (Qablaşdırma)"], horizontal=True)
+                db_type = 'ingredient' if itype.startswith("Ərzaq") else 'consumable'
+                df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE type=:t", {"t":db_type})
+
+            with st.expander("📤 İmport / Export"):
                 if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
                 upl = st.file_uploader("📥 Import", type="xlsx")
                 if upl and st.button("Yüklə"):
                     try:
-                        df_imp = pd.read_excel(upl); df_imp['type'] = db_type
+                        df_imp = pd.read_excel(upl); df_imp['type'] = 'ingredient'
                         for _, r in df_imp.iterrows(): run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost) VALUES (:n, :s, :u, :c, :t, :uc) ON CONFLICT (name) DO UPDATE SET stock_qty=ingredients.stock_qty+:s, unit_cost=:uc", r.to_dict())
                         st.success("Yükləndi!"); st.rerun()
                     except: st.error("Format Xətası")
             
-            df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category FROM ingredients WHERE type=:t", {"t":db_type})
             df_i['Total Value'] = df_i['stock_qty'] * df_i['unit_cost']
             df_i.insert(0, "Seç", False)
             
-            # FIX: Only disable non-checkbox columns
-            locked_cols = ["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value"]
+            locked_cols = ["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value", "type"]
             ed = st.data_editor(
                 df_i, 
                 hide_index=True, 
@@ -483,31 +484,50 @@ else:
                 disabled=locked_cols
             )
             
-            if role == 'admin':
-                sel_ids = ed[ed["Seç"]]['id'].tolist()
+            # SHARED DIALOGS
+            @st.dialog("Mədaxil (Restock)")
+            def shared_restock(id, name, unit, current_cost):
+                st.write(f"**{name}**")
+                c1, c2 = st.columns(2)
+                packs = c1.number_input("Neçə ədəd/qutu/paçka?", 1, key=f"p_{id}")
+                per_pack = c2.number_input(f"Birinin Çəkisi ({unit})", min_value=0.001, step=0.001, value=1.0, format="%.3f", key=f"pp_{id}")
                 
+                total_new_qty = packs * per_pack
+                st.info(f"Əlavə olunacaq: {total_new_qty:.3f} {unit}")
+                
+                tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0, key=f"tp_{id}")
+                new_cost = tot_price / total_new_qty if total_new_qty > 0 else current_cost
+                
+                if st.button("Təsdiq", key=f"btn_{id}"): 
+                    run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
+                               {"q":total_new_qty,"id":id, "uc":new_cost, "ac":packs})
+                    st.rerun()
+
+            sel_ids = ed[ed["Seç"]]['id'].tolist()
+
+            if role == 'admin':
                 if sel_ids and st.button("Seçilənləri Sil"):
                     admin_confirm_dialog("Silinsin?", lambda: [run_action("DELETE FROM ingredients WHERE id=:id", {"id":i}) for i in sel_ids])
                 
                 if len(sel_ids) == 1:
                     row = df_i[df_i['id'] == sel_ids[0]].iloc[0]
                     with st.expander("✏️ Seçilən Malı Düzəlt", expanded=True):
-                        with st.form("edit_inv"):
+                        with st.form("edit_inv", clear_on_submit=True):
                             en = st.text_input("Ad", row['name'])
                             ec = st.text_input("Kateqoriya", row['category'])
                             eu = st.selectbox("Vahid", ["gr","ml","ədəd","kq","L"], index=["gr","ml","ədəd","kq","L"].index(row['unit']) if row['unit'] in ["gr","ml","ədəd","kq","L"] else 0)
+                            et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
                             ecost = st.number_input("Maya Dəyəri", float(row['unit_cost']))
                             if st.form_submit_button("Yadda Saxla"):
-                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "id":row['id']})
+                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":row['id']})
                                 st.success("Yeniləndi!"); st.rerun()
-                elif len(sel_ids) > 1: st.warning("Düzəliş üçün yalnız 1 mal seçin.")
 
                 with st.expander("➕ Yeni Mal (Qutu ilə)"):
-                    with st.form("ninv"):
-                        n = st.text_input("Ad (Məs: Milla Süd)")
+                    with st.form("ninv", clear_on_submit=True):
+                        n = st.text_input("Ad (Məs: Tac Şəkər Tozu)")
                         c1, c2, c3 = st.columns(3)
-                        packs = c1.number_input("Qutu/Ədəd Sayı", 1)
-                        per_pack = c2.number_input("Birinin Çəkisi/Həcmi", 1.0)
+                        packs = c1.number_input("Qutu/Paçka Sayı", 1)
+                        per_pack = c2.number_input("Birinin Çəkisi", min_value=0.001, step=0.001, format="%.3f")
                         u = c3.selectbox("Vahid", ["gr","ml","ədəd","kq","L"])
                         
                         tot_price = st.number_input("Yekun Ödənilən Məbləğ (AZN)", 0.0)
@@ -517,7 +537,6 @@ else:
                         c_sel = st.selectbox("Kateqoriya", cats); c_new = st.text_input("Yeni Kateqoriya") if c_sel == "Yeni..." else c_sel
                         
                         if st.form_submit_button("Yarat"): 
-                            # INTEGRITY FIX: Check existence first!
                             check = run_query("SELECT id FROM ingredients WHERE name ILIKE :n", {"n":n.strip()})
                             if not check.empty:
                                 st.error("⚠️ Bu adda mal artıq mövcuddur! Zəhmət olmasa aşağıdakı siyahıdan tapıb 'Mədaxil' düyməsini istifadə edin.")
@@ -529,31 +548,18 @@ else:
                                            {"n":n.strip(),"q":total_qty,"u":u,"c":c_new,"t":f_type,"uc":unit_cost,"ac":packs})
                                 st.rerun()
 
-            if role == 'manager':
-                cols = st.columns(4)
-                for i, r in df_i.iterrows():
-                    with cols[i%4]:
-                        @st.dialog(f"Mədaxil: {r['name']}")
-                        def add_stock(id, current_qty):
-                            st.write(f"Cari: {current_qty} {r['unit']}")
-                            c1, c2 = st.columns(2)
-                            packs = c1.number_input("Neçə ədəd/qutu?", 1, key=f"p_{id}")
-                            per_pack = c2.number_input(f"Birinin {r['unit']}", 1.0, key=f"pp_{id}")
-                            total_new_qty = packs * per_pack
-                            st.info(f"Əlavə olunacaq: {total_new_qty} {r['unit']}")
-                            tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0, key=f"tp_{id}")
-                            new_cost = tot_price / total_new_qty if total_new_qty > 0 else r['unit_cost']
-                            if st.button("Təsdiq", key=f"btn_{id}"): 
-                                run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
-                                           {"q":total_new_qty,"id":id, "uc":new_cost, "ac":packs})
-                                st.rerun()
-                        if st.button(f"{r['name']}\n{format_qty(r['stock_qty'])}", key=f"mi_{r['id']}"): add_stock(r['id'], r['stock_qty'])
+            # --- RESTOCK BUTTONS FOR ALL ---
+            cols = st.columns(4)
+            for i, r in df_i.iterrows():
+                with cols[i%4]:
+                    if st.button(f"{r['name']}\n{format_qty(r['stock_qty'])}", key=f"mi_{r['id']}"): 
+                        shared_restock(r['id'], r['name'], r['unit'], r['unit_cost'])
 
     # --- EXPENSES ---
     if role in ['admin','manager']:
         with tabs[3]:
             st.subheader("💸 Xərclər")
-            with st.form("new_exp"):
+            with st.form("new_exp", clear_on_submit=True):
                 c1,c2 = st.columns(2)
                 amt = c1.number_input("Məbləğ (AZN)", 0.0); rsn = c2.text_input("Təyinat (Səbəb)")
                 who = c1.selectbox("Xərcləyən", SPENDERS); src = c2.radio("Növ", ["Kassadan (Cash)", "Cibdən (Pocket)"])
