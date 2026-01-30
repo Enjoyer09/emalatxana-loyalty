@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.46 (PRECISION & CATEGORIES) ===
+# === EMALATKHANA POS - V5.47 (PRO UNITS ONLY) ===
 # ==========================================
 
-VERSION = "v5.46 (5-Decimal Precision + Category Manager)"
+VERSION = "v5.47 (Only KQ, L, UNIT)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -114,19 +114,9 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
-        # HIGH PRECISION COSTING (DECIMAL 18,5)
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
-        
-        # Migration attempt for existing tables to increase precision
-        try: 
-            s.execute(text("ALTER TABLE ingredients ALTER COLUMN unit_cost TYPE DECIMAL(18,5)"))
-            s.commit()
-        except: pass
-
         try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(18,5) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
         except: pass
-        
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
@@ -197,14 +187,6 @@ def admin_confirm_dialog(action_name, callback, *args):
         if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
             callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
         else: st.error("Yanlış Şifrə!")
-
-def get_low_stock_map():
-    low = []
-    try:
-        q = "SELECT DISTINCT r.menu_item_name FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE i.stock_qty <= i.min_limit"
-        low = run_query(q)['menu_item_name'].tolist()
-    except: pass
-    return low
 
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; disc_rate = 0.0; current_stars = 0
@@ -496,7 +478,7 @@ else:
                 hide_index=True, 
                 column_config={
                     "Seç": st.column_config.CheckboxColumn(required=True),
-                    "unit_cost": st.column_config.NumberColumn(format="%.5f") # 5 DECIMAL SHOW
+                    "unit_cost": st.column_config.NumberColumn(format="%.5f")
                 },
                 disabled=locked_cols
             )
@@ -544,7 +526,7 @@ else:
                         with st.form("edit_inv", clear_on_submit=True):
                             en = st.text_input("Ad", row['name'])
                             ec = st.text_input("Kateqoriya", row['category'])
-                            eu = st.selectbox("Vahid", ["gr","ml","ədəd","kq","L"], index=["gr","ml","ədəd","kq","L"].index(row['unit']) if row['unit'] in ["gr","ml","ədəd","kq","L"] else 0)
+                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(row['unit']) if row['unit'] in ["KQ", "L", "ƏDƏD"] else 0)
                             et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
                             ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
                             if st.form_submit_button("Yadda Saxla"):
@@ -557,7 +539,7 @@ else:
                         c1, c2, c3 = st.columns(3)
                         packs = c1.number_input("Qutu/Paçka Sayı", 1)
                         per_pack = c2.number_input("Birinin Çəkisi", min_value=0.001, step=0.001, format="%.3f")
-                        u = c3.selectbox("Vahid", ["gr","ml","ədəd","kq","L"])
+                        u = c3.selectbox("Vahid", ["KQ", "L", "ƏDƏD"])
                         
                         tot_price = st.number_input("Yekun Ödənilən Məbləğ (AZN)", 0.0)
                         
