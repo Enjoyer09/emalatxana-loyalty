@@ -16,10 +16,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.30 (FULL SECURE) ===
+# === EMALATKHANA POS - V5.31 (HOTFIX) ===
 # ==========================================
 
-VERSION = "v5.30 (All Functions Restored + Audit Fix)"
+VERSION = "v5.31 (NameError Fix + Stable)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONSTANTS ---
@@ -443,12 +443,15 @@ else:
                             add_to_cart(cart_ref, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
                 i+=1
 
+    # --- DEFINED GLOBALLY TO FIX NAME ERROR ---
+    show_tbl = True # Default for Admin/Manager
+
     if role == 'admin':
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "📜 Resept", "Analitika", "📜 Loglar", "👥 CRM", "Menyu", "⚙️ Ayarlar", "💾 BAZA", "QR"])
     elif role == 'manager':
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar (Mədaxil)", "📊 Analitika", "📜 Loglar", "👥 CRM"])
     elif role == 'staff':
-        show_tbl = (get_setting("staff_show_tables", "TRUE") == "TRUE")
+        show_tbl = (get_setting("staff_show_tables", "TRUE") == "TRUE") # UPDATE for Staff
         tabs = st.tabs(["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "Satışlar"] if show_tbl else ["🏃‍♂️ AL-APAR", "Satışlar"])
 
     with tabs[0]: # TAKEAWAY
@@ -530,7 +533,7 @@ else:
                         try:
                             with conn.session as s:
                                 for it in st.session_state.cart_table:
-                                    if it.get('status') != 'paid': # Avoid double deduction logic if tracked
+                                    if it.get('status') != 'paid': 
                                         rs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                                         for r in rs:
                                             req_qty = float(r[1]) * it['qty']
@@ -605,8 +608,6 @@ else:
             d1 = get_baku_now().date(); d2 = get_baku_now().date()
             if f_type == "Bu Ay": d1 = d1.replace(day=1)
             elif f_type == "Tarix Aralığı": d1 = c2.date_input("Start"); d2 = c2.date_input("End")
-            
-            # SECURE PARAMETERIZED QUERY
             df_sales = run_query("SELECT * FROM sales WHERE created_at::date BETWEEN :d1 AND :d2 ORDER BY created_at DESC", {"d1":d1, "d2":d2})
             st.metric("Toplam Satış", f"{df_sales['total'].sum():.2f} ₼")
             st.dataframe(df_sales)
