@@ -19,10 +19,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.47 (PRO UNITS ONLY) ===
+# === EMALATKHANA POS - V5.49 (CLEAN UI & SMART REPORT) ===
 # ==========================================
 
-VERSION = "v5.47 (Only KQ, L, UNIT)"
+VERSION = "v5.49 (Click-to-Edit + Smart Email + Clean UI)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -114,9 +114,17 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # HIGH PRECISION COSTING (DECIMAL 18,5)
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
+        try: 
+            s.execute(text("ALTER TABLE ingredients ALTER COLUMN unit_cost TYPE DECIMAL(18,5)"))
+            s.commit()
+        except: pass
+
         try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(18,5) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
         except: pass
+        
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
@@ -181,12 +189,13 @@ def validate_session():
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
     st.warning(f"⚠️ {action_name}")
-    pwd = st.text_input("Admin Şifrəsi", type="password")
-    if st.button("Təsdiqlə"):
-        adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
-        if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
-            callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
-        else: st.error("Yanlış Şifrə!")
+    with st.form("admin_conf_form"):
+        pwd = st.text_input("Admin Şifrəsi", type="password")
+        if st.form_submit_button("Təsdiqlə"):
+            adm = run_query("SELECT password FROM users WHERE role='admin' LIMIT 1")
+            if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
+                callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
+            else: st.error("Yanlış Şifrə!")
 
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; disc_rate = 0.0; current_stars = 0
@@ -441,23 +450,26 @@ else:
                         if st.button(f"{r['label']}\n{r['total']} ₼", key=f"t_{r['id']}", type="primary" if r['is_occupied'] else "secondary", use_container_width=True):
                             st.session_state.selected_table = r.to_dict(); st.session_state.cart_table = json.loads(r['items']) if r['items'] else []; st.rerun()
 
-    # --- ANBAR (Global Search & Fixes) ---
+    # --- ANBAR (CLEAN & CLICKABLE) ---
     if role in ['admin','manager']:
         with tabs[2]:
-            try: asset_val = run_query("SELECT SUM(stock_qty * unit_cost) as total FROM ingredients").iloc[0]['total'] or 0.0
-            except: asset_val = 0.0
-            
             c1, c2 = st.columns([3,1])
-            st.markdown(f"### 📦 Anbar ({asset_val:.2f} ₼)")
             
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
             
             if search_query:
-                df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE name ILIKE :s", {"s":f"%{search_query}%"})
+                df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE name ILIKE :s ORDER BY name", {"s":f"%{search_query}%"})
+                asset_val = (df_i['stock_qty'] * df_i['unit_cost']).sum()
             else:
-                itype = st.radio("Növ", ["Ərzaq (Xammal)", "Sərfiyyat (Qablaşdırma)"], horizontal=True)
-                db_type = 'ingredient' if itype.startswith("Ərzaq") else 'consumable'
-                df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE type=:t", {"t":db_type})
+                itype = st.radio("Növ", ["Hamısı", "Ərzaq", "Sərfiyyat"], horizontal=True)
+                if itype == "Hamısı":
+                    df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients ORDER BY name")
+                else:
+                    db_type = 'ingredient' if itype == "Ərzaq" else 'consumable'
+                    df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE type=:t ORDER BY name", {"t":db_type})
+                asset_val = (df_i['stock_qty'] * df_i['unit_cost']).sum()
+
+            st.markdown(f"### 📦 Anbar (Cəmi: {asset_val:.2f} ₼)")
 
             with st.expander("📤 İmport / Export"):
                 if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
@@ -470,38 +482,60 @@ else:
                     except: st.error("Format Xətası")
             
             df_i['Total Value'] = df_i['stock_qty'] * df_i['unit_cost']
-            df_i.insert(0, "Seç", False)
             
-            locked_cols = ["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value", "type"]
-            ed = st.data_editor(
+            # CLICKABLE TABLE LOGIC
+            event = st.dataframe(
                 df_i, 
                 hide_index=True, 
+                on_select="rerun",
+                selection_mode="single-row",
                 column_config={
-                    "Seç": st.column_config.CheckboxColumn(required=True),
-                    "unit_cost": st.column_config.NumberColumn(format="%.5f")
+                    "unit_cost": st.column_config.NumberColumn(format="%.5f"),
+                    "Total Value": st.column_config.NumberColumn(format="%.2f")
                 },
-                disabled=locked_cols
+                use_container_width=True
             )
-            
-            @st.dialog("Mədaxil (Restock)")
-            def shared_restock(id, name, unit, current_cost):
-                st.write(f"**{name}**")
-                c1, c2 = st.columns(2)
-                packs = c1.number_input("Neçə ədəd/qutu/paçka?", 1, key=f"p_{id}")
-                per_pack = c2.number_input(f"Birinin Çəkisi ({unit})", min_value=0.001, step=0.001, value=1.0, format="%.3f", key=f"pp_{id}")
-                
-                total_new_qty = packs * per_pack
-                st.info(f"Əlavə olunacaq: {total_new_qty:.3f} {unit}")
-                
-                tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0, key=f"tp_{id}")
-                new_cost = tot_price / total_new_qty if total_new_qty > 0 else current_cost
-                
-                if st.button("Təsdiq", key=f"btn_{id}"): 
-                    run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
-                               {"q":total_new_qty,"id":id, "uc":new_cost, "ac":packs})
-                    st.rerun()
 
-            sel_ids = ed[ed["Seç"]]['id'].tolist()
+            @st.dialog("📦 Mal Əməliyyatı")
+            def item_op_dialog(row):
+                st.subheader(f"{row['name']}")
+                t1, t2 = st.tabs(["➕ Mədaxil", "✏️ Düzəliş (Admin)"])
+                
+                with t1:
+                    with st.form("restock_form", clear_on_submit=True):
+                        c1, c2 = st.columns(2)
+                        packs = c1.number_input("Neçə ədəd/qutu/paçka?", 1, key=f"p_{row['id']}")
+                        per_pack = c2.number_input(f"Birinin Çəkisi ({row['unit']})", min_value=0.001, step=0.001, value=1.0, format="%.3f", key=f"pp_{row['id']}")
+                        total_new_qty = packs * per_pack
+                        st.info(f"Əlavə olunacaq: {total_new_qty:.3f} {row['unit']}")
+                        tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0)
+                        
+                        if st.form_submit_button("Mədaxil Et"):
+                            new_cost = tot_price / total_new_qty if total_new_qty > 0 else row['unit_cost']
+                            run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
+                                       {"q":total_new_qty,"id":row['id'], "uc":new_cost, "ac":packs})
+                            st.success("Hazır!"); st.rerun()
+
+                with t2:
+                    if role == 'admin':
+                        with st.form("edit_form"):
+                            en = st.text_input("Ad", row['name'])
+                            ec = st.text_input("Kateqoriya", row['category'])
+                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(row['unit']) if row['unit'] in ["KQ", "L", "ƏDƏD"] else 0)
+                            et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
+                            ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
+                            if st.form_submit_button("Yadda Saxla"):
+                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":row['id']})
+                                st.success("Yeniləndi!"); st.rerun()
+                        
+                        if st.button("🗑️ Malı Sil", type="primary"):
+                             run_action("DELETE FROM ingredients WHERE id=:id", {"id":row['id']}); st.success("Silindi!"); st.rerun()
+                    else:
+                        st.warning("Yalnız Admin üçündür.")
+
+            if event.selection.rows:
+                selected_row = df_i.iloc[event.selection.rows[0]]
+                item_op_dialog(selected_row)
 
             if role == 'admin':
                 with st.expander("📂 Kateqoriya İdarəetməsi"):
@@ -517,22 +551,6 @@ else:
                         if st.button("Kateqoriyanı Sil (Mallar Qalsın)"):
                             run_action("UPDATE ingredients SET category='Təyinsiz' WHERE category=:o", {"o":del_c}); st.success("Silindi!"); st.rerun()
 
-                if sel_ids and st.button("Seçilənləri Sil"):
-                    admin_confirm_dialog("Silinsin?", lambda: [run_action("DELETE FROM ingredients WHERE id=:id", {"id":i}) for i in sel_ids])
-                
-                if len(sel_ids) == 1:
-                    row = df_i[df_i['id'] == sel_ids[0]].iloc[0]
-                    with st.expander("✏️ Seçilən Malı Düzəlt", expanded=True):
-                        with st.form("edit_inv", clear_on_submit=True):
-                            en = st.text_input("Ad", row['name'])
-                            ec = st.text_input("Kateqoriya", row['category'])
-                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(row['unit']) if row['unit'] in ["KQ", "L", "ƏDƏD"] else 0)
-                            et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
-                            ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
-                            if st.form_submit_button("Yadda Saxla"):
-                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":row['id']})
-                                st.success("Yeniləndi!"); st.rerun()
-
                 with st.expander("➕ Yeni Mal (Qutu ilə)"):
                     with st.form("ninv", clear_on_submit=True):
                         n = st.text_input("Ad (Məs: Tac Şəkər Tozu)")
@@ -540,9 +558,7 @@ else:
                         packs = c1.number_input("Qutu/Paçka Sayı", 1)
                         per_pack = c2.number_input("Birinin Çəkisi", min_value=0.001, step=0.001, format="%.3f")
                         u = c3.selectbox("Vahid", ["KQ", "L", "ƏDƏD"])
-                        
                         tot_price = st.number_input("Yekun Ödənilən Məbləğ (AZN)", 0.0)
-                        
                         typ = st.selectbox("Növ", ["Ərzaq","Sərfiyyat"])
                         cats = ["Yeni..."] + run_query("SELECT DISTINCT category FROM ingredients")['category'].tolist()
                         c_sel = st.selectbox("Kateqoriya", cats); c_new = st.text_input("Yeni Kateqoriya") if c_sel == "Yeni..." else c_sel
@@ -550,7 +566,7 @@ else:
                         if st.form_submit_button("Yarat"): 
                             check = run_query("SELECT id FROM ingredients WHERE name ILIKE :n", {"n":n.strip()})
                             if not check.empty:
-                                st.error("⚠️ Bu adda mal artıq mövcuddur! Zəhmət olmasa aşağıdakı siyahıdan tapıb 'Mədaxil' düyməsini istifadə edin.")
+                                st.error("⚠️ Bu adda mal artıq mövcuddur! Axtarışdan istifadə edin.")
                             else:
                                 total_qty = packs * per_pack
                                 unit_cost = tot_price / total_qty if total_qty > 0 else 0
@@ -558,12 +574,6 @@ else:
                                 run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) VALUES (:n,:q,:u,:c,:t,:uc,:ac)", 
                                            {"n":n.strip(),"q":total_qty,"u":u,"c":c_new,"t":f_type,"uc":unit_cost,"ac":packs})
                                 st.rerun()
-
-            cols = st.columns(4)
-            for i, r in df_i.iterrows():
-                with cols[i%4]:
-                    if st.button(f"{r['name']}\n{format_qty(r['stock_qty'])}", key=f"mi_{r['id']}"): 
-                        shared_restock(r['id'], r['name'], r['unit'], r['unit_cost'])
 
     # --- EXPENSES ---
     if role in ['admin','manager']:
@@ -595,11 +605,43 @@ else:
                     s_i = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); s_q = st.number_input("Miqdar")
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":s_i,"q":s_q}); st.rerun()
 
-    # --- ANALITIKA ---
+    # --- ANALITIKA (SMART EMAIL) ---
     if role != 'staff':
         idx = 5 if role == 'admin' else 4
         with tabs[idx]:
             st.subheader("📊 Analitika & Mənfəəti")
+            
+            # EMAIL REPORT SECTION
+            with st.container():
+                c_mail, c_btn = st.columns([3,1])
+                target_email = c_mail.text_input("Hesabat Emaili", value=get_setting("admin_email", DEFAULT_SENDER_EMAIL))
+                if c_btn.button("📩 Gündəlik Hesabatı Göndər (08:00-01:00)"):
+                    now = get_baku_now()
+                    start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                    end_time = (now + datetime.timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0) if now.hour >= 8 else now.replace(hour=1, minute=0, second=0, microsecond=0)
+                    if now.hour < 8: start_time -= datetime.timedelta(days=1) # If early morning, show previous shift
+
+                    q_rep = """
+                        SELECT s.created_at, s.cashier, s.items, s.total, 
+                               COALESCE(c.type, 'Standart') as status
+                        FROM sales s 
+                        LEFT JOIN customers c ON s.customer_card_id = c.card_id 
+                        WHERE s.created_at BETWEEN :s AND :e
+                        ORDER BY s.created_at DESC
+                    """
+                    rep_data = run_query(q_rep, {"s":start_time, "e":end_time})
+                    
+                    if not rep_data.empty:
+                        html_table = "<table border='1' style='border-collapse:collapse; width:100%;'><tr><th>Saat</th><th>Kassir</th><th>Mallar</th><th>Məbləğ</th><th>Status</th></tr>"
+                        for _, r in rep_data.iterrows():
+                            html_table += f"<tr><td>{r['created_at'].strftime('%H:%M')}</td><td>{r['cashier']}</td><td>{r['items']}</td><td>{r['total']:.2f}</td><td>{r['status']}</td></tr>"
+                        html_table += "</table>"
+                        send_email(target_email, f"Günlük Hesabat ({start_time.date()})", html_table)
+                        st.success("Hesabat göndərildi!")
+                    else:
+                        st.warning("Bu aralıqda satış yoxdur.")
+
+            st.divider()
             c1, c2 = st.columns(2); d1 = c1.date_input("Start"); d2 = c2.date_input("End")
             t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit (01:00 = Ertəsi)", datetime.time(1,0))
             ts_start = datetime.datetime.combine(d1, t1)
@@ -673,10 +715,14 @@ else:
                 n=st.text_input("Ad (Məs: Americano S)"); p=st.number_input("Qiymət"); c=st.text_input("Kat"); ic=st.checkbox("Kofe?")
                 if st.form_submit_button("Yarat"): 
                     run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":n,"p":p,"c":c,"ic":ic}); st.rerun()
-            ml = run_query("SELECT * FROM menu"); ml.insert(0, "Seç", False)
-            ed_m = st.data_editor(ml, hide_index=True, disabled=True, num_rows="fixed")
+            
+            # MENU DELETE LOGIC
+            ml = run_query("SELECT * FROM menu")
+            ml.insert(0, "Seç", False)
+            ed_m = st.data_editor(ml, hide_index=True, num_rows="fixed")
             to_del_m = ed_m[ed_m["Seç"]]['id'].tolist()
-            if to_del_m and st.button("Seçilənləri Sil"): admin_confirm_dialog("Menyudan Sil?", lambda: [run_action("DELETE FROM menu WHERE id=:id", {"id":i}) for i in to_del_m])
+            if to_del_m and st.button("🚨 Seçilənləri Menyudan Sil"): 
+                admin_confirm_dialog("Menyudan Sil?", lambda: [run_action("DELETE FROM menu WHERE id=:id", {"id":i}) for i in to_del_m])
 
         with tabs[9]: # SETTINGS
             st.subheader("⚙️ Ayarlar")
