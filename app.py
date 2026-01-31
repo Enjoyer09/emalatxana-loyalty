@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.54 (SMART ACTIONS) ===
+# === EMALATKHANA POS - V5.55 (IMPORT FIX & CATEGORY MANAGER) ===
 # ==========================================
 
-VERSION = "v5.54 (Smart Action Bar: Batch Delete & Edit Logic)"
+VERSION = "v5.55 (Stable: Smart Import + Category Tools)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -648,15 +648,49 @@ else:
                     st.session_state.anbar_page += 1
                     st.rerun()
 
-            with st.expander("📤 İmport / Export"):
+            with st.expander("📤 İmport / Export (FIXED)"):
                 if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
                 upl = st.file_uploader("📥 Import", type="xlsx")
+                import_type = st.selectbox("Yüklənəcək Malın Növü", ["Ərzaq (Ingredient)", "Sərfiyyat (Consumable)"])
+                
                 if upl and st.button("Yüklə"):
                     try:
-                        df_imp = pd.read_excel(upl); df_imp['type'] = 'ingredient'
-                        for _, r in df_imp.iterrows(): run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost) VALUES (:n, :s, :u, :c, :t, :uc) ON CONFLICT (name) DO UPDATE SET stock_qty=ingredients.stock_qty+:s, unit_cost=:uc", r.to_dict())
-                        st.success("Yükləndi!"); st.rerun()
-                    except: st.error("Format Xətası")
+                        df = pd.read_excel(upl)
+                        # Normalize headers
+                        df.columns = [c.lower().strip() for c in df.columns]
+                        
+                        # Required cols check
+                        required = ['name', 'stock_qty', 'unit', 'category', 'unit_cost']
+                        if not all(col in df.columns for col in required):
+                            st.error(f"Excel-də bu sütunlar mütləq olmalıdır: {', '.join(required)}")
+                        else:
+                            db_type = 'ingredient' if import_type.startswith("Ərzaq") else 'consumable'
+                            count = 0
+                            for _, row in df.iterrows():
+                                if pd.isna(row['name']): continue # Skip empty rows
+                                
+                                # Handle optional approx_count
+                                ac = row['approx_count'] if 'approx_count' in df.columns else 1
+                                
+                                run_action("""
+                                    INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count)
+                                    VALUES (:n, :q, :u, :c, :t, :uc, :ac)
+                                    ON CONFLICT (name) DO UPDATE SET 
+                                        stock_qty = ingredients.stock_qty + :q,
+                                        unit_cost = :uc
+                                """, {
+                                    "n": str(row['name']).strip(), 
+                                    "q": float(row['stock_qty']), 
+                                    "u": str(row['unit']).strip(), 
+                                    "c": str(row['category']).strip(), 
+                                    "t": db_type, 
+                                    "uc": float(row['unit_cost']),
+                                    "ac": int(ac) if pd.notnull(ac) else 1
+                                })
+                                count += 1
+                            st.success(f"{count} mal uğurla yükləndi!")
+                    except Exception as e:
+                        st.error(f"Format Xətası: {e}")
             
             if role == 'admin':
                 with st.expander("📂 Kateqoriya İdarəetməsi"):
@@ -669,8 +703,14 @@ else:
                             run_action("UPDATE ingredients SET category=:n WHERE category=:o", {"n":new_c, "o":old_c}); st.success("Hazır!"); st.rerun()
                     with t2:
                         del_c = st.selectbox("Silinəcək", all_cats, key="del_cat")
-                        if st.button("Kateqoriyanı Sil (Mallar Qalsın)"):
-                            run_action("UPDATE ingredients SET category='Təyinsiz' WHERE category=:o", {"o":del_c}); st.success("Silindi!"); st.rerun()
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Kateqoriyanı Sil (Mallar Qalsın)"):
+                                run_action("UPDATE ingredients SET category='Təyinsiz' WHERE category=:o", {"o":del_c}); st.success("Silindi!"); st.rerun()
+                        with c2:
+                            if st.button("⚠️ Kateqoriyanı və Malları Sil"):
+                                admin_confirm_dialog(f"Kateqoriya ({del_c}) və içindəki BÜTÜN mallar silinsin?", 
+                                                     lambda: run_action("DELETE FROM ingredients WHERE category=:o", {"o":del_c}))
 
                 with st.expander("➕ Yeni Mal (Qutu ilə)"):
                     with st.form("ninv", clear_on_submit=True):
