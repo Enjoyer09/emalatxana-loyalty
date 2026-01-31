@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.50 (RC2: PRO REPORTING & PAGINATION) ===
+# === EMALATKHANA POS - V5.50 RC2 (HOTFIX) ===
 # ==========================================
 
-VERSION = "v5.50 (RC2: Pagination + Detailed Email Report)"
+VERSION = "v5.50 RC2 (Hotfix: Cart +/- & Auto-Clear)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -396,13 +396,27 @@ else:
                             st.rerun()
                         else: st.error("Tapılmadı")
                     except: pass
+            
             cust = st.session_state.current_customer_ta
-            if cust: st.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
+            if cust: 
+                c_head, c_del = st.columns([4,1])
+                c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
+                if c_del.button("❌", key="clear_cust"): st.session_state.current_customer_ta=None; st.rerun()
+
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust)
             if st.session_state.cart_takeaway:
                 for i, item in enumerate(st.session_state.cart_takeaway):
-                    st.markdown(f"<div style='border:1px solid #ddd;padding:5px;display:flex;justify-content:space-between;'><span>{item['item_name']}</span><span>x{item['qty']}</span></div>", unsafe_allow_html=True)
-                    if st.button("➖", key=f"rm_{i}"): st.session_state.cart_takeaway.pop(i); st.rerun()
+                    c_n, c_d, c_q, c_u = st.columns([3, 1, 1, 1])
+                    with c_n: st.write(f"{item['item_name']}")
+                    with c_d: 
+                        if st.button("➖", key=f"dec_{i}"): 
+                            if item['qty'] > 1: item['qty'] -= 1
+                            else: st.session_state.cart_takeaway.pop(i)
+                            st.rerun()
+                    with c_q: st.write(f"x{item['qty']}")
+                    with c_u:
+                        if st.button("➕", key=f"inc_{i}"): item['qty'] += 1; st.rerun()
+
             st.markdown(f"<h2 style='text-align:right;color:#E65100'>{final:.2f} ₼</h2>", unsafe_allow_html=True)
             if is_ikram: st.success("🎁 İKRAM")
             elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
