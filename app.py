@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.65 (NO DUPLICATE MENU) ===
+# === EMALATKHANA POS - V5.66 (NUMPY FIX) ===
 # ==========================================
 
-VERSION = "v5.65 (Stable: Smart Menu Update - No Duplicates)"
+VERSION = "v5.66 (Stable: NumPy Type Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -985,15 +985,15 @@ else:
                                 existing = run_query("SELECT id FROM menu WHERE item_name=:n", {"n":str(r['item_name'])})
                                 
                                 if not existing.empty:
-                                    # UPDATE
+                                    # UPDATE (v5.66 FIX: Cast numpy.int64 to int)
                                     run_action("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
-                                               {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":existing.iloc[0]['id']})
+                                               {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":int(existing.iloc[0]['id'])})
                                 else:
                                     # INSERT NEW
                                     run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)", 
                                                {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
                                     
-                                    # AUTO RECIPE LOGIC (Only for new items)
+                                    # AUTO RECIPE LOGIC
                                     ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
                                     if not ing_check.empty:
                                         run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
