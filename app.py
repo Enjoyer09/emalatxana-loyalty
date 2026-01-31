@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.58 (MENU MASTER EDITION) ===
+# === EMALATKHANA POS - V5.59 (UNIQUE KEYS FIX) ===
 # ==========================================
 
-VERSION = "v5.58 (Stable: Advanced Menu & Auto-Recipe)"
+VERSION = "v5.59 (Stable: Unique Keys Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -557,20 +557,20 @@ else:
             # BUTTON: Mədaxil (Active only if 1 selected)
             with ab1:
                 if sel_count == 1:
-                    if st.button("➕ Seçilənə Mədaxil", use_container_width=True, type="secondary"):
+                    if st.button("➕ Seçilənə Mədaxil", use_container_width=True, type="secondary", key="btn_restock_active"):
                         st.session_state.restock_item_id = int(sel_ids[0])
                         st.rerun()
                 else:
-                    st.button("➕ Seçilənə Mədaxil", disabled=True, use_container_width=True)
+                    st.button("➕ Seçilənə Mədaxil", disabled=True, use_container_width=True, key="btn_restock_disabled")
 
             # BUTTON: Düzəliş (Active only if 1 selected)
             with ab2:
                 if sel_count == 1 and role == 'admin':
-                    if st.button("✏️ Seçilənə Düzəliş", use_container_width=True, type="secondary"):
+                    if st.button("✏️ Seçilənə Düzəliş", use_container_width=True, type="secondary", key="btn_edit_anbar_active"):
                         st.session_state.edit_item_id = int(sel_ids[0])
                         st.rerun()
                 else:
-                    st.button("✏️ Seçilənə Düzəliş", disabled=True, use_container_width=True)
+                    st.button("✏️ Seçilənə Düzəliş", disabled=True, use_container_width=True, key="btn_edit_anbar_disabled")
 
             # BUTTON: Sil (Active if >= 1 selected)
             with ab3:
@@ -585,10 +585,10 @@ else:
                             time.sleep(1)
                             st.rerun()
                     
-                    if st.button(f"🗑️ Sil ({sel_count})", use_container_width=True, type="primary"):
+                    if st.button(f"🗑️ Sil ({sel_count})", use_container_width=True, type="primary", key="btn_del_anbar_active"):
                         confirm_batch_delete(sel_ids)
                 else:
-                    st.button("🗑️ Sil", disabled=True, use_container_width=True)
+                    st.button("🗑️ Sil", disabled=True, use_container_width=True, key="btn_del_anbar_disabled")
 
             # 7. DIALOGS (TRIGGERED BY STATE)
             if st.session_state.restock_item_id:
@@ -900,17 +900,17 @@ else:
             # EDIT BUTTON
             with mc1:
                 if m_cnt == 1:
-                    if st.button("✏️ Düzəliş", use_container_width=True):
+                    if st.button("✏️ Düzəliş", use_container_width=True, key="btn_edit_menu_active"):
                         st.session_state.menu_edit_id = int(sel_m_ids[0])
                         st.rerun()
-                else: st.button("✏️ Düzəliş", disabled=True, use_container_width=True)
+                else: st.button("✏️ Düzəliş", disabled=True, use_container_width=True, key="btn_edit_menu_disabled")
             
             # DELETE BUTTON
             with mc2:
                 if m_cnt > 0:
-                    if st.button(f"🗑️ Sil ({m_cnt})", type="primary", use_container_width=True):
+                    if st.button(f"🗑️ Sil ({m_cnt})", type="primary", use_container_width=True, key="btn_del_menu_active"):
                         admin_confirm_dialog(f"{m_cnt} mal menyudan silinsin?", lambda: [run_action("DELETE FROM menu WHERE id=:id", {"id":int(i)}) for i in sel_m_ids])
-                else: st.button("🗑️ Sil", disabled=True, use_container_width=True)
+                else: st.button("🗑️ Sil", disabled=True, use_container_width=True, key="btn_del_menu_disabled")
 
             # EDIT DIALOG
             if st.session_state.menu_edit_id:
