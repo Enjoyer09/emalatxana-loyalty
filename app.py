@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.53 (HOTFIX: NUMPY INT) ===
+# === EMALATKHANA POS - V5.54 (SMART ACTIONS) ===
 # ==========================================
 
-VERSION = "v5.53 (Stable: NumPy ID Fix)"
+VERSION = "v5.54 (Smart Action Bar: Batch Delete & Edit Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -54,6 +54,8 @@ if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_p
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
 if 'anbar_page' not in st.session_state: st.session_state.anbar_page = 0
 if 'anbar_rows_per_page' not in st.session_state: st.session_state.anbar_rows_per_page = 20
+if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
+if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
 
 # --- CSS ---
 st.markdown("""
@@ -489,13 +491,13 @@ else:
                         if st.button(f"{r['label']}\n{r['total']} ₼", key=f"t_{r['id']}", type="primary" if r['is_occupied'] else "secondary", use_container_width=True):
                             st.session_state.selected_table = r.to_dict(); st.session_state.cart_table = json.loads(r['items']) if r['items'] else []; st.rerun()
 
-    # --- ANBAR (PAGINATION + CLEAN UI) ---
+    # --- ANBAR (CHECKBOX LOGIC + ACTION BAR) ---
     if role in ['admin','manager']:
         with tabs[2]:
             c1, c2 = st.columns([3,1])
-            
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
             
+            # 1. GET DATA
             if search_query:
                 df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE name ILIKE :s ORDER BY name", {"s":f"%{search_query}%"})
                 asset_val = (df_i['stock_qty'] * df_i['unit_cost']).sum()
@@ -510,7 +512,7 @@ else:
 
             st.markdown(f"### 📦 Anbar (Cəmi: {asset_val:.2f} ₼)")
 
-            # PAGINATION LOGIC
+            # 2. PAGINATION
             rows_per_page = st.selectbox("Səhifədə neçə mal olsun?", [20, 40, 60], index=0)
             if rows_per_page != st.session_state.anbar_rows_per_page:
                 st.session_state.anbar_rows_per_page = rows_per_page
@@ -518,27 +520,122 @@ else:
             
             total_rows = len(df_i)
             total_pages = math.ceil(total_rows / rows_per_page)
-            
             start_idx = st.session_state.anbar_page * rows_per_page
             end_idx = start_idx + rows_per_page
             
             df_page = df_i.iloc[start_idx:end_idx].copy()
             df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
-
-            # CLICKABLE TABLE
-            event = st.dataframe(
+            
+            # 3. PREPARE EDITOR
+            df_page.insert(0, "Seç", False)
+            locked_cols = ["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value", "type"]
+            
+            # 4. SHOW EDITOR
+            edited_df = st.data_editor(
                 df_page, 
                 hide_index=True, 
-                on_select="rerun",
-                selection_mode="single-row",
                 column_config={
+                    "Seç": st.column_config.CheckboxColumn(required=True),
                     "unit_cost": st.column_config.NumberColumn(format="%.5f"),
                     "Total Value": st.column_config.NumberColumn(format="%.2f")
                 },
-                use_container_width=True
+                disabled=locked_cols,
+                use_container_width=True,
+                key="anbar_editor"
             )
 
-            # PAGINATION CONTROLS
+            # 5. GET SELECTION
+            sel_rows = edited_df[edited_df["Seç"]]
+            sel_ids = sel_rows['id'].tolist()
+            sel_count = len(sel_ids)
+
+            # 6. ACTION BAR
+            st.divider()
+            ab1, ab2, ab3 = st.columns(3)
+            
+            # BUTTON: Mədaxil (Active only if 1 selected)
+            with ab1:
+                if sel_count == 1:
+                    if st.button("➕ Seçilənə Mədaxil", use_container_width=True, type="secondary"):
+                        st.session_state.restock_item_id = int(sel_ids[0])
+                        st.rerun()
+                else:
+                    st.button("➕ Seçilənə Mədaxil", disabled=True, use_container_width=True)
+
+            # BUTTON: Düzəliş (Active only if 1 selected)
+            with ab2:
+                if sel_count == 1 and role == 'admin':
+                    if st.button("✏️ Seçilənə Düzəliş", use_container_width=True, type="secondary"):
+                        st.session_state.edit_item_id = int(sel_ids[0])
+                        st.rerun()
+                else:
+                    st.button("✏️ Seçilənə Düzəliş", disabled=True, use_container_width=True)
+
+            # BUTTON: Sil (Active if >= 1 selected)
+            with ab3:
+                if sel_count > 0 and role == 'admin':
+                    @st.dialog("⚠️ Silinmə Təsdiqi")
+                    def confirm_batch_delete(ids):
+                        st.warning(f"{len(ids)} ədəd mal silinəcək! Bu əməliyyat geri qaytarılmır.")
+                        if st.button("Təsdiq Edirəm", type="primary"):
+                            for i in ids:
+                                run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)})
+                            st.success("Silindi!")
+                            time.sleep(1)
+                            st.rerun()
+                    
+                    if st.button(f"🗑️ Sil ({sel_count})", use_container_width=True, type="primary"):
+                        confirm_batch_delete(sel_ids)
+                else:
+                    st.button("🗑️ Sil", disabled=True, use_container_width=True)
+
+            # 7. DIALOGS (TRIGGERED BY STATE)
+            if st.session_state.restock_item_id:
+                # Fetch fresh data for the item
+                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id})
+                if not r_item.empty:
+                    row = r_item.iloc[0]
+                    @st.dialog("➕ Mədaxil")
+                    def show_restock(r):
+                        st.write(f"**{r['name']}**")
+                        with st.form("rs_form", clear_on_submit=True):
+                            c1, c2 = st.columns(2)
+                            packs = c1.number_input("Neçə ədəd/qutu?", 1)
+                            per_pack = c2.number_input(f"Birinin Çəkisi ({r['unit']})", min_value=0.001, step=0.001, value=1.0, format="%.3f")
+                            tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0)
+                            if st.form_submit_button("Təsdiq"):
+                                total_new_qty = packs * per_pack
+                                new_cost = tot_price / total_new_qty if total_new_qty > 0 else r['unit_cost']
+                                run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
+                                           {"q":total_new_qty,"id":int(r['id']), "uc":new_cost, "ac":packs})
+                                st.session_state.restock_item_id = None
+                                st.rerun()
+                    show_restock(row)
+                else:
+                    st.session_state.restock_item_id = None # Item gone
+
+            if st.session_state.edit_item_id:
+                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id})
+                if not r_item.empty:
+                    row = r_item.iloc[0]
+                    @st.dialog("✏️ Düzəliş")
+                    def show_edit(r):
+                        with st.form("ed_form"):
+                            en = st.text_input("Ad", r['name'])
+                            ec = st.text_input("Kateqoriya", r['category'])
+                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0)
+                            et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1)
+                            ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            if st.form_submit_button("Yadda Saxla"):
+                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", 
+                                           {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])})
+                                st.session_state.edit_item_id = None
+                                st.rerun()
+                    show_edit(row)
+                else:
+                    st.session_state.edit_item_id = None
+
+            # PAGINATION CONTROLS (Moved to bottom)
             pc1, pc2, pc3 = st.columns([1,2,1])
             with pc1:
                 if st.button("⬅️ Əvvəlki", disabled=(st.session_state.anbar_page == 0)):
@@ -561,50 +658,6 @@ else:
                         st.success("Yükləndi!"); st.rerun()
                     except: st.error("Format Xətası")
             
-            @st.dialog("📦 Mal Əməliyyatı")
-            def item_op_dialog(row):
-                st.subheader(f"{row['name']}")
-                t1, t2 = st.tabs(["➕ Mədaxil", "✏️ Düzəliş (Admin)"])
-                
-                with t1:
-                    with st.form("restock_form", clear_on_submit=True):
-                        c1, c2 = st.columns(2)
-                        packs = c1.number_input("Neçə ədəd/qutu/paçka?", 1, key=f"p_{row['id']}")
-                        per_pack = c2.number_input(f"Birinin Çəkisi ({row['unit']})", min_value=0.001, step=0.001, value=1.0, format="%.3f", key=f"pp_{row['id']}")
-                        total_new_qty = packs * per_pack
-                        st.info(f"Əlavə olunacaq: {total_new_qty:.3f} {row['unit']}")
-                        tot_price = st.number_input("Yekun Məbləğ (AZN)", 0.0)
-                        
-                        if st.form_submit_button("Mədaxil Et"):
-                            new_cost = tot_price / total_new_qty if total_new_qty > 0 else row['unit_cost']
-                            # SAFE CAST ID
-                            run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
-                                       {"q":total_new_qty,"id":int(row['id']), "uc":new_cost, "ac":packs})
-                            st.success("Hazır!"); st.rerun()
-
-                with t2:
-                    if role == 'admin':
-                        with st.form("edit_form"):
-                            en = st.text_input("Ad", row['name'])
-                            ec = st.text_input("Kateqoriya", row['category'])
-                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(row['unit']) if row['unit'] in ["KQ", "L", "ƏDƏD"] else 0)
-                            et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
-                            ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
-                            if st.form_submit_button("Yadda Saxla"):
-                                # SAFE CAST ID
-                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(row['id'])})
-                                st.success("Yeniləndi!"); st.rerun()
-                        
-                        if st.button("🗑️ Malı Sil", type="primary"):
-                             # SAFE CAST ID
-                             run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(row['id'])}); st.success("Silindi!"); st.rerun()
-                    else:
-                        st.warning("Yalnız Admin üçündür.")
-
-            if event.selection.rows:
-                selected_row = df_page.iloc[event.selection.rows[0]]
-                item_op_dialog(selected_row)
-
             if role == 'admin':
                 with st.expander("📂 Kateqoriya İdarəetməsi"):
                     all_cats = run_query("SELECT DISTINCT category FROM ingredients")['category'].tolist()
