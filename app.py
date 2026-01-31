@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.68 (RECIPE IMPORT ADDED) ===
+# === EMALATKHANA POS - V5.69 (LOGGING FIXED) ===
 # ==========================================
 
-VERSION = "v5.68 (Stable: Recipe Import + All Fixes)"
+VERSION = "v5.69 (Stable: Full System Logging)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -453,6 +453,7 @@ else:
                             s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":new_s, "id":cust['card_id']})
                         s.commit()
                     
+                    log_system(st.session_state.user, f"Satış: {final:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final, 'email':cust['email'] if cust else None}
                     
                     # AUTO CLEAR
@@ -482,6 +483,7 @@ else:
                                 s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i,:t,'Table',:c,:tm, :ot, 0)"), 
                                           {"i":"Table Order", "t":final, "c":st.session_state.user, "tm":get_baku_now(), "ot":final})
                                 s.commit()
+                            log_system(st.session_state.user, f"Masa Satış: {tbl['label']} - {final:.2f} AZN")
                             st.session_state.selected_table=None; st.session_state.cart_table=[]; st.rerun()
                         except: st.error("Xəta")
                 with c2: render_menu(st.session_state.cart_table, "tb")
@@ -587,6 +589,7 @@ else:
                         if st.button("Təsdiq Edirəm", type="primary"):
                             for i in ids:
                                 run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)})
+                            log_system(st.session_state.user, f"Anbar Silinmə: {len(ids)} mal")
                             st.success("Silindi!")
                             time.sleep(1)
                             st.rerun()
@@ -615,6 +618,7 @@ else:
                                 new_cost = tot_price / total_new_qty if total_new_qty > 0 else r['unit_cost']
                                 run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
                                            {"q":total_new_qty,"id":int(r['id']), "uc":new_cost, "ac":packs})
+                                log_system(st.session_state.user, f"Mədaxil: {r['name']} (+{total_new_qty})")
                                 st.session_state.restock_item_id = None
                                 st.rerun()
                     show_restock(row)
@@ -636,6 +640,7 @@ else:
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", 
                                            {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])})
+                                log_system(st.session_state.user, f"Düzəliş: {en}")
                                 st.session_state.edit_item_id = None
                                 st.rerun()
                     show_edit(row)
@@ -707,6 +712,7 @@ else:
                                             "ac": int(ac)
                                         })
                                         count += 1
+                                    log_system(st.session_state.user, f"Anbar Import: {count} mal")
                                     st.success(f"{count} mal uğurla yükləndi!")
                             except Exception as e:
                                 st.error(f"Xəta: {e}")
@@ -767,7 +773,7 @@ else:
                     s_i = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); s_q = st.number_input("Miqdar")
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":s_i,"q":s_q}); st.rerun()
             
-            # --- RECIPE IMPORT PANEL (NEW v5.68) ---
+            # --- RECIPE IMPORT PANEL ---
             st.divider()
             with st.expander("📥 Reseptləri Excel-dən Yüklə"):
                 with st.form("recipe_import_form"):
@@ -780,7 +786,6 @@ else:
                                 df_r.columns = [c.lower().strip() for c in df_r.columns]
                                 req = ['menu_item_name', 'ingredient_name', 'quantity_required']
                                 
-                                # Smart mapping if headers are slightly different
                                 r_map = {
                                     "mal": "menu_item_name", "məhsul": "menu_item_name", "product": "menu_item_name",
                                     "xammal": "ingredient_name", "ingredient": "ingredient_name",
@@ -794,10 +799,10 @@ else:
                                     cnt = 0
                                     for _, r in df_r.iterrows():
                                         if pd.isna(r['menu_item_name']): continue
-                                        # Check if ingredient exists in DB first to be safe
                                         run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", 
                                                    {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])})
                                         cnt += 1
+                                    log_system(st.session_state.user, f"Resept Import: {cnt} sətir")
                                     st.success(f"{cnt} resept sətri yükləndi!")
                             except Exception as e:
                                 st.error(f"Xəta: {e}")
@@ -986,6 +991,7 @@ else:
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
                                            {"n":en,"p":ep,"c":ec,"ic":eic,"id":int(r['id'])})
+                                log_system(st.session_state.user, f"Menyu Düzəliş: {en}")
                                 st.session_state.menu_edit_id = None
                                 st.rerun()
                     edit_menu_dialog(mr)
@@ -1039,6 +1045,7 @@ else:
                                                 run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
                                                         {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
                                         cnt += 1
+                                    log_system(st.session_state.user, f"Menyu Import: {cnt} mal")
                                     st.success(f"{cnt} mal menyuya yükləndi (Təkrarlar yeniləndi)!")
                             except Exception as e: st.error(f"Xəta: {e}")
                         else:
