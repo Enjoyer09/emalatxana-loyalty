@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.52 (FIXED DELETE) ===
+# === EMALATKHANA POS - V5.53 (HOTFIX: NUMPY INT) ===
 # ==========================================
 
-VERSION = "v5.52 (Stable: Instant Customer Delete)"
+VERSION = "v5.53 (Stable: NumPy ID Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -183,11 +183,11 @@ def send_email(to_email, subject, body):
     except: return "Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
 
-# --- CALLBACKS (CRITICAL FIX FOR DELETE) ---
+# --- CALLBACKS ---
 def clear_customer_data():
     st.session_state.current_customer_ta = None
     if "search_input_ta" in st.session_state:
-        st.session_state.search_input_ta = "" # Force clear text box
+        st.session_state.search_input_ta = "" 
 
 # --- SECURITY ---
 def create_session(username, role):
@@ -384,9 +384,6 @@ else:
         c1, c2 = st.columns([1.5, 3])
         with c1:
             st.info("🧾 Al-Apar")
-            
-            # --- CUSTOMER SCAN FORM ---
-            # NOTE: We use key="search_input_ta" so we can clear it in callback
             with st.form("scta", clear_on_submit=True):
                 code = st.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
                 if st.form_submit_button("🔍") or code:
@@ -406,7 +403,6 @@ else:
             if cust: 
                 c_head, c_del = st.columns([4,1])
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
-                # FIXED: Callback clears data AND forces text input to empty
                 c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
 
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust)
@@ -450,7 +446,7 @@ else:
                     
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final, 'email':cust['email'] if cust else None}
                     
-                    # AUTO CLEAR CUSTOMER & CART
+                    # AUTO CLEAR
                     st.session_state.cart_takeaway = []
                     clear_customer_data()
                     
@@ -581,8 +577,9 @@ else:
                         
                         if st.form_submit_button("Mədaxil Et"):
                             new_cost = tot_price / total_new_qty if total_new_qty > 0 else row['unit_cost']
+                            # SAFE CAST ID
                             run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc, approx_count=:ac WHERE id=:id", 
-                                       {"q":total_new_qty,"id":row['id'], "uc":new_cost, "ac":packs})
+                                       {"q":total_new_qty,"id":int(row['id']), "uc":new_cost, "ac":packs})
                             st.success("Hazır!"); st.rerun()
 
                 with t2:
@@ -594,11 +591,13 @@ else:
                             et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if row['type']=='ingredient' else 1)
                             ecost = st.number_input("Maya Dəyəri (5 decimal)", value=float(row['unit_cost']), format="%.5f")
                             if st.form_submit_button("Yadda Saxla"):
-                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":row['id']})
+                                # SAFE CAST ID
+                                run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(row['id'])})
                                 st.success("Yeniləndi!"); st.rerun()
                         
                         if st.button("🗑️ Malı Sil", type="primary"):
-                             run_action("DELETE FROM ingredients WHERE id=:id", {"id":row['id']}); st.success("Silindi!"); st.rerun()
+                             # SAFE CAST ID
+                             run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(row['id'])}); st.success("Silindi!"); st.rerun()
                     else:
                         st.warning("Yalnız Admin üçündür.")
 
