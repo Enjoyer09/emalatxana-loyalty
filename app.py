@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.70 (HEADER FIX) ===
+# === EMALATKHANA POS - V5.71 (BATCH IMPORT FIX) ===
 # ==========================================
 
-VERSION = "v5.70 (Stable: Excel Header Fix)"
+VERSION = "v5.71 (Stable: High Speed Batch Import)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -109,7 +109,8 @@ try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL") or os.environ.get("DATABASE_URL")
     if not db_url: st.error("DB URL Not Found"); st.stop()
     if db_url.startswith("postgres://"): db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
-    conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True)
+    # Increased pool size to prevent overflow errors
+    conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True, pool_size=20, max_overflow=30)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
 @st.cache_resource
@@ -693,25 +694,30 @@ else:
                                     
                                     db_type = 'ingredient' if import_type.startswith("Ərzaq") else 'consumable'
                                     count = 0
-                                    for _, row in df.iterrows():
-                                        if pd.isna(row['name']) or str(row['name']).strip() == "": continue
-                                        ac = row['approx_count'] if 'approx_count' in df.columns else 1
-                                        run_action("""
-                                            INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count)
-                                            VALUES (:n, :q, :u, :c, :t, :uc, :ac)
-                                            ON CONFLICT (name) DO UPDATE SET 
-                                                stock_qty = ingredients.stock_qty + :q,
-                                                unit_cost = :uc
-                                        """, {
-                                            "n": str(row['name']).strip(), 
-                                            "q": float(row['stock_qty']), 
-                                            "u": str(row['unit']).strip(), 
-                                            "c": str(row['category']).strip(), 
-                                            "t": db_type, 
-                                            "uc": float(row['unit_cost']),
-                                            "ac": int(ac)
-                                        })
-                                        count += 1
+                                    
+                                    # --- BATCH PROCESSING (Fixes QueuePool Error) ---
+                                    with conn.session as s:
+                                        for _, row in df.iterrows():
+                                            if pd.isna(row['name']) or str(row['name']).strip() == "": continue
+                                            ac = row['approx_count'] if 'approx_count' in df.columns else 1
+                                            s.execute(text("""
+                                                INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count)
+                                                VALUES (:n, :q, :u, :c, :t, :uc, :ac)
+                                                ON CONFLICT (name) DO UPDATE SET 
+                                                    stock_qty = ingredients.stock_qty + :q,
+                                                    unit_cost = :uc
+                                            """), {
+                                                "n": str(row['name']).strip(), 
+                                                "q": float(row['stock_qty']), 
+                                                "u": str(row['unit']).strip(), 
+                                                "c": str(row['category']).strip(), 
+                                                "t": db_type, 
+                                                "uc": float(row['unit_cost']),
+                                                "ac": int(ac)
+                                            })
+                                            count += 1
+                                        s.commit()
+                                    
                                     log_system(st.session_state.user, f"Anbar Import: {count} mal")
                                     st.success(f"{count} mal uğurla yükləndi!")
                             except Exception as e:
@@ -797,11 +803,15 @@ else:
                                     st.error(f"Sütunlar tapılmadı. Lazımdır: {', '.join(req)}")
                                 else:
                                     cnt = 0
-                                    for _, r in df_r.iterrows():
-                                        if pd.isna(r['menu_item_name']): continue
-                                        run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", 
-                                                   {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])})
-                                        cnt += 1
+                                    # --- BATCH PROCESSING ---
+                                    with conn.session as s:
+                                        for _, r in df_r.iterrows():
+                                            if pd.isna(r['menu_item_name']): continue
+                                            s.execute(text("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)"), 
+                                                    {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])})
+                                            cnt += 1
+                                        s.commit()
+                                    
                                     log_system(st.session_state.user, f"Resept Import: {cnt} sətir")
                                     st.success(f"{cnt} resept sətri yükləndi!")
                             except Exception as e:
@@ -1024,27 +1034,31 @@ else:
                                     df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
                                     
                                     cnt = 0
-                                    for _, r in df_m.iterrows():
-                                        if pd.isna(r['item_name']): continue
-                                        
-                                        # CHECK IF EXISTS (v5.65)
-                                        existing = run_query("SELECT id FROM menu WHERE item_name=:n", {"n":str(r['item_name'])})
-                                        
-                                        if not existing.empty:
-                                            # UPDATE (v5.66 FIX: Cast numpy.int64 to int)
-                                            run_action("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
-                                                    {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":int(existing.iloc[0]['id'])})
-                                        else:
-                                            # INSERT NEW
-                                            run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)", 
-                                                    {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
+                                    # --- BATCH PROCESSING (Fixes QueuePool Error) ---
+                                    with conn.session as s:
+                                        for _, r in df_m.iterrows():
+                                            if pd.isna(r['item_name']): continue
                                             
-                                            # AUTO RECIPE LOGIC
-                                            ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
-                                            if not ing_check.empty:
-                                                run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
-                                                        {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
-                                        cnt += 1
+                                            # CHECK IF EXISTS
+                                            existing = s.execute(text("SELECT id FROM menu WHERE item_name=:n"), {"n":str(r['item_name'])}).fetchall()
+                                            
+                                            if existing:
+                                                # UPDATE
+                                                s.execute(text("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id"), 
+                                                        {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":int(existing[0][0])})
+                                            else:
+                                                # INSERT NEW
+                                                s.execute(text("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)"), 
+                                                        {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
+                                                
+                                                # AUTO RECIPE LOGIC
+                                                ing_check = s.execute(text("SELECT name FROM ingredients WHERE name ILIKE :n"), {"n":str(r['item_name'])}).fetchall()
+                                                if ing_check:
+                                                    s.execute(text("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)"), 
+                                                            {"m":str(r['item_name']), "i":ing_check[0][0]})
+                                            cnt += 1
+                                        s.commit()
+                                    
                                     log_system(st.session_state.user, f"Menyu Import: {cnt} mal")
                                     st.success(f"{cnt} mal menyuya yükləndi (Təkrarlar yeniləndi)!")
                             except Exception as e: st.error(f"Xəta: {e}")
