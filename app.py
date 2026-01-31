@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.67 (FORM SUBMIT FIX) ===
+# === EMALATKHANA POS - V5.68 (RECIPE IMPORT ADDED) ===
 # ==========================================
 
-VERSION = "v5.67 (Stable: Import Forms Fixed)"
+VERSION = "v5.68 (Stable: Recipe Import + All Fixes)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -766,6 +766,42 @@ else:
                 with st.form("add_rec", clear_on_submit=True):
                     s_i = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); s_q = st.number_input("Miqdar")
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":s_i,"q":s_q}); st.rerun()
+            
+            # --- RECIPE IMPORT PANEL (NEW v5.68) ---
+            st.divider()
+            with st.expander("📥 Reseptləri Excel-dən Yüklə"):
+                with st.form("recipe_import_form"):
+                    st.write("Format: menu_item_name | ingredient_name | quantity_required")
+                    upl_rec = st.file_uploader("Fayl Seç", type="xlsx")
+                    if st.form_submit_button("Reseptləri Yüklə"):
+                        if upl_rec:
+                            try:
+                                df_r = pd.read_excel(upl_rec)
+                                df_r.columns = [c.lower().strip() for c in df_r.columns]
+                                req = ['menu_item_name', 'ingredient_name', 'quantity_required']
+                                
+                                # Smart mapping if headers are slightly different
+                                r_map = {
+                                    "mal": "menu_item_name", "məhsul": "menu_item_name", "product": "menu_item_name",
+                                    "xammal": "ingredient_name", "ingredient": "ingredient_name",
+                                    "miqdar": "quantity_required", "say": "quantity_required", "qty": "quantity_required"
+                                }
+                                df_r.rename(columns=r_map, inplace=True)
+
+                                if not all(col in df_r.columns for col in req):
+                                    st.error(f"Sütunlar tapılmadı. Lazımdır: {', '.join(req)}")
+                                else:
+                                    cnt = 0
+                                    for _, r in df_r.iterrows():
+                                        if pd.isna(r['menu_item_name']): continue
+                                        # Check if ingredient exists in DB first to be safe
+                                        run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", 
+                                                   {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])})
+                                        cnt += 1
+                                    st.success(f"{cnt} resept sətri yükləndi!")
+                            except Exception as e:
+                                st.error(f"Xəta: {e}")
+                        else: st.warning("Fayl seçin")
 
     # --- ANALITIKA (SMART EMAIL + PRO REPORT) ---
     if role != 'staff':
@@ -965,7 +1001,7 @@ else:
                                 df_m = pd.read_excel(upl_m)
                                 df_m.columns = [c.lower().strip() for c in df_m.columns]
                                 
-                                # --- SMART MAPPING FOR MENU ---
+                                # --- SMART MAPPING FOR MENU (v5.64) ---
                                 menu_map = {
                                     "ad": "item_name", "mal": "item_name", "məhsul": "item_name", "mehsul": "item_name", "item name": "item_name",
                                     "qiymət": "price", "qiymet": "price", "satış": "price", "price": "price",
@@ -978,18 +1014,18 @@ else:
                                 if not all(col in df_m.columns for col in req):
                                     st.error(f"Sütunlar tapılmadı: {', '.join([c for c in req if c not in df_m.columns])}")
                                 else:
-                                    # --- ROBUST MENU IMPORT FIX ---
+                                    # --- ROBUST MENU IMPORT FIX (v5.63 + v5.65 Update Logic) ---
                                     df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
                                     
                                     cnt = 0
                                     for _, r in df_m.iterrows():
                                         if pd.isna(r['item_name']): continue
                                         
-                                        # CHECK IF EXISTS
+                                        # CHECK IF EXISTS (v5.65)
                                         existing = run_query("SELECT id FROM menu WHERE item_name=:n", {"n":str(r['item_name'])})
                                         
                                         if not existing.empty:
-                                            # UPDATE (Numpy Fix: int())
+                                            # UPDATE (v5.66 FIX: Cast numpy.int64 to int)
                                             run_action("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
                                                     {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":int(existing.iloc[0]['id'])})
                                         else:
