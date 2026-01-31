@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.69 (LOGGING FIXED) ===
+# === EMALATKHANA POS - V5.70 (HEADER FIX) ===
 # ==========================================
 
-VERSION = "v5.69 (Stable: Full System Logging)"
+VERSION = "v5.70 (Stable: Excel Header Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -670,7 +670,7 @@ else:
                         if upl:
                             try:
                                 df = pd.read_excel(upl)
-                                df.columns = [c.lower().strip() for c in df.columns]
+                                df.columns = [str(c).lower().strip() for c in df.columns]
                                 
                                 header_map = {
                                     "ad": "name", "mal": "name", "məhsul": "name", "mehsul": "name", "item name": "name",
@@ -783,7 +783,7 @@ else:
                         if upl_rec:
                             try:
                                 df_r = pd.read_excel(upl_rec)
-                                df_r.columns = [c.lower().strip() for c in df_r.columns]
+                                df_r.columns = [str(c).lower().strip() for c in df_r.columns]
                                 req = ['menu_item_name', 'ingredient_name', 'quantity_required']
                                 
                                 r_map = {
@@ -1005,7 +1005,7 @@ else:
                         if upl_m:
                             try:
                                 df_m = pd.read_excel(upl_m)
-                                df_m.columns = [c.lower().strip() for c in df_m.columns]
+                                df_m.columns = [str(c).lower().strip() for c in df_m.columns]
                                 
                                 # --- SMART MAPPING FOR MENU (v5.64) ---
                                 menu_map = {
