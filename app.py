@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.64 (SMART HEADER IMPORT) ===
+# === EMALATKHANA POS - V5.65 (NO DUPLICATE MENU) ===
 # ==========================================
 
-VERSION = "v5.64 (Stable: Auto-Detect Headers)"
+VERSION = "v5.65 (Stable: Smart Menu Update - No Duplicates)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -357,8 +357,11 @@ else:
     def render_menu(cart, key):
         cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
+        
+        # --- CLASSIC LOGIC (v5.60 style) ---
         sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
         prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
+        
         if not prods.empty:
             groups = {}
             for _, r in prods.iterrows():
@@ -367,7 +370,9 @@ else:
                     if n.endswith(s): base = n[:-len(s)]; break
                 if base not in groups: groups[base] = []
                 groups[base].append(r)
-            cols = st.columns(4); i=0
+            
+            cols = st.columns(4)
+            i = 0
             for base, items in groups.items():
                 with cols[i%4]:
                     if len(items) > 1:
@@ -969,23 +974,32 @@ else:
                         if not all(col in df_m.columns for col in req):
                             st.error(f"Sütunlar tapılmadı: {', '.join([c for c in req if c not in df_m.columns])}")
                         else:
-                            # --- ROBUST MENU IMPORT FIX (v5.63) ---
+                            # --- ROBUST MENU IMPORT FIX (v5.63 + v5.65 Update Logic) ---
                             df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
                             
                             cnt = 0
                             for _, r in df_m.iterrows():
                                 if pd.isna(r['item_name']): continue
-                                # Insert Menu
-                                run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic) ON CONFLICT DO NOTHING", 
-                                           {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
                                 
-                                # AUTO RECIPE LOGIC
-                                ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
-                                if not ing_check.empty:
-                                    run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
-                                               {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
+                                # CHECK IF EXISTS (v5.65)
+                                existing = run_query("SELECT id FROM menu WHERE item_name=:n", {"n":str(r['item_name'])})
+                                
+                                if not existing.empty:
+                                    # UPDATE
+                                    run_action("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
+                                               {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":existing.iloc[0]['id']})
+                                else:
+                                    # INSERT NEW
+                                    run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)", 
+                                               {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
+                                    
+                                    # AUTO RECIPE LOGIC (Only for new items)
+                                    ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
+                                    if not ing_check.empty:
+                                        run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
+                                                   {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
                                 cnt += 1
-                            st.success(f"{cnt} mal menyuya əlavə olundu (+ Avto Reseptlər)!")
+                            st.success(f"{cnt} mal menyuya yükləndi (Təkrarlar yeniləndi)!")
                     except Exception as e: st.error(f"Xəta: {e}")
 
         with tabs[9]: # SETTINGS
