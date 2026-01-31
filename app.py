@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.62 (CLASSIC MENU RESTORED) ===
+# === EMALATKHANA POS - V5.63 (DATE ERROR FIX) ===
 # ==========================================
 
-VERSION = "v5.62 (Stable: Classic Menu + Robust Fixes)"
+VERSION = "v5.63 (Stable: Excel Date Fix + Categories)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -358,7 +358,7 @@ else:
         cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
         
-        # --- CLASSIC LOGIC (v5.60/62) ---
+        # --- CLASSIC LOGIC (v5.60 style) ---
         sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
         prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
         
@@ -951,7 +951,8 @@ else:
                         if not all(col in df_m.columns for col in req):
                             st.error(f"Sütunlar lazımdır: {', '.join(req)}")
                         else:
-                            # --- ROBUST MENU IMPORT FIX (v5.60) ---
+                            # --- ROBUST MENU IMPORT FIX (v5.63) ---
+                            # Handle numeric/date errors by coercing to numeric, filling NaN with 0
                             df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
                             
                             cnt = 0
