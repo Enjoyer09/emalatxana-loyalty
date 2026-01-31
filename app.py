@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.63 (DATE ERROR FIX) ===
+# === EMALATKHANA POS - V5.64 (SMART HEADER IMPORT) ===
 # ==========================================
 
-VERSION = "v5.63 (Stable: Excel Date Fix + Categories)"
+VERSION = "v5.64 (Stable: Auto-Detect Headers)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -357,11 +357,8 @@ else:
     def render_menu(cart, key):
         cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
-        
-        # --- CLASSIC LOGIC (v5.60 style) ---
         sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
         prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
-        
         if not prods.empty:
             groups = {}
             for _, r in prods.iterrows():
@@ -370,9 +367,7 @@ else:
                     if n.endswith(s): base = n[:-len(s)]; break
                 if base not in groups: groups[base] = []
                 groups[base].append(r)
-            
-            cols = st.columns(4)
-            i = 0
+            cols = st.columns(4); i=0
             for base, items in groups.items():
                 with cols[i%4]:
                     if len(items) > 1:
@@ -655,7 +650,7 @@ else:
                     st.session_state.anbar_page += 1
                     st.rerun()
 
-            with st.expander("📤 İmport / Export (ROBUST)"):
+            with st.expander("📤 İmport / Export (ROBUST & SMART)"):
                 if st.button("📤 Export"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir", out.getvalue(), "anbar.xlsx")
                 upl = st.file_uploader("📥 Import", type="xlsx")
                 import_type = st.selectbox("Yüklənəcək Malın Növü", ["Ərzaq (Ingredient)", "Sərfiyyat (Consumable)"])
@@ -663,11 +658,24 @@ else:
                 if upl and st.button("Yüklə"):
                     try:
                         df = pd.read_excel(upl)
+                        # Normalize headers
                         df.columns = [c.lower().strip() for c in df.columns]
+                        
+                        # --- SMART MAPPING (v5.64) ---
+                        header_map = {
+                            "ad": "name", "mal": "name", "məhsul": "name", "mehsul": "name", "item name": "name",
+                            "say": "stock_qty", "stok": "stock_qty", "miqdar": "stock_qty", "stock": "stock_qty",
+                            "vahid": "unit", "ölçü": "unit", "olcu": "unit",
+                            "kateqoriya": "category", "kat": "category", "növ": "category",
+                            "qiymət": "unit_cost", "qiymet": "unit_cost", "maya": "unit_cost", "cost": "unit_cost",
+                            "qutu sayı": "approx_count", "approx": "approx_count"
+                        }
+                        df.rename(columns=header_map, inplace=True)
+                        
                         required = ['name', 'stock_qty', 'unit', 'category', 'unit_cost']
                         
                         if not all(col in df.columns for col in required):
-                            st.error(f"Excel-də bu sütunlar mütləq olmalıdır: {', '.join(required)}")
+                            st.error(f"Excel-də bu sütunlar tapılmadı: {', '.join([c for c in required if c not in df.columns])}")
                         else:
                             # SAFE CONVERSION
                             df['stock_qty'] = pd.to_numeric(df['stock_qty'], errors='coerce').fillna(0)
@@ -947,12 +955,21 @@ else:
                     try:
                         df_m = pd.read_excel(upl_m)
                         df_m.columns = [c.lower().strip() for c in df_m.columns]
+                        
+                        # --- SMART MAPPING FOR MENU (v5.64) ---
+                        menu_map = {
+                            "ad": "item_name", "mal": "item_name", "məhsul": "item_name", "mehsul": "item_name", "item name": "item_name",
+                            "qiymət": "price", "qiymet": "price", "satış": "price", "price": "price",
+                            "kateqoriya": "category", "kat": "category", "növ": "category", "category": "category",
+                            "kofe": "is_coffee", "kofe?": "is_coffee", "coffee": "is_coffee", "is_coffee": "is_coffee"
+                        }
+                        df_m.rename(columns=menu_map, inplace=True)
+
                         req = ['item_name', 'price', 'category', 'is_coffee']
                         if not all(col in df_m.columns for col in req):
-                            st.error(f"Sütunlar lazımdır: {', '.join(req)}")
+                            st.error(f"Sütunlar tapılmadı: {', '.join([c for c in req if c not in df_m.columns])}")
                         else:
                             # --- ROBUST MENU IMPORT FIX (v5.63) ---
-                            # Handle numeric/date errors by coercing to numeric, filling NaN with 0
                             df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
                             
                             cnt = 0
