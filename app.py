@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.57 (RESTORED ACTIONS + ROBUST IMPORT) ===
+# === EMALATKHANA POS - V5.58 (MENU MASTER EDITION) ===
 # ==========================================
 
-VERSION = "v5.57 (Stable: Action Bar Restored + Safe Import)"
+VERSION = "v5.58 (Stable: Advanced Menu & Auto-Recipe)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -56,6 +56,7 @@ if 'anbar_page' not in st.session_state: st.session_state.anbar_page = 0
 if 'anbar_rows_per_page' not in st.session_state: st.session_state.anbar_rows_per_page = 20
 if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
+if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 
 # --- CSS ---
 st.markdown("""
@@ -869,20 +870,97 @@ else:
                 st.dataframe(run_query("SELECT * FROM promo_codes"), hide_index=True)
 
     if role == 'admin':
-        with tabs[8]: # MENU
+        with tabs[8]: # MENU (ADVANCED)
             st.subheader("📋 Menyu")
-            with st.form("nm", clear_on_submit=True):
-                n=st.text_input("Ad (Məs: Americano S)"); p=st.number_input("Qiymət"); c=st.text_input("Kat"); ic=st.checkbox("Kofe?")
-                if st.form_submit_button("Yarat"): 
-                    run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":n,"p":p,"c":c,"ic":ic}); st.rerun()
+            with st.expander("➕ Tək Mal Əlavə Et"):
+                with st.form("nm", clear_on_submit=True):
+                    n=st.text_input("Ad"); p=st.number_input("Qiymət"); c=st.text_input("Kat"); ic=st.checkbox("Kofe?")
+                    if st.form_submit_button("Yarat"): 
+                        run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":n,"p":p,"c":c,"ic":ic}); st.rerun()
             
-            # MENU DELETE LOGIC
-            ml = run_query("SELECT * FROM menu")
+            # --- MENU TABLE WITH SMART ACTIONS ---
+            ml = run_query("SELECT * FROM menu ORDER BY category, item_name")
             ml.insert(0, "Seç", False)
-            ed_m = st.data_editor(ml, hide_index=True, num_rows="fixed")
-            to_del_m = ed_m[ed_m["Seç"]]['id'].tolist()
-            if to_del_m and st.button("🚨 Seçilənləri Menyudan Sil"): 
-                admin_confirm_dialog("Menyudan Sil?", lambda: [run_action("DELETE FROM menu WHERE id=:id", {"id":i}) for i in to_del_m])
+            
+            ed_m = st.data_editor(
+                ml, 
+                hide_index=True, 
+                column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
+                disabled=["id","item_name","price","category","is_active","is_coffee"],
+                use_container_width=True
+            )
+            
+            sel_m_rows = ed_m[ed_m["Seç"]]
+            sel_m_ids = sel_m_rows['id'].tolist()
+            m_cnt = len(sel_m_ids)
+            
+            st.divider()
+            mc1, mc2, mc3 = st.columns(3)
+            
+            # EDIT BUTTON
+            with mc1:
+                if m_cnt == 1:
+                    if st.button("✏️ Düzəliş", use_container_width=True):
+                        st.session_state.menu_edit_id = int(sel_m_ids[0])
+                        st.rerun()
+                else: st.button("✏️ Düzəliş", disabled=True, use_container_width=True)
+            
+            # DELETE BUTTON
+            with mc2:
+                if m_cnt > 0:
+                    if st.button(f"🗑️ Sil ({m_cnt})", type="primary", use_container_width=True):
+                        admin_confirm_dialog(f"{m_cnt} mal menyudan silinsin?", lambda: [run_action("DELETE FROM menu WHERE id=:id", {"id":int(i)}) for i in sel_m_ids])
+                else: st.button("🗑️ Sil", disabled=True, use_container_width=True)
+
+            # EDIT DIALOG
+            if st.session_state.menu_edit_id:
+                m_item = run_query("SELECT * FROM menu WHERE id=:id", {"id":st.session_state.menu_edit_id})
+                if not m_item.empty:
+                    mr = m_item.iloc[0]
+                    @st.dialog("✏️ Menyu Düzəliş")
+                    def edit_menu_dialog(r):
+                        with st.form("emu"):
+                            en = st.text_input("Ad", r['item_name'])
+                            ep = st.number_input("Qiymət", value=float(r['price']))
+                            ec = st.text_input("Kateqoriya", r['category'])
+                            eic = st.checkbox("Kofe?", value=r['is_coffee'])
+                            if st.form_submit_button("Yadda Saxla"):
+                                run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", 
+                                           {"n":en,"p":ep,"c":ec,"ic":eic,"id":int(r['id'])})
+                                st.session_state.menu_edit_id = None
+                                st.rerun()
+                    edit_menu_dialog(mr)
+
+            with st.expander("📤 İmport / Export (Menu)"):
+                if st.button("📤 Export Menu"): 
+                    out = BytesIO(); run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False)
+                    st.download_button("⬇️ Endir", out.getvalue(), "menu.xlsx")
+                
+                upl_m = st.file_uploader("📥 Import Menu", type="xlsx")
+                if upl_m and st.button("Yüklə (Menu)"):
+                    try:
+                        df_m = pd.read_excel(upl_m)
+                        df_m.columns = [c.lower().strip() for c in df_m.columns]
+                        req = ['item_name', 'price', 'category', 'is_coffee']
+                        if not all(col in df_m.columns for col in req):
+                            st.error(f"Sütunlar lazımdır: {', '.join(req)}")
+                        else:
+                            cnt = 0
+                            for _, r in df_m.iterrows():
+                                if pd.isna(r['item_name']): continue
+                                # Insert Menu
+                                run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic) ON CONFLICT DO NOTHING", 
+                                           {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
+                                
+                                # AUTO RECIPE LOGIC: Check if item exists in Ingredients
+                                ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
+                                if not ing_check.empty:
+                                    # Create 1-to-1 recipe
+                                    run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
+                                               {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
+                                cnt += 1
+                            st.success(f"{cnt} mal menyuya əlavə olundu (+ Avto Reseptlər)!")
+                    except Exception as e: st.error(f"Xəta: {e}")
 
         with tabs[9]: # SETTINGS
             st.subheader("⚙️ Ayarlar")
