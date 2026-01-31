@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.50 RC2 (HOTFIX) ===
+# === EMALATKHANA POS - V5.51 (FINAL STABLE) ===
 # ==========================================
 
-VERSION = "v5.50 RC2 (Hotfix: Cart +/- & Auto-Clear)"
+VERSION = "v5.51 (Stable: Callbacks, +/-, Auto-Clear)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -114,8 +114,6 @@ def ensure_schema():
     with conn.session as s:
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
-        
-        # SALES TABLE UPDATE: Added original_total and discount_amount
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         try:
             s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0"))
@@ -125,8 +123,6 @@ def ensure_schema():
 
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
-        # HIGH PRECISION COSTING (DECIMAL 18,5)
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         try: 
             s.execute(text("ALTER TABLE ingredients ALTER COLUMN unit_cost TYPE DECIMAL(18,5)"))
@@ -186,6 +182,10 @@ def send_email(to_email, subject, body):
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
+
+# --- CALLBACKS ---
+def clear_customer_data():
+    st.session_state.current_customer_ta = None
 
 # --- SECURITY ---
 def create_session(username, role):
@@ -401,7 +401,8 @@ else:
             if cust: 
                 c_head, c_del = st.columns([4,1])
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
-                if c_del.button("❌", key="clear_cust"): st.session_state.current_customer_ta=None; st.rerun()
+                # FIXED: Use on_click for reliable clearing
+                c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
 
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust)
             if st.session_state.cart_takeaway:
@@ -842,41 +843,3 @@ else:
                             try: run_query(f"SELECT * FROM {t}").to_excel(writer, sheet_name=t, index=False)
                             except: pass
                     st.download_button("Endir", out.getvalue(), "backup.xlsx")
-             with c2:
-                 rf = st.file_uploader("Restore (.xlsx)")
-                 if rf and st.button("Bərpa Et"):
-                     try:
-                         xls = pd.ExcelFile(rf)
-                         for t in xls.sheet_names: 
-                             run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
-                         st.success("Bərpa Olundu!"); st.rerun()
-                     except: st.error("Xəta")
-        
-        with tabs[11]: # QR
-            st.subheader("QR Kodlar")
-            cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
-            if st.button("QR Yarat"):
-                type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
-                generated_qrs = []
-                for _ in range(cnt):
-                    cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
-                    run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[kt], "s":tok})
-                    url = f"{APP_URL}/?id={cid}&t={tok}"
-                    img_bytes = generate_styled_qr(url)
-                    generated_qrs.append((cid, img_bytes))
-                
-                if cnt <= 3:
-                    cols = st.columns(cnt)
-                    for idx, (cid, img) in enumerate(generated_qrs):
-                        with cols[idx]:
-                            st.image(img, caption=f"{cid} ({kt})")
-                            st.download_button(f"⬇️ {cid}", img, f"{cid}.png", "image/png")
-                else:
-                    zip_buf = BytesIO()
-                    with zipfile.ZipFile(zip_buf, "w") as zf:
-                        for cid, img in generated_qrs:
-                            zf.writestr(f"{cid}_{type_map[kt]}.png", img)
-                    st.success(f"{cnt} QR Kod yaradıldı!")
-                    st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
-
-    st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
