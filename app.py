@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.59 (UNIQUE KEYS FIX) ===
+# === EMALATKHANA POS - V5.60 (MENU IMPORT FIX) ===
 # ==========================================
 
-VERSION = "v5.59 (Stable: Unique Keys Fixed)"
+VERSION = "v5.60 (Stable: Menu Import Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -945,6 +945,9 @@ else:
                         if not all(col in df_m.columns for col in req):
                             st.error(f"Sütunlar lazımdır: {', '.join(req)}")
                         else:
+                            # --- ROBUST MENU IMPORT FIX (v5.60) ---
+                            df_m['price'] = pd.to_numeric(df_m['price'], errors='coerce').fillna(0)
+                            
                             cnt = 0
                             for _, r in df_m.iterrows():
                                 if pd.isna(r['item_name']): continue
@@ -952,10 +955,9 @@ else:
                                 run_action("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic) ON CONFLICT DO NOTHING", 
                                            {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
                                 
-                                # AUTO RECIPE LOGIC: Check if item exists in Ingredients
+                                # AUTO RECIPE LOGIC
                                 ing_check = run_query("SELECT name FROM ingredients WHERE name ILIKE :n", {"n":str(r['item_name'])})
                                 if not ing_check.empty:
-                                    # Create 1-to-1 recipe
                                     run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, 1)", 
                                                {"m":str(r['item_name']), "i":ing_check.iloc[0]['name']})
                                 cnt += 1
