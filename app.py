@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.61 (SECTIONS RESTORED) ===
+# === EMALATKHANA POS - V5.62 (CLASSIC MENU RESTORED) ===
 # ==========================================
 
-VERSION = "v5.61 (Stable: Menu Sections & Smart Import)"
+VERSION = "v5.62 (Stable: Classic Menu + Robust Fixes)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -355,73 +355,39 @@ else:
         cart.append(item)
 
     def render_menu(cart, key):
-        cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE ORDER BY category")['category'].tolist()
+        cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
         
-        # --- FIXED SECTION LOGIC (v5.61) ---
-        if sc == "Hamısı":
-            # If "All" is selected, render grouped by category
-            distinct_cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE ORDER BY category")['category'].tolist()
-            if not distinct_cats:
-                st.info("Menyu boşdur. Zəhmət olmasa 'Menyu' bölməsindən mal əlavə edin və ya Excel yükləyin.")
+        # --- CLASSIC LOGIC (v5.60/62) ---
+        sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
+        prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
+        
+        if not prods.empty:
+            groups = {}
+            for _, r in prods.iterrows():
+                n = r['item_name']; base = n
+                for s in [" S", " M", " L", " XL", " Single", " Double"]:
+                    if n.endswith(s): base = n[:-len(s)]; break
+                if base not in groups: groups[base] = []
+                groups[base].append(r)
             
-            for cat in distinct_cats:
-                st.markdown(f"### 🔹 {cat}")
-                prods = run_query("SELECT * FROM menu WHERE is_active=TRUE AND category=:c ORDER BY price ASC", {"c":cat})
-                
-                groups = {}
-                for _, r in prods.iterrows():
-                    n = r['item_name']; base = n
-                    for s in [" S", " M", " L", " XL", " Single", " Double"]:
-                        if n.endswith(s): base = n[:-len(s)]; break
-                    if base not in groups: groups[base] = []
-                    groups[base].append(r)
-                
-                cols = st.columns(4)
-                i = 0
-                for base, items in groups.items():
-                    with cols[i % 4]:
-                        if len(items) > 1:
-                            @st.dialog(f"{base}")
-                            def show_variants(its, grp_key):
-                                for it in its:
-                                    if st.button(f"{it['item_name']} - {it['price']}₼", key=f"v_{it['id']}_{grp_key}", use_container_width=True):
-                                        add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
-                            if st.button(f"{base} ▾", key=f"grp_{base}_{key}_{cat}", use_container_width=True): 
-                                show_variants(items, f"{key}_{cat}")
-                        else:
-                            r = items[0]
-                            if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_{cat}", use_container_width=True):
-                                add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'status':'new'}); st.rerun()
-                    i += 1
-                st.divider()
-        else:
-            # Single category view
-            prods = run_query("SELECT * FROM menu WHERE is_active=TRUE AND category=:c ORDER BY price ASC", {"c":sc})
-            if not prods.empty:
-                groups = {}
-                for _, r in prods.iterrows():
-                    n = r['item_name']; base = n
-                    for s in [" S", " M", " L", " XL", " Single", " Double"]:
-                        if n.endswith(s): base = n[:-len(s)]; break
-                    if base not in groups: groups[base] = []
-                    groups[base].append(r)
-                cols = st.columns(4); i=0
-                for base, items in groups.items():
-                    with cols[i%4]:
-                        if len(items) > 1:
-                            @st.dialog(f"{base}")
-                            def show_variants(its, grp_key):
-                                for it in its:
-                                    if st.button(f"{it['item_name']} - {it['price']}₼", key=f"v_{it['id']}_{grp_key}", use_container_width=True):
-                                        add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
-                            if st.button(f"{base} ▾", key=f"grp_{base}_{key}_sub", use_container_width=True): 
-                                show_variants(items, f"{key}_sub")
-                        else:
-                            r = items[0]
-                            if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_sub", use_container_width=True):
-                                add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'status':'new'}); st.rerun()
-                    i+=1
+            cols = st.columns(4)
+            i = 0
+            for base, items in groups.items():
+                with cols[i%4]:
+                    if len(items) > 1:
+                        @st.dialog(f"{base}")
+                        def show_variants(its, grp_key):
+                            for it in its:
+                                if st.button(f"{it['item_name']} - {it['price']}₼", key=f"v_{it['id']}_{grp_key}", use_container_width=True):
+                                    add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'status':'new'}); st.rerun()
+                        if st.button(f"{base} ▾", key=f"grp_{base}_{key}_{sc}", use_container_width=True): 
+                            show_variants(items, f"{key}_{sc}")
+                    else:
+                        r = items[0]
+                        if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_{sc}", use_container_width=True):
+                            add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'status':'new'}); st.rerun()
+                i+=1
 
     with tabs[0]: # AL-APAR
         c1, c2 = st.columns([1.5, 3])
