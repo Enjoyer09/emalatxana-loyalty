@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.51 (FINAL STABLE) ===
+# === EMALATKHANA POS - V5.52 (FIXED DELETE) ===
 # ==========================================
 
-VERSION = "v5.51 (Stable: Callbacks, +/-, Auto-Clear)"
+VERSION = "v5.52 (Stable: Instant Customer Delete)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -183,9 +183,11 @@ def send_email(to_email, subject, body):
     except: return "Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
 
-# --- CALLBACKS ---
+# --- CALLBACKS (CRITICAL FIX FOR DELETE) ---
 def clear_customer_data():
     st.session_state.current_customer_ta = None
+    if "search_input_ta" in st.session_state:
+        st.session_state.search_input_ta = "" # Force clear text box
 
 # --- SECURITY ---
 def create_session(username, role):
@@ -382,8 +384,11 @@ else:
         c1, c2 = st.columns([1.5, 3])
         with c1:
             st.info("🧾 Al-Apar")
+            
+            # --- CUSTOMER SCAN FORM ---
+            # NOTE: We use key="search_input_ta" so we can clear it in callback
             with st.form("scta", clear_on_submit=True):
-                code = st.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan..."); 
+                code = st.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
                 if st.form_submit_button("🔍") or code:
                     try: 
                         cid = code.split("id=")[1].split("&")[0] if "id=" in code else code
@@ -401,7 +406,7 @@ else:
             if cust: 
                 c_head, c_del = st.columns([4,1])
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
-                # FIXED: Use on_click for reliable clearing
+                # FIXED: Callback clears data AND forces text input to empty
                 c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
 
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust)
@@ -433,7 +438,6 @@ else:
                                 if res.rowcount == 0: raise Exception(f"Stok yoxdur: {r[0]}")
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                         
-                        # SAVE ORIGINAL AND DISCOUNT
                         discount_amt = raw - final
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da)"), 
                                   {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":discount_amt})
@@ -443,8 +447,15 @@ else:
                             new_s = (cust['stars'] + cf_cnt) - (free * 10)
                             s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":new_s, "id":cust['card_id']})
                         s.commit()
+                    
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final, 'email':cust['email'] if cust else None}
-                    st.session_state.show_receipt_popup=True; st.session_state.cart_takeaway=[]; st.session_state.current_customer_ta=None; st.rerun()
+                    
+                    # AUTO CLEAR CUSTOMER & CART
+                    st.session_state.cart_takeaway = []
+                    clear_customer_data()
+                    
+                    st.session_state.show_receipt_popup=True
+                    st.rerun()
                 except Exception as e: st.error(f"Xəta: {e}")
         with c2: render_menu(st.session_state.cart_takeaway, "ta")
 
@@ -843,3 +854,41 @@ else:
                             try: run_query(f"SELECT * FROM {t}").to_excel(writer, sheet_name=t, index=False)
                             except: pass
                     st.download_button("Endir", out.getvalue(), "backup.xlsx")
+             with c2:
+                 rf = st.file_uploader("Restore (.xlsx)")
+                 if rf and st.button("Bərpa Et"):
+                     try:
+                         xls = pd.ExcelFile(rf)
+                         for t in xls.sheet_names: 
+                             run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
+                         st.success("Bərpa Olundu!"); st.rerun()
+                     except: st.error("Xəta")
+        
+        with tabs[11]: # QR
+            st.subheader("QR Kodlar")
+            cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
+            if st.button("QR Yarat"):
+                type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
+                generated_qrs = []
+                for _ in range(cnt):
+                    cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
+                    run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[kt], "s":tok})
+                    url = f"{APP_URL}/?id={cid}&t={tok}"
+                    img_bytes = generate_styled_qr(url)
+                    generated_qrs.append((cid, img_bytes))
+                
+                if cnt <= 3:
+                    cols = st.columns(cnt)
+                    for idx, (cid, img) in enumerate(generated_qrs):
+                        with cols[idx]:
+                            st.image(img, caption=f"{cid} ({kt})")
+                            st.download_button(f"⬇️ {cid}", img, f"{cid}.png", "image/png")
+                else:
+                    zip_buf = BytesIO()
+                    with zipfile.ZipFile(zip_buf, "w") as zf:
+                        for cid, img in generated_qrs:
+                            zf.writestr(f"{cid}_{type_map[kt]}.png", img)
+                    st.success(f"{cnt} QR Kod yaradıldı!")
+                    st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
+
+    st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
