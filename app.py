@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.91 (RECIPE FIX) ===
+# === EMALATKHANA POS - V5.92 (SMART RECIPE STOCK) ===
 # ==========================================
 
-VERSION = "v5.91 (Stable: Recipe Editor & Cleaner)"
+VERSION = "v5.92 (Stable: Stock-Aware Recipes)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -122,7 +122,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         
-        # Migrations (Sales)
+        # Migrations
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
@@ -688,61 +688,42 @@ else:
                 if st.button("🔴 Günü Bitir (Z-Hesabat) - TEST MODE"): st.session_state.z_report_active = True
 
     if role == 'admin':
-        with tabs[4]: # RESEPT (UPDATED V5.91)
+        with tabs[4]: # RESEPT (UPDATED V5.92)
             st.subheader("📜 Resept")
             sel_prod = st.selectbox("Məhsul", ["(Seçin)"] + run_query("SELECT item_name FROM menu WHERE is_active=TRUE")['item_name'].tolist())
             if sel_prod != "(Seçin)":
-                # 1. Get Data
                 recs = run_query("SELECT id, ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:n ORDER BY id", {"n":sel_prod})
                 recs.insert(0, "Seç", False)
-
-                # 2. Interactive Editor
-                ed_recs = st.data_editor(
-                    recs,
-                    hide_index=True,
-                    column_config={
-                        "Seç": st.column_config.CheckboxColumn(required=True),
-                        "quantity_required": st.column_config.NumberColumn(label="Miqdar", min_value=0.0, step=0.001, format="%.3f")
-                    },
-                    disabled=["id", "ingredient_name"],
-                    use_container_width=True,
-                    key="rec_editor"
-                )
-
-                # 3. Logic: Delete & Update
-                sel_rows = ed_recs[ed_recs["Seç"]]
-                del_ids = sel_rows['id'].tolist()
-
+                ed_recs = st.data_editor(recs, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "quantity_required": st.column_config.NumberColumn(label="Miqdar", min_value=0.0, step=0.001, format="%.3f")}, disabled=["id", "ingredient_name"], use_container_width=True, key="rec_editor")
+                sel_rows = ed_recs[ed_recs["Seç"]]; del_ids = sel_rows['id'].tolist()
                 c_del, c_upd = st.columns(2)
-                
-                # Delete Button
                 with c_del:
-                    if del_ids:
-                        if st.button(f"🗑️ Seçilənləri Sil ({len(del_ids)})", type="primary"):
-                            for i in del_ids:
-                                run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)})
-                            log_system(st.session_state.user, f"Resept Silinmə: {sel_prod} ({len(del_ids)} sətir)")
-                            st.success("Silindi!")
-                            time.sleep(0.5)
-                            st.rerun()
-
-                # Update (Save Changes) Button
+                    if del_ids and st.button(f"🗑️ Seçilənləri Sil ({len(del_ids)})", type="primary"):
+                        for i in del_ids: run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)})
+                        log_system(st.session_state.user, f"Resept Silinmə: {sel_prod} ({len(del_ids)} sətir)"); st.success("Silindi!"); time.sleep(0.5); st.rerun()
                 with c_upd:
                     if st.button("💾 Dəyişiklikləri Yadda Saxla"):
                         with conn.session as s:
                             for _, row in ed_recs.iterrows():
-                                if not row['Seç']: # Don't update if marked for deletion
-                                    s.execute(text("UPDATE recipes SET quantity_required=:q WHERE id=:id"),
-                                            {"q":float(row['quantity_required']), "id":int(row['id'])})
+                                if not row['Seç']: s.execute(text("UPDATE recipes SET quantity_required=:q WHERE id=:id"), {"q":float(row['quantity_required']), "id":int(row['id'])})
                             s.commit()
-                        st.success("Yeniləndi!")
-                        time.sleep(0.5)
-                        st.rerun()
-
+                        st.success("Yeniləndi!"); time.sleep(0.5); st.rerun()
+                
                 st.divider()
                 with st.form("add_rec", clear_on_submit=True):
-                    s_i = st.selectbox("Xammal Əlavə Et", run_query("SELECT name FROM ingredients ORDER BY name")['name'].tolist()); s_q = st.number_input("Miqdar")
-                    if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":s_i,"q":s_q}); st.rerun()
+                    # SMART STOCK DISPLAY
+                    ing_data = run_query("SELECT name, stock_qty, unit FROM ingredients ORDER BY name")
+                    ing_options = {f"{r['name']} (Stok: {r['stock_qty']} {r['unit']})": r['name'] for _, r in ing_data.iterrows()}
+                    
+                    s_label = st.selectbox("Xammal Seç (Stok Görüntülü)", list(ing_options.keys()))
+                    real_ing_name = ing_options[s_label]
+                    
+                    # AUTO SUGGEST QUANTITY (If Menu Name == Ingredient Name -> 1)
+                    def_val = 1.0 if sel_prod == real_ing_name else 0.0
+                    s_q = st.number_input("Miqdar", value=def_val, step=0.001)
+                    
+                    if st.form_submit_button("Əlavə Et"): 
+                        run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":real_ing_name,"q":s_q}); st.rerun()
             
             with st.expander("📥 Reseptləri Excel-dən Yüklə"):
                 with st.form("recipe_import_form"):
@@ -750,18 +731,14 @@ else:
                     if st.form_submit_button("Reseptləri Yüklə"):
                         if upl_rec:
                             try:
-                                df_r = pd.read_excel(upl_rec); df_r.columns = [str(c).lower().strip() for c in df_r.columns]
-                                req = ['menu_item_name', 'ingredient_name', 'quantity_required']
-                                r_map = {"mal": "menu_item_name", "məhsul": "menu_item_name", "xammal": "ingredient_name", "miqdar": "quantity_required"}
-                                df_r.rename(columns=r_map, inplace=True)
+                                df_r = pd.read_excel(upl_rec); df_r.columns = [str(c).lower().strip() for c in df_r.columns]; req = ['menu_item_name', 'ingredient_name', 'quantity_required']; r_map = {"mal": "menu_item_name", "məhsul": "menu_item_name", "xammal": "ingredient_name", "miqdar": "quantity_required"}; df_r.rename(columns=r_map, inplace=True)
                                 if not all(col in df_r.columns for col in req): st.error("Sütunlar əskikdir")
                                 else:
                                     cnt = 0; 
                                     with conn.session as s:
                                         for _, r in df_r.iterrows():
                                             if pd.isna(r['menu_item_name']): continue
-                                            s.execute(text("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)"), {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])})
-                                            cnt += 1
+                                            s.execute(text("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)"), {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])}); cnt += 1
                                         s.commit()
                                     log_system(st.session_state.user, f"Resept Import: {cnt} sətir"); st.success(f"{cnt} resept sətri yükləndi!")
                             except Exception as e: st.error(f"Xəta: {e}")
