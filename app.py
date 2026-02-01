@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.75 (STAFF VIEW & TEST MODE) ===
+# === EMALATKHANA POS - V5.76 (PRO STABLE: LOGS & STAFF FIX) ===
 # ==========================================
 
-VERSION = "v5.75 (Stable: Staff Sales Fix, Z-Report Test Mode)"
+VERSION = "v5.76 (Stable: Transactional Logs & Staff View Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -129,16 +129,14 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         
-        # --- NEW FINANCE TABLE (v5.72) ---
+        # --- NEW FINANCE TABLE ---
         s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try:
             s.execute(text("ALTER TABLE finance ADD COLUMN IF NOT EXISTS subject TEXT"))
             s.commit()
         except: pass
 
-        # --- LEGACY SUPPORT ---
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS promo_codes (id SERIAL PRIMARY KEY, code TEXT UNIQUE, discount_percent INTEGER, valid_until DATE, assigned_user_id TEXT, is_used BOOLEAN DEFAULT FALSE);"))
@@ -167,7 +165,7 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- FIXED LOGGER ---
+# --- FIXED LOGGER & TRANSACTIONS ---
 def log_system(user, action, cid=None):
     try: 
         with conn.session as s:
@@ -175,6 +173,15 @@ def log_system(user, action, cid=None):
                       {"u":user, "a":action, "c":cid, "t":get_baku_now()})
             s.commit()
     except Exception as e: print(f"Log Error: {e}")
+
+def delete_sales_transaction(ids, user):
+    """ Deletes sales AND logs the action in a single transaction to ensure consistency """
+    with conn.session as s:
+        for i in ids:
+            s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
+        s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), 
+                  {"u": user, "a": f"Satış Silindi ({len(ids)} ədəd)", "t": get_baku_now()})
+        s.commit()
 
 def get_setting(key, default=""):
     try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
@@ -354,7 +361,6 @@ else:
     if role == 'staff': show_tbl = (get_setting("staff_show_tables", "TRUE") == "TRUE")
 
     # --- TAB DEFINITIONS ---
-    # 0:AL-APAR, 1:MASALAR, 2:FINANCE, 3:ANBAR, 4:RESEPT, 5:ANALITIKA, 6:LOGLAR, 7:CRM, 8:MENU, 9:SETTINGS, 10:BAZA, 11:QR
     tabs_list = []
     if role == 'admin': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📜 Resept", "📊 Analitika", "📜 Loglar", "👥 CRM", "📋 Menyu", "⚙️ Ayarlar", "💾 Baza", "QR"]
     elif role == 'manager': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM"]
@@ -937,7 +943,7 @@ else:
             c2.metric("Toplam Xərc", f"{cost:.2f} ₼")
             c3.metric("Xalis (Cash Flow)", f"{profit:.2f} ₼", delta_color="normal")
             
-            # --- SALES DELETE FUNCTIONALITY (NEW V5.74) ---
+            # --- SALES DELETE FUNCTIONALITY (NEW V5.76 FIXED) ---
             if role == 'admin':
                 st.markdown("### 🗑️ Satışların İdarəedilməsi")
                 sales_edit = sales.copy()
@@ -947,12 +953,7 @@ else:
                 to_delete = edited_sales[edited_sales["Seç"]]['id'].tolist()
                 if to_delete:
                     if st.button(f"❌ Seçilən {len(to_delete)} Satışı Sil", type="primary"):
-                        def delete_sales_logic(ids):
-                            for i in ids:
-                                run_action("DELETE FROM sales WHERE id=:id", {"id":i})
-                            log_system(st.session_state.user, f"Satış Silindi: {len(ids)} ədəd")
-                        
-                        admin_confirm_dialog(f"{len(to_delete)} satış silinsin?", delete_sales_logic, to_delete)
+                        admin_confirm_dialog(f"{len(to_delete)} satış silinsin?", delete_sales_transaction, to_delete, st.session_state.user)
             else:
                 st.dataframe(sales, hide_index=True)
 
