@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.86 (FINAL STABLE - SEARCH FIX) ===
+# === EMALATKHANA POS - V5.87 (FINANCIAL RESET) ===
 # ==========================================
 
-VERSION = "v5.86 (Stable: Logs Working, Search Bug Fixed)"
+VERSION = "v5.87 (Stable: Financial Reset, Search Fix, Logs Repair)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -122,7 +122,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         
-        # Migrations
+        # Migrations (Sales)
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
@@ -144,10 +144,12 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, attached_coupon TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         
-        # --- LOG REPAIR ---
+        # --- CRITICAL LOG REPAIR START ---
         s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, customer_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        # This explicitly checks and adds column if missing
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
+        # --- CRITICAL LOG REPAIR END ---
 
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
@@ -171,16 +173,23 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- LOG SYSTEM ---
+# --- LOG SYSTEM (REBUILT FOR STABILITY) ---
 def log_system(user, action, cid=None):
     try:
-        run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", 
-                   {"u":user, "a":action, "c":cid, "t":get_baku_now()})
-    except:
+        # Primary Attempt: Log everything including Customer ID
+        with conn.session as s:
+            s.execute(text("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)"), 
+                      {"u":user, "a":action, "c":cid, "t":get_baku_now()})
+            s.commit()
+    except Exception as e:
+        # Fallback Attempt: Log only basic info if schema is still broken
         try:
-            run_action("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)", 
-                       {"u":user, "a":action, "t":get_baku_now()})
-        except: pass
+            with conn.session as s:
+                s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), 
+                          {"u":user, "a":f"{action} (CID Error)", "t":get_baku_now()})
+                s.commit()
+        except Exception as e2:
+            print(f"CRITICAL LOG FAILURE: {e2}")
 
 def delete_sales_transaction(ids, user):
     try:
@@ -761,67 +770,107 @@ else:
                                 admin_confirm_dialog(f"Kateqoriya ({del_c}) və içindəki BÜTÜN mallar silinsin?", 
                                                      lambda: run_action("DELETE FROM ingredients WHERE category=:o", {"o":del_c}))
 
-    # --- FINANCE HUB (NEW V5.73) ---
+    # --- FINANCE HUB (NEW V5.87 - RESET & TOGGLE) ---
     if role in ['admin','manager']:
-        idx_fin = 2 # Finance is index 2 for admin/manager
+        idx_fin = 2 
         with tabs[idx_fin]:
             st.subheader("💰 Maliyyə Mərkəzi")
+            
+            # --- VIEW TOGGLE ---
+            view_mode = st.radio("Görünüş Rejimi:", ["🕒 Bu Növbə (08:00+)", "📅 Ümumi Balans (Yekun)"], horizontal=True)
+            
+            # --- CALCULATIONS ---
+            now = get_baku_now()
+            if now.hour >= 8: shift_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            else: shift_start = (now - datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+            
+            if "Növbə" in view_mode:
+                # SHIFT VIEW
+                sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
+                sales_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
+                
+                exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['e'] or 0.0
+                inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                
+                # For Shift View: Start limit is not relevant, we show accumulated cash flow
+                disp_cash = float(sales_cash) + float(inc_cash) - float(exp_cash)
+                disp_card = float(sales_card) # Just sales for shift
+                
+                # Safe Accumulation in Shift
+                inc_safe = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                out_safe = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['o'] or 0.0
+                disp_safe = float(inc_safe) - float(out_safe)
+
+            else:
+                # TOTAL VIEW (Actual Asset Balance)
+                # Cashbox
+                last_z = get_setting("last_z_report_time")
+                if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
+                else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
+                
+                s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
+                e_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
+                i_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
+                start_lim = float(get_setting("cash_limit", "100.0"))
+                disp_cash = start_lim + float(s_cash) + float(i_cash) - float(e_cash)
+                
+                # Card (All Time + Correction)
+                s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
+                f_card_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in'").iloc[0]['i'] or 0.0
+                f_card_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Bank Kartı' AND type='out'").iloc[0]['o'] or 0.0
+                disp_card = float(s_card) + float(f_card_in) - float(f_card_out)
+                
+                # Safe (All Time)
+                f_safe_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in'").iloc[0]['i'] or 0.0
+                f_safe_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out'").iloc[0]['o'] or 0.0
+                disp_safe = float(f_safe_in) - float(f_safe_out)
+
+            # --- DISPLAY METRICS ---
+            st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("🏪 Kassa", f"{disp_cash:.2f} ₼")
+            m2.metric("💳 Bank Kartı", f"{disp_card:.2f} ₼")
+            m3.metric("🏦 Seyf", f"{disp_safe:.2f} ₼")
+            
+            # --- ADMIN ADJUSTMENT TOOL ---
+            if role == 'admin' and "Ümumi" in view_mode:
+                with st.expander("🛠️ Bank Kartı Balansını Düzəlt (Reset)"):
+                    st.warning("Diqqət! Bu əməliyyat balansı sizin yazdığınız rəqəmə bərabərləşdirəcək.")
+                    target_val = st.number_input("Kartda Hal-hazırda Olan Real Məbləğ", value=disp_card, step=0.01)
+                    if st.button("Balansı Düzəlt"):
+                        diff = target_val - disp_card
+                        if diff != 0:
+                            ftype = 'in' if diff > 0 else 'out'
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES (:t, 'Düzəliş', :a, 'Bank Kartı', 'Admin Reset', :u)",
+                                       {"t":ftype, "a":abs(diff), "u":st.session_state.user})
+                            st.success("Balans düzəldildi!")
+                            time.sleep(1); st.rerun()
+
+            st.markdown("---")
             
             # --- FORM FOR NEW TRANSACTION ---
             with st.expander("➕ Yeni Əməliyyat", expanded=True):
                 with st.form("new_fin_trx"):
                     c1, c2, c3 = st.columns(3)
                     f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
-                    f_source = c2.selectbox("Mənbə (Pul Qabı)", ["Kassa", "Bank Kartı", "Seyf"])
-                    f_subj = c3.selectbox("Subyekt (Kim?)", SUBJECTS)
+                    f_source = c2.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf"])
+                    f_subj = c3.selectbox("Subyekt", SUBJECTS)
                     
                     c4, c5 = st.columns(2)
-                    f_cat = c4.selectbox("Kateqoriya", ["Xammal Alışı", "Maaş/Avans", "Borc Ödənişi", "İnvestisiya", "Təsərrüfat", "Kassa Kəsiri / Bərpası", "Digər"])
+                    f_cat = c4.selectbox("Kateqoriya", ["Xammal Alışı", "Maaş/Avans", "Borc Ödənişi", "İnvestisiya", "Təsərrüfat", "Kassa Kəsiri / Bərpası", "İnkassasiya (Seyfə)", "Digər"])
                     f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01, step=0.01)
-                    f_desc = st.text_input("Qeyd (Məs: Desert alışı)")
+                    f_desc = st.text_input("Qeyd")
                     
                     if st.form_submit_button("Təsdiqlə"):
                         db_type = 'out' if "Məxaric" in f_type else 'in'
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject) VALUES (:t, :c, :a, :s, :d, :u, :sb)",
                                    {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user, "sb":f_subj})
-                        
-                        # Legacy sync
                         if db_type == 'out':
                             run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", 
                                        {"a":f_amt, "r":f"{f_subj} - {f_desc}", "s":st.session_state.user, "src":f_source})
-                        
                         log_system(st.session_state.user, f"Maliyyə: {db_type.upper()} {f_amt} ({f_cat})")
-                        st.success("Əməliyyat uğurla yazıldı!")
-                        st.rerun()
+                        st.success("Yazıldı!"); st.rerun()
 
-            # --- FINANCIAL SUMMARY ---
-            fin_df = run_query("SELECT * FROM finance")
-            
-            safe_bal = fin_df[fin_df['source']=='Seyf'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
-            
-            # --- FIXED CARD BALANCE (Sales + Finance) ---
-            card_fin = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
-            card_sales = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
-            card_bal = card_fin + card_sales
-            
-            # Cashbox Logic (Shift Based - 08:00)
-            now = get_baku_now()
-            if now.hour >= 8: shift_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
-            else: shift_start = (now - datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
-            
-            sales_since = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":shift_start}).iloc[0]['s'] or 0.0
-            exp_since = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":shift_start}).iloc[0]['e'] or 0.0
-            inc_since = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":shift_start}).iloc[0]['i'] or 0.0
-            
-            start_lim = float(get_setting("cash_limit", "100.0"))
-            current_cashbox = start_lim + float(sales_since) + float(inc_since) - float(exp_since)
-
-            st.divider()
-            m1, m2, m3 = st.columns(3)
-            m1.metric("🏪 Kassa (Bu Növbə)", f"{current_cashbox:.2f} ₼")
-            m2.metric("💳 Bank Kartı (Cəm)", f"{card_bal:.2f} ₼")
-            m3.metric("🏦 Seyf (Ehtiyat)", f"{safe_bal:.2f} ₼")
-            
             st.write("📜 Son Əməliyyatlar")
             st.dataframe(fin_df.sort_values(by="created_at", ascending=False).head(20), hide_index=True, use_container_width=True)
             
@@ -1199,7 +1248,7 @@ else:
 
     if role == 'staff':
         with tabs[-1]:
-            # --- STAFF EXPENSE BUTTON ---
+            # --- STAFF EXPENSE BUTTON (NEW V5.83) ---
             st.subheader("📊 Satış & Z-Hesabat")
             
             sc1, sc2 = st.columns([1,3])
