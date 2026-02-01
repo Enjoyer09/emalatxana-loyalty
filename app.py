@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.74 (SALES DELETE ADDED) ===
+# === EMALATKHANA POS - V5.75 (STAFF VIEW & TEST MODE) ===
 # ==========================================
 
-VERSION = "v5.74 (Stable: Sales Delete, Finance Pro, Logs Fixed)"
+VERSION = "v5.75 (Stable: Staff Sales Fix, Z-Report Test Mode)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -1132,7 +1132,11 @@ else:
                 if st.button("İşçini Sil"): admin_confirm_dialog(f"Sil: {du}?", lambda: run_action("DELETE FROM users WHERE username=:u", {"u":du}))
             with st.expander("🔧 Sistem"):
                 st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
-                if st.button("Yadda Saxla"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
+                if st.button("Yadda Saxla (Tables)"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
+                
+                # --- Z-REPORT TEST MODE TOGGLE (NEW V5.75) ---
+                test_mode = st.checkbox("Z-Hesabat [TEST MODE]?", value=(get_setting("z_report_test_mode") == "TRUE"))
+                if st.button("Yadda Saxla (Test Mode)"): set_setting("z_report_test_mode", "TRUE" if test_mode else "FALSE"); st.success("Dəyişdirildi!"); st.rerun()
                 
                 # --- CASH LIMIT SETTING ---
                 c_lim = st.number_input("Standart Kassa Limiti (Z-Hesabat üçün)", value=float(get_setting("cash_limit", "100.0")))
