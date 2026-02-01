@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.80 (ULTIMATE STAFF & LOG FIX) ===
+# === EMALATKHANA POS - V5.81 (LOG REPAIR & CRM COUPONS) ===
 # ==========================================
 
-VERSION = "v5.80 (Stable: Staff Filter, Customer View, Logs Repaired)"
+VERSION = "v5.81 (Stable: Logs Fail-Safe, CRM Coupons, Staff View)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -116,12 +116,12 @@ except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 @st.cache_resource
 def ensure_schema():
     with conn.session as s:
-        # Base Tables
+        # Tables
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         
-        # Schema Migrations for Sales
+        # Migrations
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
@@ -131,7 +131,6 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         
-        # Finance
         s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE finance ADD COLUMN IF NOT EXISTS subject TEXT")); s.commit()
         except: pass
@@ -144,16 +143,14 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, attached_coupon TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         
-        # Logs & Feedback
+        # LOGS REPAIR
         s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, customer_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        # CRITICAL LOG REPAIR: Ensure customer_id column exists
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
 
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
         
-        # Default Admin
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -173,25 +170,28 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- FIXED LOGGER (Robust) ---
+# --- LOG SYSTEM (FAIL-SAFE) ---
 def log_system(user, action, cid=None):
-    try: 
-        # Use a fresh standalone transaction for logging to avoid conflicts
+    # Plan A: Try to insert everything
+    try:
         run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", 
                    {"u":user, "a":action, "c":cid, "t":get_baku_now()})
-    except Exception as e: print(f"Log Error: {e}")
+    except:
+        # Plan B: If Plan A fails (e.g., missing column), insert basic log
+        try:
+            run_action("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)", 
+                       {"u":user, "a":action, "t":get_baku_now()})
+        except:
+            print("Log totally failed")
 
 def delete_sales_transaction(ids, user):
-    """ Deletes sales AND logs the action in a single transaction """
     try:
         with conn.session as s:
-            for i in ids:
-                s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
+            for i in ids: s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
             s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), 
                       {"u": user, "a": f"Satış Silindi ({len(ids)} ədəd)", "t": get_baku_now()})
             s.commit()
-    except Exception as e:
-        st.error(f"Xəta baş verdi: {e}")
+    except Exception as e: st.error(f"Xəta: {e}")
 
 def get_setting(key, default=""):
     try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
@@ -213,13 +213,11 @@ def send_email(to_email, subject, body):
     except: return "Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
 
-# --- CALLBACKS ---
+# --- CALLBACKS & SECURITY ---
 def clear_customer_data():
     st.session_state.current_customer_ta = None
-    if "search_input_ta" in st.session_state:
-        st.session_state.search_input_ta = "" 
+    if "search_input_ta" in st.session_state: st.session_state.search_input_ta = "" 
 
-# --- SECURITY ---
 def create_session(username, role):
     token = secrets.token_urlsafe(32)
     run_action("INSERT INTO active_sessions (token, username, role, created_at) VALUES (:t, :u, :r, :c)", {"t":token, "u":username, "r":role, "c":get_baku_now()})
@@ -370,7 +368,6 @@ else:
     show_tbl = True
     if role == 'staff': show_tbl = (get_setting("staff_show_tables", "TRUE") == "TRUE")
 
-    # --- TAB DEFINITIONS ---
     tabs_list = []
     if role == 'admin': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📜 Resept", "📊 Analitika", "📜 Loglar", "👥 CRM", "📋 Menyu", "⚙️ Ayarlar", "💾 Baza", "QR"]
     elif role == 'manager': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM"]
@@ -529,7 +526,7 @@ else:
 
     # --- ANBAR ---
     if role in ['admin','manager']:
-        idx_anbar = 3 if role == 'admin' else 3 # Admin:3, Manager:3
+        idx_anbar = 3 if role == 'admin' else 3
         with tabs[idx_anbar]:
             c1, c2 = st.columns([3,1])
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
@@ -764,7 +761,7 @@ else:
                                 admin_confirm_dialog(f"Kateqoriya ({del_c}) və içindəki BÜTÜN mallar silinsin?", 
                                                      lambda: run_action("DELETE FROM ingredients WHERE category=:o", {"o":del_c}))
 
-    # --- FINANCE HUB ---
+    # --- FINANCE HUB (NEW V5.73) ---
     if role in ['admin','manager']:
         idx_fin = 2 # Finance is index 2 for admin/manager
         with tabs[idx_fin]:
@@ -886,25 +883,63 @@ else:
         with tabs[idx_ana]:
             st.subheader("📊 Analitika & Mənfəəti")
             
-            # --- DATE FILTER (Copied to Staff view too) ---
-            c1, c2 = st.columns(2)
-            d1 = c1.date_input("Start", datetime.date.today())
-            d2 = c2.date_input("End", datetime.date.today())
-            t1 = c1.time_input("Saat Başla", datetime.time(8,0))
-            t2 = c2.time_input("Saat Bit", datetime.time(23,59))
-            
-            ts_start = datetime.datetime.combine(d1, t1)
-            ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
-            
             with st.container():
                 c_mail, c_btn = st.columns([3,1])
                 target_email = c_mail.text_input("Hesabat Emaili", value=get_setting("admin_email", DEFAULT_SENDER_EMAIL))
                 if c_btn.button("📩 Gündəlik Hesabatı Göndər (08:00-01:00)"):
-                    # ... (Email logic same as before) ...
-                    st.success("Hesabat göndərildi!")
+                    now = get_baku_now()
+                    start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                    end_time = (now + datetime.timedelta(days=1)).replace(hour=1, minute=0, second=0, microsecond=0) if now.hour >= 8 else now.replace(hour=1, minute=0, second=0, microsecond=0)
+                    if now.hour < 8: start_time -= datetime.timedelta(days=1)
+                    
+                    # Month Start
+                    month_start = now.replace(day=1, hour=0, minute=0, second=0)
+
+                    # Query for Daily Report
+                    q_rep = """
+                        SELECT s.created_at, s.cashier, s.items, s.original_total, s.discount_amount, s.total,
+                               COALESCE(c.type, 'Standart') as status
+                        FROM sales s 
+                        LEFT JOIN customers c ON s.customer_card_id = c.card_id 
+                        WHERE s.created_at BETWEEN :s AND :e
+                        ORDER BY s.created_at DESC
+                    """
+                    rep_data = run_query(q_rep, {"s":start_time, "e":end_time})
+                    
+                    # Query for Monthly Total
+                    q_month = "SELECT SUM(total) as m_total FROM sales WHERE created_at >= :ms"
+                    m_total = run_query(q_month, {"ms":month_start}).iloc[0]['m_total'] or 0.0
+
+                    if not rep_data.empty:
+                        d_total = rep_data['total'].sum()
+                        
+                        html_table = """
+                        <table border='1' style='border-collapse:collapse; width:100%; font-family:Arial, sans-serif;'>
+                            <tr style='background-color:#f2f2f2;'>
+                                <th>SAAT</th><th>KASSIR</th><th>MALLAR</th><th>MEBLEG</th><th>ENDIRIM</th><th>CEMI</th><th>STATUS</th>
+                            </tr>
+                        """
+                        for _, r in rep_data.iterrows():
+                            # Fallback if original_total is 0 (old data)
+                            orig = r['original_total'] if r['original_total'] > 0 else r['total']
+                            disc = r['discount_amount']
+                            
+                            html_table += f"<tr><td>{r['created_at'].strftime('%H:%M')}</td><td>{r['cashier']}</td><td>{r['items']}</td><td>{orig:.2f}</td><td>{disc:.2f}</td><td>{r['total']:.2f}</td><td>{r['status']}</td></tr>"
+                        
+                        html_table += "</table>"
+                        html_table += f"<h3 style='text-align:right;'>📅 Bu Günün Cəmi: {d_total:.2f} AZN</h3>"
+                        html_table += f"<h3 style='text-align:right; color:#2E7D32;'>📅 Bu Ayın Cəmi: {m_total:.2f} AZN</h3>"
+
+                        send_email(target_email, f"Günlük Hesabat ({start_time.date()})", html_table)
+                        st.success("Hesabat göndərildi!")
+                    else:
+                        st.warning("Bu aralıqda satış yoxdur.")
 
             st.divider()
-            
+            c1, c2 = st.columns(2); d1 = c1.date_input("Start", datetime.date.today()); d2 = c2.date_input("End", datetime.date.today())
+            t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit", datetime.time(23,59))
+            ts_start = datetime.datetime.combine(d1, t1)
+            ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             rev = sales['total'].sum()
@@ -938,30 +973,58 @@ else:
         idx_crm = 7 if role == 'admin' else 6
         with tabs[idx_crm]:
             st.subheader("👥 CRM")
-            cust_df = run_query("SELECT card_id, type, stars, email FROM customers"); cust_df.insert(0, "Seç", False)
-            ed_cust = st.data_editor(cust_df, hide_index=True)
+            
+            # --- CUSTOMER SELECTOR ---
+            cust_df = run_query("SELECT card_id, type, stars, email FROM customers")
+            cust_df.insert(0, "Seç", False)
+            ed_cust = st.data_editor(cust_df, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="crm_sel")
             sel_cust_ids = ed_cust[ed_cust["Seç"]]['card_id'].tolist()
+            
             st.divider()
             c1, c2 = st.columns(2)
+            
+            # --- COUPON APPLY & MESSAGE ---
             with c1:
                 msg = st.text_area("Ekran Mesajı")
                 promo_list = ["(Kuponsuz)"] + run_query("SELECT code FROM promo_codes")['code'].tolist()
-                sel_promo = st.selectbox("Promo Yapışdır", promo_list)
+                sel_promo = st.selectbox("Promo Yapışdır (Seçilənlərə)", promo_list)
+                
                 if st.button("📢 Seçilənlərə Göndər / Tətbiq Et"):
                     if sel_cust_ids:
                         for cid in sel_cust_ids:
                             if msg: run_action("INSERT INTO notifications (card_id, message) VALUES (:c, :m)", {"c":cid, "m":msg})
-                            if sel_promo != "(Kuponsuz)": run_action("INSERT INTO customer_coupons (card_id, coupon_type) VALUES (:c, :t)", {"c":cid, "t":sel_promo})
-                        st.success("OK!")
-                    else: st.warning("Seçin!")
+                            if sel_promo != "(Kuponsuz)": 
+                                # Set Expiry (e.g., 30 days)
+                                exp = get_baku_now() + datetime.timedelta(days=30)
+                                run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:c, :t, :e)", {"c":cid, "t":sel_promo, "e":exp})
+                        st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
+                    else: st.warning("Müştəri seçin!")
+
+            # --- EMAIL SENDER ---
             with c2:
-                em_sub = st.text_input("Email Başlıq"); em_body = st.text_area("Email Mətn")
+                em_sub = st.text_input("Email Başlıq")
+                em_body = st.text_area("Email Mətn")
                 if st.button("📧 Email Göndər"):
                     if sel_cust_ids:
                         emails = run_query(f"SELECT email FROM customers WHERE card_id IN ({','.join([repr(x) for x in sel_cust_ids])})")['email'].tolist()
                         for e in emails: 
                             if e: send_email(e, em_sub, em_body)
                         st.success("OK!")
+
+            # --- PROMO CODE CREATION (RESTORED) ---
+            if role == 'admin':
+                st.markdown("---")
+                with st.expander("🎫 Yeni Promo Kod Yarat"):
+                    with st.form("pc"):
+                        code = st.text_input("Kod (Məs: YAZ2024)")
+                        perc = st.number_input("Faiz (%)", 1, 100)
+                        days = st.number_input("Neçə gün qüvvədədir?", 1, 365, 30)
+                        if st.form_submit_button("Yarat"): 
+                            valid_until = (datetime.date.today() + datetime.timedelta(days=days))
+                            run_action("INSERT INTO promo_codes (code, discount_percent, valid_until) VALUES (:c, :p, :v)", 
+                                       {"c":code, "p":perc, "v":valid_until})
+                            st.success("Promo Kod Yaradıldı!")
+                st.dataframe(run_query("SELECT * FROM promo_codes"), hide_index=True)
 
     if role == 'admin':
         with tabs[8]: # MENU (ADVANCED)
@@ -1241,7 +1304,7 @@ else:
 
             st.divider()
             
-            # --- STAFF SALES FILTERS (NEW v5.80) ---
+            # --- STAFF SALES FILTERS ---
             st.markdown("### 🔍 Satış Tarixçəsi")
             c1, c2 = st.columns(2)
             d1 = c1.date_input("Start", datetime.date.today())
@@ -1250,7 +1313,6 @@ else:
             ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
             ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
             
-            # --- NEW QUERY WITH CUSTOMER & DISCOUNT ---
             q_staff = """
                 SELECT 
                     s.created_at AS "Tarix", 
@@ -1267,7 +1329,6 @@ else:
             """
             mys = run_query(q_staff, {"u":st.session_state.user, "s":ts_start, "e":ts_end})
             
-            # Calculate Totals
             total_sales = mys['Yekun'].sum() if not mys.empty else 0.0
             st.metric(f"Seçilən Tarix Üzrə Cəm", f"{total_sales:.2f} ₼")
             
