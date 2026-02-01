@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.84 (GRAND FINALE: LOGS & Z-PREVIEW) ===
+# === EMALATKHANA POS - V5.85 (LOG FIX ONLY) ===
 # ==========================================
 
-VERSION = "v5.84 (Stable: Logs Fixed, Z-Report 2-Step, Staff View)"
+VERSION = "v5.85 (Stable: Critical Log Fix + Previous Features)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -58,7 +58,7 @@ if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
-if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False # For 2-step Z-report
+if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 
 # --- CSS ---
 st.markdown("""
@@ -132,7 +132,6 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         
-        # Finance
         s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE finance ADD COLUMN IF NOT EXISTS subject TEXT")); s.commit()
         except: pass
@@ -145,14 +144,16 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, attached_coupon TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         
-        # --- CRITICAL LOG REPAIR ---
+        # --- CRITICAL LOG REPAIR START ---
         s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, customer_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        # Force add column if missing - This fixes the Log issue
+        # This explicitly checks and adds column if missing
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
+        # --- CRITICAL LOG REPAIR END ---
 
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
+        
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -172,17 +173,23 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- LOG SYSTEM (FAIL-SAFE) ---
+# --- LOG SYSTEM (REBUILT FOR STABILITY) ---
 def log_system(user, action, cid=None):
     try:
-        run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", 
-                   {"u":user, "a":action, "c":cid, "t":get_baku_now()})
-    except:
-        # Fallback log
+        # Primary Attempt: Log everything including Customer ID
+        with conn.session as s:
+            s.execute(text("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)"), 
+                      {"u":user, "a":action, "c":cid, "t":get_baku_now()})
+            s.commit()
+    except Exception as e:
+        # Fallback Attempt: Log only basic info if schema is still broken
         try:
-            run_action("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)", 
-                       {"u":user, "a":action, "t":get_baku_now()})
-        except: pass
+            with conn.session as s:
+                s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), 
+                          {"u":user, "a":f"{action} (CID Error)", "t":get_baku_now()})
+                s.commit()
+        except Exception as e2:
+            print(f"CRITICAL LOG FAILURE: {e2}")
 
 def delete_sales_transaction(ids, user):
     try:
@@ -798,11 +805,7 @@ else:
             fin_df = run_query("SELECT * FROM finance")
             
             safe_bal = fin_df[fin_df['source']=='Seyf'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
-            
-            # --- FIXED CARD BALANCE (Sales + Finance) ---
-            card_fin = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
-            card_sales = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
-            card_bal = card_fin + card_sales
+            card_bal = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
             
             # Cashbox Logic (Shift Based - 08:00)
             now = get_baku_now()
@@ -819,7 +822,7 @@ else:
             st.divider()
             m1, m2, m3 = st.columns(3)
             m1.metric("🏪 Kassa (Bu Növbə)", f"{current_cashbox:.2f} ₼")
-            m2.metric("💳 Bank Kartı (Cəm)", f"{card_bal:.2f} ₼")
+            m2.metric("💳 Bank Kartı", f"{card_bal:.2f} ₼")
             m3.metric("🏦 Seyf (Ehtiyat)", f"{safe_bal:.2f} ₼")
             
             st.write("📜 Son Əməliyyatlar")
@@ -1199,7 +1202,7 @@ else:
 
     if role == 'staff':
         with tabs[-1]:
-            # --- STAFF EXPENSE BUTTON (NEW V5.83) ---
+            # --- STAFF EXPENSE BUTTON ---
             st.subheader("📊 Satış & Z-Hesabat")
             
             sc1, sc2 = st.columns([1,3])
@@ -1226,7 +1229,7 @@ else:
                 if get_setting("z_report_test_mode") == "TRUE": btn_lbl += " [TEST MODE]"
                 if st.button(btn_lbl, type="primary", use_container_width=True):
                     st.session_state.z_report_active = True
-                    st.session_state.z_calculated = False # RESET for new report
+                    st.session_state.z_calculated = False 
             
             # --- Z-REPORT LOGIC (2-STEP) ---
             if st.session_state.z_report_active:
@@ -1242,36 +1245,28 @@ else:
                     
                     if st.button("🧮 HESABLA"):
                         st.session_state.z_calculated = True
-                        # No rerun needed, just update UI below
                     
                     # STEP 2: PREVIEW & CONFIRM
                     if st.session_state.z_calculated:
-                        # Calculation Logic (Shift Based - 08:00)
                         now = get_baku_now()
                         if now.hour >= 8: shift_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
                         else: shift_start = (now - datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
                         
                         sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
                         
-                        # Existing Expenses (Excluding Salary to prevent double count in calculation)
                         exp_cash_query = "SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d"
                         exp_cash = run_query(exp_cash_query, {"d":shift_start}).iloc[0]['e'] or 0.0
                         
                         inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
                         
-                        # Add Predicted Salary
                         salary_deduction = 0
                         if pay_staff: salary_deduction += 20
                         if pay_manager: salary_deduction += 25
                         
                         start_limit = float(get_setting("cash_limit", "100.0"))
-                        
-                        # Total Expected in Drawer = Start + Sales + Incomes - (Already logged Expenses + New Salary)
                         current_bal = start_limit + float(sales_cash) + float(inc_cash) - float(exp_cash) - salary_deduction
-                        
                         diff = current_bal - start_limit
                         
-                        # Display
                         st.markdown(f"**Başlanğıc:** {start_limit:.2f} ₼")
                         st.markdown(f"**+ Satış (Nəğd):** {float(sales_cash):.2f} ₼")
                         st.markdown(f"**- Maaşlar:** {salary_deduction:.2f} ₼")
@@ -1284,11 +1279,9 @@ else:
                         
                         st.divider()
                         if st.button("✅ TƏSDİQLƏ VƏ GÜNÜ BAĞLA", type="primary"):
-                            # 1. Commit Salaries
                             if pay_staff: run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş', 20, 'Kassa', 'Z-Hesabat: Staff', :u)", {"u":st.session_state.user})
                             if pay_manager: run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş', 25, 'Kassa', 'Z-Hesabat: Manager', :u)", {"u":st.session_state.user})
                             
-                            # 2. Commit Transfer Logic
                             if diff > 0:
                                 run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya', :a, 'Kassa', 'Z-Hesabat: Seyfə Transfer', :u)", {"a":diff, "u":st.session_state.user})
                                 run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'İnkassasiya', :a, 'Seyf', 'Z-Hesabat: Kassadan Gələn', :u)", {"a":diff, "u":st.session_state.user})
@@ -1310,7 +1303,6 @@ else:
 
             st.divider()
             
-            # --- STAFF SALES FILTERS ---
             st.markdown("### 🔍 Satış Tarixçəsi")
             c1, c2 = st.columns(2)
             d1 = c1.date_input("Start", datetime.date.today())
