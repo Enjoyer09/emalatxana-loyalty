@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.87 (FINANCIAL RESET) ===
+# === EMALATKHANA POS - V5.88 (FINANCE CRASH FIX) ===
 # ==========================================
 
-VERSION = "v5.87 (Stable: Financial Reset, Search Fix, Logs Repair)"
+VERSION = "v5.88 (Stable: Finance Table Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -153,7 +153,6 @@ def ensure_schema():
 
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
-        
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -173,7 +172,7 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- LOG SYSTEM (REBUILT FOR STABILITY) ---
+# --- LOG SYSTEM ---
 def log_system(user, action, cid=None):
     try:
         # Primary Attempt: Log everything including Customer ID
@@ -223,7 +222,6 @@ def format_qty(val): return int(val) if val % 1 == 0 else val
 # --- FIX: CLEAR SEARCH INPUT SAFELY ---
 def clear_customer_data():
     st.session_state.current_customer_ta = None
-    # Instead of assigning "", we DELETE the key. Streamlit recreates it empty on next run.
     if "search_input_ta" in st.session_state:
         del st.session_state["search_input_ta"]
 
@@ -537,6 +535,9 @@ else:
     if role in ['admin','manager']:
         idx_anbar = 3 if role == 'admin' else 3
         with tabs[idx_anbar]:
+            # DEFINED AT TOP TO AVOID NAME ERROR
+            fin_df = run_query("SELECT * FROM finance") 
+
             c1, c2 = st.columns([3,1])
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
             
