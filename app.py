@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.71 (BATCH IMPORT FIX) ===
+# === EMALATKHANA POS - V5.72 (FINANCE & Z-REPORT) ===
 # ==========================================
 
-VERSION = "v5.71 (Stable: High Speed Batch Import)"
+VERSION = "v5.72 (Stable: Finance Hub + Smart Z-Report)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -57,6 +57,7 @@ if 'anbar_rows_per_page' not in st.session_state: st.session_state.anbar_rows_pe
 if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
+if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 
 # --- CSS ---
 st.markdown("""
@@ -109,7 +110,6 @@ try:
     db_url = os.environ.get("STREAMLIT_CONNECTIONS_NEON_URL") or os.environ.get("DATABASE_URL")
     if not db_url: st.error("DB URL Not Found"); st.stop()
     if db_url.startswith("postgres://"): db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
-    # Increased pool size to prevent overflow errors
     conn = st.connection("neon", type="sql", url=db_url, pool_pre_ping=True, pool_size=20, max_overflow=30)
 except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 
@@ -128,15 +128,13 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
-        try: 
-            s.execute(text("ALTER TABLE ingredients ALTER COLUMN unit_cost TYPE DECIMAL(18,5)"))
-            s.commit()
-        except: pass
-
-        try: s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'ingredient'")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(18,5) DEFAULT 0")); s.execute(text("ALTER TABLE ingredients ADD COLUMN IF NOT EXISTS approx_count INTEGER DEFAULT 0"))
-        except: pass
         
+        # --- NEW FINANCE TABLE (v5.72) ---
+        s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # --- LEGACY SUPPORT ---
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS promo_codes (id SERIAL PRIMARY KEY, code TEXT UNIQUE, discount_percent INTEGER, valid_until DATE, assigned_user_id TEXT, is_used BOOLEAN DEFAULT FALSE);"))
@@ -345,8 +343,8 @@ else:
     if role == 'staff': show_tbl = (get_setting("staff_show_tables", "TRUE") == "TRUE")
 
     tabs_list = []
-    if role == 'admin': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "💸 Xərclər", "📜 Resept", "📊 Analitika", "📜 Loglar", "👥 CRM", "📋 Menyu", "⚙️ Ayarlar", "💾 Baza", "QR"]
-    elif role == 'manager': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "📦 Anbar", "💸 Xərclər", "📊 Analitika", "📜 Loglar", "👥 CRM"]
+    if role == 'admin': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📜 Resept", "📊 Analitika", "📜 Loglar", "👥 CRM", "📋 Menyu", "⚙️ Ayarlar", "💾 Baza", "QR"]
+    elif role == 'manager': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM"]
     elif role == 'staff': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "Satışlar"] if show_tbl else ["🏃‍♂️ AL-APAR", "Satışlar"]
     tabs = st.tabs(tabs_list)
 
@@ -359,7 +357,6 @@ else:
         cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
         
-        # --- CLASSIC LOGIC (v5.60 style) ---
         sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
         prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
         
@@ -503,7 +500,8 @@ else:
 
     # --- ANBAR (RESTORED SMART UI + ROBUST IMPORT) ---
     if role in ['admin','manager']:
-        with tabs[2]:
+        idx_anbar = 3 if role == 'admin' else 2
+        with tabs[idx_anbar]:
             c1, c2 = st.columns([3,1])
             search_query = st.text_input("🔍 Axtarış (Bütün Anbar)...", placeholder="Malın adı...")
             
@@ -695,7 +693,7 @@ else:
                                     db_type = 'ingredient' if import_type.startswith("Ərzaq") else 'consumable'
                                     count = 0
                                     
-                                    # --- BATCH PROCESSING (Fixes QueuePool Error) ---
+                                    # --- BATCH PROCESSING ---
                                     with conn.session as s:
                                         for _, row in df.iterrows():
                                             if pd.isna(row['name']) or str(row['name']).strip() == "": continue
@@ -749,24 +747,79 @@ else:
                                 admin_confirm_dialog(f"Kateqoriya ({del_c}) və içindəki BÜTÜN mallar silinsin?", 
                                                      lambda: run_action("DELETE FROM ingredients WHERE category=:o", {"o":del_c}))
 
-    # --- EXPENSES ---
+    # --- FINANCE HUB (NEW V5.72) ---
     if role in ['admin','manager']:
-        with tabs[3]:
-            st.subheader("💸 Xərclər")
-            with st.form("new_exp", clear_on_submit=True):
-                c1,c2 = st.columns(2)
-                amt = c1.number_input("Məbləğ (AZN)", 0.0); rsn = c2.text_input("Təyinat (Səbəb)")
-                who = c1.selectbox("Xərcləyən", SPENDERS); src = c2.radio("Növ", ["Kassadan (Cash)", "Cibdən (Pocket)"])
-                if st.form_submit_button("Əlavə Et"):
-                    run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":amt,"r":rsn,"s":who,"src":src}); st.success("Yazıldı!"); st.rerun()
-            exp_df = run_query("SELECT * FROM expenses ORDER BY created_at DESC LIMIT 50")
-            if role == 'admin':
-                exp_df.insert(0, "Seç", False)
-                ed_ex = st.data_editor(exp_df, hide_index=True)
-                del_ex = ed_ex[ed_ex["Seç"]]['id'].tolist()
-                if del_ex and st.button("Seçilən Xərcləri Sil"):
-                    admin_confirm_dialog("Silinsin?", lambda: [run_action("DELETE FROM expenses WHERE id=:id", {"id":i}) for i in del_ex])
-            else: st.dataframe(exp_df, hide_index=True)
+        idx_fin = 2 # Finance is index 2 for admin/manager
+        with tabs[idx_fin]:
+            st.subheader("💰 Maliyyə Mərkəzi")
+            
+            # --- FORM FOR NEW TRANSACTION ---
+            with st.expander("➕ Yeni Əməliyyat", expanded=True):
+                with st.form("new_fin_trx"):
+                    c1, c2, c3 = st.columns(3)
+                    f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
+                    f_source = c2.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf"])
+                    f_cat = c3.selectbox("Kateqoriya", ["Xammal Alışı", "Maaş/Avans", "Borc Ödənişi", "İnvestisiya", "Təsərrüfat", "Digər"])
+                    
+                    c4, c5 = st.columns([1,2])
+                    f_amt = c4.number_input("Məbləğ (AZN)", min_value=0.01, step=0.01)
+                    f_desc = c5.text_input("Qeyd (Məs: Desert alışı)")
+                    
+                    if st.form_submit_button("Təsdiqlə"):
+                        db_type = 'out' if "Məxaric" in f_type else 'in'
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES (:t, :c, :a, :s, :d, :u)",
+                                   {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user})
+                        
+                        # Also sync to old expenses table if it's an expense, for backward compatibility
+                        if db_type == 'out':
+                            run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", 
+                                       {"a":f_amt, "r":f_desc, "s":st.session_state.user, "src":f_source})
+                        
+                        st.success("Əməliyyat uğurla yazıldı!")
+                        st.rerun()
+
+            # --- FINANCIAL SUMMARY ---
+            # Calculate Balances
+            # 1. Cashbox: Start 100 (Virtual) + Cash Sales - Cash Expenses (Finance Out) + Cash Incomes (Finance In)
+            # Actually, let's keep it simple based on logged transactions + Sales
+            
+            # Get totals from finance table
+            fin_df = run_query("SELECT * FROM finance")
+            
+            # Calculate Safe and Card balances (Purely from finance table)
+            safe_bal = fin_df[fin_df['source']=='Seyf'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
+            card_bal = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
+            
+            # Cashbox is tricky because of Sales. 
+            # Logic: Cashbox = (Cash Sales) + (Finance In Cashbox) - (Finance Out Cashbox)
+            # But since we reset cashbox daily via Z-report (Transfer), we need to see what's happening.
+            # For this Summary View, let's show "Current Cashbox" derived from Z-Report Logic.
+            
+            # Get last Z-report time
+            last_z = get_setting("last_z_report_time")
+            if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
+            else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
+            
+            # Sales since last Z
+            sales_since = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
+            
+            # Expenses from Cashbox since last Z
+            exp_since = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
+            
+            # Incomes to Cashbox since last Z (Rare, but possible)
+            inc_since = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
+            
+            start_lim = float(get_setting("cash_limit", "100.0"))
+            current_cashbox = start_lim + float(sales_since) + float(inc_since) - float(exp_since)
+
+            st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("🏪 Kassa (Cari)", f"{current_cashbox:.2f} ₼")
+            m2.metric("💳 Bank Kartı", f"{card_bal:.2f} ₼")
+            m3.metric("🏦 Seyf (Ehtiyat)", f"{safe_bal:.2f} ₼")
+            
+            st.write("📜 Son Əməliyyatlar")
+            st.dataframe(fin_df.sort_values(by="created_at", ascending=False).head(20), hide_index=True, use_container_width=True)
 
     if role == 'admin':
         with tabs[4]: # RESEPT
@@ -820,7 +873,7 @@ else:
 
     # --- ANALITIKA (SMART EMAIL + PRO REPORT) ---
     if role != 'staff':
-        idx = 5 if role == 'admin' else 4
+        idx = 6 if role == 'admin' else 4
         with tabs[idx]:
             st.subheader("📊 Analitika & Mənfəəti")
             
@@ -895,6 +948,72 @@ else:
 
     if role == 'staff':
         with tabs[-1]:
+            # --- Z-REPORT BUTTON ---
+            c_z1, c_z2 = st.columns([3,1])
+            with c_z2:
+                if st.button("🔴 Günü Bitir (Z-Hesabat)", type="primary"):
+                    st.session_state.z_report_active = True
+            
+            if st.session_state.z_report_active:
+                @st.dialog("📊 GÜNÜN BAĞLANIŞI")
+                def z_report_dialog():
+                    # 1. Get Data
+                    last_z = get_setting("last_z_report_time")
+                    if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
+                    else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
+                    
+                    sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
+                    exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
+                    inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
+                    
+                    start_limit = float(get_setting("cash_limit", "100.0"))
+                    
+                    # 2. Logic
+                    current_bal = start_limit + float(sales_cash) + float(inc_cash) - float(exp_cash)
+                    diff = current_bal - start_limit
+                    
+                    st.markdown(f"**Başlanğıc:** {start_limit:.2f} ₼")
+                    st.markdown(f"**+ Satış (Nəğd):** {float(sales_cash):.2f} ₼")
+                    st.markdown(f"**- Xərclər:** {float(exp_cash):.2f} ₼")
+                    st.markdown("---")
+                    st.markdown(f"### KASSADA OLMALIDIR: {current_bal:.2f} ₼")
+                    
+                    # 3. Action
+                    if diff > 0:
+                        st.warning(f"⚠️ Limitdən artıq pul var (+{diff:.2f}).")
+                        st.info(f"📥 Zəhmət olmasa **{diff:.2f} AZN** kassadan götürüb SEYFƏ/MENECERƏ təhvil verin.")
+                        action_type = "transfer_to_safe"
+                    elif diff < 0:
+                        needed = abs(diff)
+                        st.error(f"⚠️ Limit üçün pul çatmır (-{needed:.2f}).")
+                        st.info(f"📤 Zəhmət olmasa SEYFDƏN **{needed:.2f} AZN** götürüb kassaya qoyun.")
+                        action_type = "topup_from_safe"
+                    else:
+                        st.success("✅ Kassa tam 100 AZN-dir. Hərəkətə ehtiyac yoxdur.")
+                        action_type = "none"
+                    
+                    # 4. Confirm
+                    if st.button("✅ ƏMƏLİYYATI ETDİM VƏ GÜNÜ BAĞLA"):
+                        now_iso = get_baku_now().isoformat()
+                        
+                        if action_type == "transfer_to_safe":
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya', :a, 'Kassa', 'Z-Hesabat: Seyfə Transfer', :u)", {"a":diff, "u":st.session_state.user})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'İnkassasiya', :a, 'Seyf', 'Z-Hesabat: Kassadan Gələn', :u)", {"a":diff, "u":st.session_state.user})
+                        elif action_type == "topup_from_safe":
+                            needed = abs(diff)
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Kassa Tamamlama', :a, 'Kassa', 'Z-Hesabat: Seyfdən Gələn', :u)", {"a":needed, "u":st.session_state.user})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Kassa Tamamlama', :a, 'Seyf', 'Z-Hesabat: Kassaya Gedən', :u)", {"a":needed, "u":st.session_state.user})
+                        
+                        set_setting("last_z_report_time", now_iso)
+                        log_system(st.session_state.user, f"Z-Hesabat Bağlandı. Qalıq: {current_bal}")
+                        st.session_state.z_report_active = False
+                        st.success("Gün uğurla bağlandı!")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                z_report_dialog()
+
+            # --- NORMAL STAFF VIEW ---
             now = get_baku_now(); today_start = now.replace(hour=0,minute=0,second=0)
             daily_sales = run_query("SELECT total FROM sales WHERE cashier=:u AND created_at >= :d", {"u":st.session_state.user, "d":today_start})
             total_today = daily_sales['total'].sum() if not daily_sales.empty else 0.0
@@ -1086,6 +1205,11 @@ else:
             with st.expander("🔧 Sistem"):
                 st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
                 if st.button("Yadda Saxla"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
+                
+                # --- CASH LIMIT SETTING ---
+                c_lim = st.number_input("Standart Kassa Limiti (Z-Hesabat üçün)", value=float(get_setting("cash_limit", "100.0")))
+                if st.button("Limiti Yenilə"): set_setting("cash_limit", str(c_lim)); st.success("Yeniləndi!")
+
                 # --- ID REPAIR BUTTON ---
                 if st.button("🛠️ Bazanı Düzəlt (Reset IDs)"):
                     try: 
