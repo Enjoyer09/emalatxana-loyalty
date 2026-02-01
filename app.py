@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.77 (FINAL DEBUGGED) ===
+# === EMALATKHANA POS - V5.78 (STAFF ANALYTICS & LOG FORCE) ===
 # ==========================================
 
-VERSION = "v5.77 (Stable: Staff View Fixed, Logs Forced)"
+VERSION = "v5.78 (Stable: Staff Full Analytics, Logs Forced)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -136,7 +136,6 @@ def ensure_schema():
         except: pass
 
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS promo_codes (id SERIAL PRIMARY KEY, code TEXT UNIQUE, discount_percent INTEGER, valid_until DATE, assigned_user_id TEXT, is_used BOOLEAN DEFAULT FALSE);"))
@@ -165,17 +164,18 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- FIXED LOGGER (Direct Commit) ---
+# --- FIXED LOGGER (Direct Commit - FORCE MODE) ---
 def log_system(user, action, cid=None):
-    # This function now uses run_action to ensure immediate commit
+    # This uses run_action which has implicit session/commit handling
     try:
         run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", 
                    {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except Exception as e:
-        print(f"Log Failed: {e}")
+        # If logging fails, print to console but don't stop app
+        print(f"CRITICAL LOG FAILURE: {e}")
 
 def delete_sales_transaction(ids, user):
-    """ Deletes sales AND logs the action in a single transaction to ensure consistency """
+    """ Deletes sales AND logs the action in a single transaction """
     try:
         with conn.session as s:
             for i in ids:
@@ -873,7 +873,7 @@ else:
                                 st.error(f"Xəta: {e}")
                         else: st.warning("Fayl seçin")
 
-    # --- ANALITIKA ---
+    # --- ANALITIKA (STAFF ANALYTICS FIXED) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
@@ -946,7 +946,7 @@ else:
             c2.metric("Toplam Xərc", f"{cost:.2f} ₼")
             c3.metric("Xalis (Cash Flow)", f"{profit:.2f} ₼", delta_color="normal")
             
-            # --- SALES DELETE FUNCTIONALITY (NEW V5.76 FIXED) ---
+            # --- SALES DELETE FUNCTIONALITY ---
             if role == 'admin':
                 st.markdown("### 🗑️ Satışların İdarəedilməsi")
                 sales_edit = sales.copy()
@@ -1138,7 +1138,7 @@ else:
                 st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
                 if st.button("Yadda Saxla (Tables)"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
                 
-                # --- Z-REPORT TEST MODE TOGGLE (NEW V5.75) ---
+                # --- Z-REPORT TEST MODE TOGGLE ---
                 test_mode = st.checkbox("Z-Hesabat [TEST MODE]?", value=(get_setting("z_report_test_mode") == "TRUE"))
                 if st.button("Yadda Saxla (Test Mode)"): set_setting("z_report_test_mode", "TRUE" if test_mode else "FALSE"); st.success("Dəyişdirildi!"); st.rerun()
                 
@@ -1204,5 +1204,90 @@ else:
                             zf.writestr(f"{cid}_{type_map[kt]}.png", img)
                     st.success(f"{cnt} QR Kod yaradıldı!")
                     st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
+
+    if role == 'staff':
+        with tabs[-1]:
+            # --- STAFF SALES VIEW (NEW V5.77 FIXED) ---
+            st.subheader("📊 Mənim Satışlarım & Z-Hesabat")
+            
+            c_z1, c_z2 = st.columns([3,1])
+            with c_z2:
+                btn_lbl = "🔴 Günü Bitir (Z-Hesabat)"
+                if get_setting("z_report_test_mode") == "TRUE": btn_lbl += " [TEST MODE]"
+                if st.button(btn_lbl, type="primary"):
+                    st.session_state.z_report_active = True
+            
+            if st.session_state.z_report_active:
+                @st.dialog("📊 GÜNÜN BAĞLANIŞI")
+                def z_report_dialog():
+                    last_z = get_setting("last_z_report_time")
+                    if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
+                    else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
+                    
+                    sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
+                    exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
+                    inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
+                    
+                    start_limit = float(get_setting("cash_limit", "100.0"))
+                    current_bal = start_limit + float(sales_cash) + float(inc_cash) - float(exp_cash)
+                    diff = current_bal - start_limit
+                    
+                    st.markdown(f"**Başlanğıc:** {start_limit:.2f} ₼")
+                    st.markdown(f"**+ Satış (Nəğd):** {float(sales_cash):.2f} ₼")
+                    st.markdown(f"**- Xərclər:** {float(exp_cash):.2f} ₼")
+                    st.markdown("---")
+                    st.markdown(f"### KASSADA OLMALIDIR: {current_bal:.2f} ₼")
+                    
+                    if diff > 0:
+                        st.warning(f"⚠️ Limitdən artıq pul var (+{diff:.2f}).")
+                        st.info(f"📥 Zəhmət olmasa **{diff:.2f} AZN** kassadan götürüb SEYFƏ/MENECERƏ təhvil verin.")
+                        action_type = "transfer_to_safe"
+                    elif diff < 0:
+                        needed = abs(diff)
+                        st.error(f"⚠️ Limit üçün pul çatmır (-{needed:.2f}).")
+                        st.info(f"📤 Zəhmət olmasa SEYFDƏN **{needed:.2f} AZN** götürüb kassaya qoyun.")
+                        action_type = "topup_from_safe"
+                    else:
+                        st.success("✅ Kassa tam 100 AZN-dir.")
+                        action_type = "none"
+                    
+                    if st.button("✅ ƏMƏLİYYATI ETDİM VƏ GÜNÜ BAĞLA"):
+                        now_iso = get_baku_now().isoformat()
+                        
+                        if action_type == "transfer_to_safe":
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya', :a, 'Kassa', 'Z-Hesabat: Seyfə Transfer', :u)", {"a":diff, "u":st.session_state.user})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'İnkassasiya', :a, 'Seyf', 'Z-Hesabat: Kassadan Gələn', :u)", {"a":diff, "u":st.session_state.user})
+                        elif action_type == "topup_from_safe":
+                            needed = abs(diff)
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Kassa Tamamlama', :a, 'Kassa', 'Z-Hesabat: Seyfdən Gələn', :u)", {"a":needed, "u":st.session_state.user})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Kassa Tamamlama', :a, 'Seyf', 'Z-Hesabat: Kassaya Gedən', :u)", {"a":needed, "u":st.session_state.user})
+                        
+                        set_setting("last_z_report_time", now_iso)
+                        log_system(st.session_state.user, f"Z-Hesabat Bağlandı. Qalıq: {current_bal}")
+                        st.session_state.z_report_active = False
+                        st.success("Gün uğurla bağlandı!")
+                        time.sleep(1)
+                        st.rerun()
+                z_report_dialog()
+
+            st.divider()
+            now = get_baku_now(); today_start = now.replace(hour=0,minute=0,second=0)
+            daily_sales = run_query("SELECT total FROM sales WHERE cashier=:u AND created_at >= :d", {"u":st.session_state.user, "d":today_start})
+            total_today = daily_sales['total'].sum() if not daily_sales.empty else 0.0
+            st.metric("BUGÜN (Mənim Satışım)", f"{total_today:.2f} ₼")
+            
+            # Use explicit aliases to fix display issues
+            q = """
+                SELECT 
+                    created_at AS "Tarix", 
+                    items AS "Mallar", 
+                    total AS "Məbləğ", 
+                    payment_method AS "Ödəniş" 
+                FROM sales 
+                WHERE cashier = :u 
+                ORDER BY created_at DESC LIMIT 50
+            """
+            mys = run_query(q, {"u":st.session_state.user})
+            st.dataframe(mys, hide_index=True, use_container_width=True)
 
     st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
