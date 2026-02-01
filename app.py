@@ -20,10 +20,10 @@ import base64
 import streamlit.components.v1 as components
 
 # ==========================================
-# === EMALATKHANA POS - V5.85 (LOG FIX ONLY) ===
+# === EMALATKHANA POS - V5.86 (FINAL STABLE - SEARCH FIX) ===
 # ==========================================
 
-VERSION = "v5.85 (Stable: Critical Log Fix + Previous Features)"
+VERSION = "v5.86 (Stable: Logs Working, Search Bug Fixed)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -122,7 +122,7 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
         
-        # Migrations (Sales)
+        # Migrations
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_total DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
@@ -144,12 +144,10 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, attached_coupon TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         
-        # --- CRITICAL LOG REPAIR START ---
+        # --- LOG REPAIR ---
         s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, customer_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        # This explicitly checks and adds column if missing
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
-        # --- CRITICAL LOG REPAIR END ---
 
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS failed_logins (username TEXT PRIMARY KEY, attempt_count INTEGER DEFAULT 0, last_attempt TIMESTAMP, blocked_until TIMESTAMP);"))
@@ -173,23 +171,16 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 
-# --- LOG SYSTEM (REBUILT FOR STABILITY) ---
+# --- LOG SYSTEM ---
 def log_system(user, action, cid=None):
     try:
-        # Primary Attempt: Log everything including Customer ID
-        with conn.session as s:
-            s.execute(text("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)"), 
-                      {"u":user, "a":action, "c":cid, "t":get_baku_now()})
-            s.commit()
-    except Exception as e:
-        # Fallback Attempt: Log only basic info if schema is still broken
+        run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", 
+                   {"u":user, "a":action, "c":cid, "t":get_baku_now()})
+    except:
         try:
-            with conn.session as s:
-                s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), 
-                          {"u":user, "a":f"{action} (CID Error)", "t":get_baku_now()})
-                s.commit()
-        except Exception as e2:
-            print(f"CRITICAL LOG FAILURE: {e2}")
+            run_action("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)", 
+                       {"u":user, "a":action, "t":get_baku_now()})
+        except: pass
 
 def delete_sales_transaction(ids, user):
     try:
@@ -220,10 +211,12 @@ def send_email(to_email, subject, body):
     except: return "Error"
 def format_qty(val): return int(val) if val % 1 == 0 else val
 
-# --- CALLBACKS & SECURITY ---
+# --- FIX: CLEAR SEARCH INPUT SAFELY ---
 def clear_customer_data():
     st.session_state.current_customer_ta = None
-    if "search_input_ta" in st.session_state: st.session_state.search_input_ta = "" 
+    # Instead of assigning "", we DELETE the key. Streamlit recreates it empty on next run.
+    if "search_input_ta" in st.session_state:
+        del st.session_state["search_input_ta"]
 
 def create_session(username, role):
     token = secrets.token_urlsafe(32)
@@ -805,7 +798,11 @@ else:
             fin_df = run_query("SELECT * FROM finance")
             
             safe_bal = fin_df[fin_df['source']=='Seyf'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
-            card_bal = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
+            
+            # --- FIXED CARD BALANCE (Sales + Finance) ---
+            card_fin = fin_df[fin_df['source']=='Bank Kartı'].apply(lambda x: x['amount'] if x['type']=='in' else -x['amount'], axis=1).sum()
+            card_sales = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
+            card_bal = card_fin + card_sales
             
             # Cashbox Logic (Shift Based - 08:00)
             now = get_baku_now()
@@ -822,7 +819,7 @@ else:
             st.divider()
             m1, m2, m3 = st.columns(3)
             m1.metric("🏪 Kassa (Bu Növbə)", f"{current_cashbox:.2f} ₼")
-            m2.metric("💳 Bank Kartı", f"{card_bal:.2f} ₼")
+            m2.metric("💳 Bank Kartı (Cəm)", f"{card_bal:.2f} ₼")
             m3.metric("🏦 Seyf (Ehtiyat)", f"{safe_bal:.2f} ₼")
             
             st.write("📜 Son Əməliyyatlar")
