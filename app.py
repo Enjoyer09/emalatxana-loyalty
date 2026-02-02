@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.96 (FINAL EXACT MATCH) ===
+# === EMALATKHANA POS - V5.97 (SMART DELETE & CLEAN) ===
 # ==========================================
 
-VERSION = "v5.96 (Exact Inventory Names & All Menu)"
+VERSION = "v5.97 (Smart Delete & Clean UI)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -73,6 +73,7 @@ if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id =
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
+if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
 
 # --- CSS ---
 st.markdown("""
@@ -176,13 +177,6 @@ def verify_password(p, h):
 def log_system(user, action, cid=None):
     try: run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except: pass
-def delete_sales_transaction(ids, user):
-    try:
-        with conn.session as s:
-            for i in ids: s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
-            s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), {"u": user, "a": f"Satış Silindi ({len(ids)} ədəd)", "t": get_baku_now()})
-            s.commit()
-    except Exception as e: st.error(f"Xəta: {e}")
 def get_setting(key, default=""):
     try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
     except: return default
@@ -208,113 +202,6 @@ def validate_session():
 def clear_customer_data():
     st.session_state.current_customer_ta = None
 
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (UPDATED v5.96 - EXACT NAMES) ---
-def generate_ideal_recipes_excel():
-    # --- ANBAR NAMES (EXACT MATCH FROM ANBAR.XLSX) ---
-    COFFEE_BEAN = "Latina Blend Coffee"
-    MILK = "Milla Sud 3.2%"
-    CREAM = "Dom qaymaq 10%"  # CORRECTED
-    SYRUP_VANILLA = "Sirop Barinoff (Vanil)"
-    SYRUP_CARAMEL = "Sirop Barinoff (Karamel)"
-    CHOCO_SAUCE = "Topping Chocolate PS"
-    WHIPPED_CREAM = "Krem Şanti (President)"
-    ICE = "Buz (Ice)"
-    WATER = "Damacana Su"
-    
-    # --- TEAS (CHECK ANBAR IF NOT EXIST) ---
-    TEA_GREEN = "Yaşıl Çay (25li)" 
-    TEA_BLACK = "Qara Çay (Paket)" # Create if missing!
-    
-    ICE_CREAM = "Dondurma (Vanil)"
-    ORANGE_FRUIT = "Portağal (Meyvə)" # Create if missing!
-    
-    # --- PACKAGING ---
-    CUP_XS = "Stəkan Kağız (XS)"
-    CUP_S = "Stəkan Kağız (S)"
-    CUP_M = "Stəkan Kağız (M)"
-    CUP_L = "Stəkan Kağız (L)"
-    CUP_PLASTIC_M = "Stəkan Şəffaf (M)"
-    LID_S = "Qapaq İsti (Kiçik)"
-    LID_L = "Qapaq İsti (Böyük)"
-    LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
-
-    data = [
-        # --- BLACK COFFEE ---
-        ("Espresso S", COFFEE_BEAN, 0.009), ("Espresso S", CUP_XS, 1),
-        ("Espresso M", COFFEE_BEAN, 0.018), ("Espresso M", CUP_XS, 1),
-        ("Ristretto S", COFFEE_BEAN, 0.009), ("Ristretto S", CUP_XS, 1),
-        ("Ristretto M", COFFEE_BEAN, 0.018), ("Ristretto M", CUP_XS, 1),
-        ("Ristretto L", COFFEE_BEAN, 0.027), ("Ristretto L", CUP_S, 1), # Triple
-        ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
-        ("Americano M", COFFEE_BEAN, 0.018), ("Americano M", WATER, 0.300), ("Americano M", CUP_M, 1), ("Americano M", LID_L, 1),
-        ("Americano L", COFFEE_BEAN, 0.018), ("Americano L", WATER, 0.400), ("Americano L", CUP_L, 1), ("Americano L", LID_L, 1),
-        
-        # --- MILK COFFEE ---
-        ("Cappuccino S", COFFEE_BEAN, 0.009), ("Cappuccino S", MILK, 0.150), ("Cappuccino S", CUP_S, 1), ("Cappuccino S", LID_S, 1),
-        ("Cappuccino M", COFFEE_BEAN, 0.018), ("Cappuccino M", MILK, 0.200), ("Cappuccino M", CUP_M, 1), ("Cappuccino M", LID_L, 1),
-        ("Cappuccino L", COFFEE_BEAN, 0.018), ("Cappuccino L", MILK, 0.250), ("Cappuccino L", CUP_L, 1), ("Cappuccino L", LID_L, 1),
-        ("Latte S", COFFEE_BEAN, 0.009), ("Latte S", MILK, 0.200), ("Latte S", CUP_S, 1), ("Latte S", LID_S, 1),
-        ("Latte M", COFFEE_BEAN, 0.018), ("Latte M", MILK, 0.250), ("Latte M", CUP_M, 1), ("Latte M", LID_L, 1),
-        ("Latte L", COFFEE_BEAN, 0.018), ("Latte L", MILK, 0.300), ("Latte L", CUP_L, 1), ("Latte L", LID_L, 1),
-        
-        # --- SPECIALS ---
-        ("Raf S", COFFEE_BEAN, 0.009), ("Raf S", MILK, 0.100), ("Raf S", CREAM, 0.050), ("Raf S", SYRUP_VANILLA, 0.015), ("Raf S", CUP_S, 1), ("Raf S", LID_S, 1),
-        ("Raf M", COFFEE_BEAN, 0.018), ("Raf M", MILK, 0.150), ("Raf M", CREAM, 0.050), ("Raf M", SYRUP_VANILLA, 0.020), ("Raf M", CUP_M, 1), ("Raf M", LID_L, 1),
-        ("Raf L", COFFEE_BEAN, 0.018), ("Raf L", MILK, 0.200), ("Raf L", CREAM, 0.050), ("Raf L", SYRUP_VANILLA, 0.025), ("Raf L", CUP_L, 1), ("Raf L", LID_L, 1),
-        ("Mocha S", COFFEE_BEAN, 0.009), ("Mocha S", MILK, 0.150), ("Mocha S", CHOCO_SAUCE, 0.020), ("Mocha S", CUP_S, 1), ("Mocha S", LID_S, 1),
-        ("Mocha M", COFFEE_BEAN, 0.018), ("Mocha M", MILK, 0.200), ("Mocha M", CHOCO_SAUCE, 0.025), ("Mocha M", CUP_M, 1), ("Mocha M", LID_L, 1),
-        ("Mocha L", COFFEE_BEAN, 0.018), ("Mocha L", MILK, 0.250), ("Mocha L", CHOCO_SAUCE, 0.030), ("Mocha L", CUP_L, 1), ("Mocha L", LID_L, 1),
-        
-        # --- GLISSE & AFFOGATO ---
-        ("Affogato M", COFFEE_BEAN, 0.009), ("Affogato M", ICE_CREAM, 0.100), ("Affogato M", CUP_M, 1),
-        ("Affogato L", COFFEE_BEAN, 0.018), ("Affogato L", ICE_CREAM, 0.150), ("Affogato L", CUP_L, 1),
-        ("Glisse S", COFFEE_BEAN, 0.009), ("Glisse S", ICE_CREAM, 0.050), ("Glisse S", WHIPPED_CREAM, 0.020), ("Glisse S", CUP_S, 1),
-        ("Glisse M", COFFEE_BEAN, 0.009), ("Glisse M", ICE_CREAM, 0.100), ("Glisse M", WHIPPED_CREAM, 0.020), ("Glisse M", CUP_M, 1),
-        ("Glisse L", COFFEE_BEAN, 0.018), ("Glisse L", ICE_CREAM, 0.150), ("Glisse L", WHIPPED_CREAM, 0.020), ("Glisse L", CUP_L, 1),
-
-        # --- ICED ---
-        ("Ice Americano S", COFFEE_BEAN, 0.009), ("Ice Americano S", WATER, 0.150), ("Ice Americano S", ICE, 0.100), ("Ice Americano S", CUP_PLASTIC_M, 1), ("Ice Americano S", LID_PLASTIC, 1),
-        ("Ice Americano M", COFFEE_BEAN, 0.018), ("Ice Americano M", WATER, 0.200), ("Ice Americano M", ICE, 0.150), ("Ice Americano M", CUP_PLASTIC_M, 1), ("Ice Americano M", LID_PLASTIC, 1),
-        ("Ice Americano L", COFFEE_BEAN, 0.018), ("Ice Americano L", WATER, 0.250), ("Ice Americano L", ICE, 0.200), ("Ice Americano L", "Stəkan Şəffaf (L)", 1), ("Ice Americano L", LID_PLASTIC, 1),
-        ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1), ("Iced Latte S", LID_PLASTIC, 1),
-        ("Iced Latte M", COFFEE_BEAN, 0.018), ("Iced Latte M", MILK, 0.200), ("Iced Latte M", ICE, 0.150), ("Iced Latte M", CUP_PLASTIC_M, 1), ("Iced Latte M", LID_PLASTIC, 1),
-        ("Iced Latte L", COFFEE_BEAN, 0.018), ("Iced Latte L", MILK, 0.250), ("Iced Latte L", ICE, 0.200), ("Iced Latte L", "Stəkan Şəffaf (L)", 1), ("Iced Latte L", LID_PLASTIC, 1),
-        # Iced Cappuccino (Same as Iced Latte usually for stock)
-        ("Iced Cappuccino S", COFFEE_BEAN, 0.009), ("Iced Cappuccino S", MILK, 0.150), ("Iced Cappuccino S", ICE, 0.100), ("Iced Cappuccino S", CUP_PLASTIC_M, 1),
-        ("Iced Cappuccino M", COFFEE_BEAN, 0.018), ("Iced Cappuccino M", MILK, 0.200), ("Iced Cappuccino M", ICE, 0.150), ("Iced Cappuccino M", CUP_PLASTIC_M, 1),
-        ("Iced Cappuccino L", COFFEE_BEAN, 0.018), ("Iced Cappuccino L", MILK, 0.250), ("Iced Cappuccino L", ICE, 0.200), ("Iced Cappuccino L", "Stəkan Şəffaf (L)", 1),
-
-        # --- TEAS ---
-        ("Yaşıl çay - jasmin", TEA_GREEN, 1), ("Yaşıl çay - jasmin", WATER, 0.300), ("Yaşıl çay - jasmin", CUP_M, 1), ("Yaşıl çay - jasmin", LID_L, 1),
-        ("Meyvəli bitki çayı", "Meyvəli bitki çayı", 1), ("Meyvəli bitki çayı", WATER, 0.300), ("Meyvəli bitki çayı", CUP_M, 1), ("Meyvəli bitki çayı", LID_L, 1),
-        ("Çay M", TEA_BLACK, 1), ("Çay M", WATER, 0.300), ("Çay M", CUP_M, 1), ("Çay M", LID_L, 1), # Added!
-        
-        # --- MILKSHAKE ---
-        ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", SYRUP_VANILLA, 0.025), ("Milkşeyk S", CUP_PLASTIC_M, 1), ("Milkşeyk S", LID_PLASTIC, 1),
-        ("Milkşeyk M", ICE_CREAM, 0.200), ("Milkşeyk M", MILK, 0.080), ("Milkşeyk M", SYRUP_VANILLA, 0.035), ("Milkşeyk M", CUP_PLASTIC_M, 1), ("Milkşeyk M", LID_PLASTIC, 1),
-
-        # --- FRESH ---
-        ("Təbii sıxılmış portağal şirəsi", ORANGE_FRUIT, 0.700), ("Təbii sıxılmış portağal şirəsi", CUP_PLASTIC_M, 1),
-
-        # --- READY ITEMS ---
-        ("Yulaflı Cookie", "Yulaflı Cookie", 1),
-        ("Ağ Cookie", "Ağ Cookie", 1),
-        ("Kətə", "Kətə", 1),
-        ("Ekler", "Ekler", 1),
-        ("San Sebastian", "San Sebastian", 1),
-        ("Ballı tort", "Ballı tort", 1),
-        ("Su (500ml)", "Su (500ml)", 1),
-        ("Kola", "Kola", 1),
-        ("Tonik", "Tonik", 1),
-        ("Energetik (redbull 225 ml)", "Energetik (redbull 225 ml)", 1),
-        ("Meyvə şirəsi", "Meyvə şirəsi", 1),
-        ("Extra badam südü M", "Milla Sud 3.2%", 0.001), # Placeholder
-    ]
-    df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
-    out = BytesIO()
-    df.to_excel(out, index=False)
-    return out.getvalue()
-
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
     st.warning(f"⚠️ {action_name}")
@@ -325,6 +212,54 @@ def admin_confirm_dialog(action_name, callback, *args):
             if not adm.empty and verify_password(pwd, adm.iloc[0]['password']):
                 callback(*args); st.success("İcra olundu!"); time.sleep(1); st.rerun()
             else: st.error("Yanlış Şifrə!")
+
+@st.dialog("🗑️ Satışı Sil")
+def smart_delete_sale_dialog(sale_row):
+    st.warning(f"Satış ID: {sale_row['id']}")
+    st.info(f"Mallar: {sale_row['items']}")
+    st.error(f"Məbləğ: {sale_row['total']} ₼")
+    
+    st.write("---")
+    st.write("❓ **NİYƏ SİLİRSİNİZ?**")
+    reason = st.radio("Səbəb seçin:", [
+        "🅰️ Səhv Vurulub / Test (Mal Qayıtsın) 🔄", 
+        "🅱️ Zay Olub / Dağılıb (Mal Qayıtmasın) 🗑️"
+    ])
+    
+    if st.button("🔴 TƏSDİQLƏ VƏ SİL"):
+        try:
+            restore_stock = "Səhv" in reason
+            sale_id = int(sale_row['id'])
+            
+            with conn.session as s:
+                # 1. Restore Stock if requested
+                if restore_stock and sale_row['items']:
+                    items_str = sale_row['items']
+                    parts = items_str.split(", ")
+                    for p in parts:
+                        match = re.match(r"(.+) x(\d+)", p)
+                        if match:
+                            iname = match.group(1).strip()
+                            iqty = int(match.group(2))
+                            # Get recipe for this item
+                            recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":iname}).fetchall()
+                            for r in recs:
+                                # Add back to stock
+                                qty_to_add = float(r[1]) * iqty
+                                s.execute(text("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:n"), {"q":qty_to_add, "n":r[0]})
+                
+                # 2. Delete Sale
+                s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":sale_id})
+                s.commit()
+            
+            action_desc = "Silindi (Stok Bərpa Olundu)" if restore_stock else "Silindi (Zay Oldu - Stok Getdi)"
+            log_system(st.session_state.user, f"Satış Silindi #{sale_id}: {action_desc}")
+            st.success("Satış uğurla silindi!")
+            time.sleep(1.5)
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Xəta: {e}")
 
 def calculate_smart_total(cart, customer=None, is_table=False):
     total = 0.0; disc_rate = 0.0; current_stars = 0
@@ -595,16 +530,13 @@ else:
         with tabs[idx_anbar]:
             st.subheader("📦 Anbar İdarəetməsi")
             
-            # --- SMART SINGLE ADD (v5.96 Feature) ---
+            # --- SMART SINGLE ADD ---
             with st.expander("➕ Ağıllı Mal Əlavə Et (Smart)", expanded=True):
                  st.info("💡 Məs: Qaymaq (0.48 L) = 5.29 AZN. Sistem özü 1 Litrin qiymətini tapacaq.")
                  with st.form("smart_add_item", clear_on_submit=True):
                     c1, c2, c3 = st.columns(3)
                     mn_name = c1.text_input("Malın Adı (Məs: Dom Qaymaq)")
-                    
-                    # --- DYNAMIC CATEGORY LOGIC ---
                     sel_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."])
-                    
                     mn_unit = c3.selectbox("Əsas Vahid (Resept üçün)", ["L", "KQ", "ƏDƏD"])
                     
                     mn_cat_final = sel_cat
@@ -616,21 +548,17 @@ else:
                     pack_size = c4.number_input("Aldığın Qabın Həcmi/Çəkisi", min_value=0.001, step=0.001, help="Məs: 0.48 (Litr) və ya 0.5 (KQ)")
                     pack_price = c5.number_input("Aldığın Qabın Qiyməti (AZN)", min_value=0.01, step=0.01, help="Məs: 5.29")
                     pack_count = c6.number_input("Neçə ədəd/qutu almısan?", min_value=0.0, step=0.5, value=1.0)
-                    
                     mn_type = st.selectbox("Növ", ["ingredient", "consumable"], index=0)
                     
                     if st.form_submit_button("Hesabla və Yarat"):
                          if mn_name and pack_size > 0:
-                             # AUTO CALCULATE
-                             calc_unit_cost = pack_price / pack_size # 1 Litr/KQ qiyməti
-                             total_stock_add = pack_size * pack_count # Cəmi stok (Litr/KQ ilə)
-                             
+                             calc_unit_cost = pack_price / pack_size 
+                             total_stock_add = pack_size * pack_count 
                              run_action("""
                                  INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) 
                                  VALUES (:n, :q, :u, :c, :t, :uc, 1) 
                                  ON CONFLICT (name) DO NOTHING
                              """, {"n":mn_name, "q":total_stock_add, "u":mn_unit, "c":mn_cat_final, "t":mn_type, "uc":calc_unit_cost})
-                             
                              st.success(f"✅ {mn_name} yaradıldı!")
                              st.success(f"🧮 1 {mn_unit} = {calc_unit_cost:.2f} AZN")
                              st.success(f"📦 Stok: {total_stock_add} {mn_unit}")
@@ -687,16 +615,11 @@ else:
                     def show_edit(r):
                         with st.form("ed_form"):
                             en = st.text_input("Ad", r['name']); 
-                            # --- PRESET FOR EDIT ---
-                            current_cat = r['category']
-                            idx = 0
+                            current_cat = r['category']; idx = 0
                             if current_cat in PRESET_CATEGORIES: idx = PRESET_CATEGORIES.index(current_cat)
-                            
                             ec = st.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."], index=idx); 
                             eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
-                            
                             if ec == "➕ Yeni Yarat...": ec = st.text_input("Yeni Kateqoriya Adı")
-                            
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])}); log_system(st.session_state.user, f"Düzəliş: {en}"); st.session_state.edit_item_id = None; st.rerun()
                     show_edit(row)
@@ -755,7 +678,6 @@ else:
                 exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['e'] or 0.0
                 inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
                 
-                # --- NEW LOGIC: START + SALES - EXPENSES
                 start_lim = float(get_setting("cash_limit", "0.0"))
                 disp_cash = start_lim + float(sales_cash) + float(inc_cash) - float(exp_cash)
                 
@@ -808,7 +730,7 @@ else:
             st.write("📜 Son Əməliyyatlar"); fin_df = run_query("SELECT * FROM finance"); st.dataframe(fin_df.sort_values(by="created_at", ascending=False).head(20), hide_index=True, use_container_width=True)
 
     if role == 'admin':
-        with tabs[4]: # RESEPT (UPDATED V5.96)
+        with tabs[4]: # RESEPT (CLEANED v5.97)
             st.subheader("📜 Resept")
             sel_prod = st.selectbox("Məhsul", ["(Seçin)"] + run_query("SELECT item_name FROM menu WHERE is_active=TRUE")['item_name'].tolist())
             if sel_prod != "(Seçin)":
@@ -839,17 +761,7 @@ else:
                     if st.form_submit_button("Əlavə Et"): 
                         run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":real_ing_name,"q":s_q}); st.rerun()
             
-            # --- IDEAL RECIPES GENERATOR (v5.96) ---
-            with st.expander("🛠️ FAYDA: İdeal Reseptləri Yüklə (SCA Standartı)"):
-                st.info("Bu düyməni basanda sənə lazım olan o hazır Excel faylı yaranacaq. Onu endir, sonra aşağıdakı 'Import' bölməsindən yüklə.")
-                excel_bytes = generate_ideal_recipes_excel()
-                st.download_button("📥 İdeal Reseptləri Endir (Excel)", excel_bytes, "ideal_recipes.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
             with st.expander("📤 Reseptləri İmport / Export (Excel)"):
-                # BULK DELETE
-                if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"):
-                    admin_confirm_dialog("Bütün reseptlər silinsin? Geri qaytarmaq olmayacaq!", lambda: run_action("DELETE FROM recipes"))
-                
                 with st.form("recipe_import_form"):
                     upl_rec = st.file_uploader("📥 Import", type="xlsx")
                     if st.form_submit_button("Reseptləri Yüklə"):
@@ -868,7 +780,7 @@ else:
                             except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-    # --- ANALITIKA (UPDATED V5.96) ---
+    # --- ANALITIKA (UPDATED V5.97) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
@@ -906,14 +818,29 @@ else:
             k1.metric("Kassa Xərci (Real)", f"{total_exp:.2f} ₼", help="Kassadan çıxan canlı pul"); k2.metric("Təxmini Maya Dəyəri", f"{est_cogs:.2f} ₼", help="Resept əsasında silinən mal"); k3.metric("Təxmini Mənfəət", f"{gross_profit:.2f} ₼", delta_color="normal")
 
             if role == 'admin':
-                st.markdown("### 🗑️ Satışların İdarəedilməsi"); sales_edit = sales.copy(); sales_edit.insert(0, "Seç", False); edited_sales = st.data_editor(sales_edit, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id","items","total","created_at"], key="s_del_ed"); to_delete = edited_sales[edited_sales["Seç"]]['id'].tolist()
-                if to_delete and st.button(f"❌ Seçilən {len(to_delete)} Satışı Sil", type="primary"): admin_confirm_dialog(f"{len(to_delete)} satış silinsin?", delete_sales_transaction, to_delete, st.session_state.user)
+                st.markdown("### 🗑️ Satışların İdarəedilməsi")
+                sales_edit = sales.copy()
+                
+                # --- NEW SMART DELETE UI ---
+                st.info("💡 Silmək istədiyiniz satışın ID-sini aşağıdakı siyahıdan tapıb, yanındakı 'Sil' düyməsinə basın.")
+                
+                # Custom Display for better UX
+                for index, row in sales_edit.iterrows():
+                    c1, c2, c3, c4, c5 = st.columns([1, 4, 2, 2, 2])
+                    c1.write(f"#{row['id']}")
+                    c2.write(f"{row['items']}")
+                    c3.write(f"{row['total']} ₼")
+                    c4.write(f"{row['created_at'].strftime('%H:%M')}")
+                    if c5.button("❌ Sil", key=f"btn_del_sale_{row['id']}"):
+                        smart_delete_sale_dialog(row)
+                
             else: st.dataframe(sales, hide_index=True)
 
     if role in ['admin','manager']:
         idx_log = 6 if role == 'admin' else 5
         with tabs[idx_log]: st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100"), hide_index=True)
     
+    # ... (Rest of tabs: CRM, Menu, Settings, Baza, QR - Same as before) ...
     if role != 'staff':
         idx_crm = 7 if role == 'admin' else 6
         with tabs[idx_crm]:
@@ -955,7 +882,7 @@ else:
                             if st.form_submit_button("Yadda Saxla"): run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":en,"p":ep,"c":ec,"ic":eic,"id":int(r['id'])}); log_system(st.session_state.user, f"Menyu Düzəliş: {en}"); st.session_state.menu_edit_id = None; st.rerun()
                     edit_menu_dialog(mr)
             
-            # --- MENU IMPORT/EXPORT (v5.96) ---
+            # --- MENU IMPORT/EXPORT ---
             with st.expander("📤 Menyu İmport / Export (Excel)"):
                 with st.form("menu_imp_form"):
                     upl_m = st.file_uploader("📥 Import Menu", type="xlsx")
