@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.99 (FIXED MASTER) ===
+# === EMALATKHANA POS - V6.00 (STABLE FIXED) ===
 # ==========================================
 
-VERSION = "v5.99 (Fixed: Excel Generator & Manager Tools)"
+VERSION = "v6.00 (Fixed: Date ID Error & Manager Tables)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -211,7 +211,7 @@ def clear_customer_data():
 
 # --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
 def generate_ideal_recipes_excel():
-    # --- ANBAR NAMES (EXACT MATCH) ---
+    # --- ANBAR NAMES (EXACT MATCH FROM ANBAR.XLSX) ---
     COFFEE_BEAN = "Latina Blend Coffee"
     MILK = "Milla Sud 3.2%"
     CREAM = "Dom qaymaq 10%"
@@ -690,6 +690,7 @@ else:
         with tabs[idx_anbar]:
             st.subheader("📦 Anbar İdarəetməsi")
             
+            # --- SMART SINGLE ADD ---
             if role == 'admin' or role == 'manager':
                 with st.expander("➕ Mədaxil / Yeni Mal", expanded=False):
                      st.info("💡 Məs: Qaymaq (0.48 L) = 5.29 AZN. Sistem özü 1 Litrin qiymətini tapacaq.")
@@ -842,8 +843,10 @@ else:
                 sales_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
                 exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['e'] or 0.0
                 inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                
                 start_lim = float(get_setting("cash_limit", "0.0"))
                 disp_cash = start_lim + float(sales_cash) + float(inc_cash) - float(exp_cash)
+                
                 disp_card = float(sales_card) 
                 inc_safe = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
                 out_safe = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['o'] or 0.0
@@ -949,12 +952,15 @@ else:
                             except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-    # --- ANALITIKA (UPDATED V5.99) ---
+    # --- ANALITIKA (UPDATED V6.00 - FIXED KEYS) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
             st.subheader("📊 Analitika & Mənfəət")
-            c1, c2 = st.columns(2); d1 = c1.date_input("Start", datetime.date.today()); d2 = c2.date_input("End", datetime.date.today()); t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit", datetime.time(23,59)); ts_start = datetime.datetime.combine(d1, t1); ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
+            c1, c2 = st.columns(2); 
+            d1 = c1.date_input("Start", datetime.date.today(), key="ana_date_start"); # ADDED KEY
+            d2 = c2.date_input("End", datetime.date.today(), key="ana_date_end"); # ADDED KEY
+            t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit", datetime.time(23,59)); ts_start = datetime.datetime.combine(d1, t1); ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             
@@ -1248,7 +1254,9 @@ else:
                 z_report_dialog()
 
             st.divider(); st.markdown("### 🔍 Mənim Satışlarım")
-            c1, c2 = st.columns(2); d1 = c1.date_input("Start", datetime.date.today()); d2 = c2.date_input("End", datetime.date.today())
+            c1, c2 = st.columns(2); 
+            d1 = c1.date_input("Start", datetime.date.today(), key="staff_date_start"); # KEY ADDED
+            d2 = c2.date_input("End", datetime.date.today(), key="staff_date_end"); # KEY ADDED
             ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
             
             q_staff = """SELECT s.created_at AS "Tarix", s.items AS "Mallar", s.original_total AS "Məbləğ (Endirimsiz)", s.discount_amount AS "Endirim", s.total AS "Yekun", s.payment_method AS "Ödəniş", s.customer_card_id AS "Müştəri ID" FROM sales s WHERE s.cashier = :u AND s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC"""
