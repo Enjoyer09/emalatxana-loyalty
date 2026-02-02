@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.93 (PROFESSIONAL IMPORT/EXPORT) ===
+# === EMALATKHANA POS - V5.94 (MASTER) ===
 # ==========================================
 
-VERSION = "v5.93 (Smart Stock & Full Import/Export)"
+VERSION = "v5.94 (Ideal Recipes Generator & Smart Categories)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -38,7 +38,18 @@ DEFAULT_TERMS = """<div style="font-family: Arial, sans-serif; color: #333; line
 
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
 SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Təchizatçı", "Digər"]
-PRESET_CATEGORIES = ["Kofe (Dənələr)", "Süd Məhsulları", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "Təsərrüfat/Təmizlik", "Digər"]
+
+# --- PRESET KATEQORIYALAR ---
+PRESET_CATEGORIES = [
+    "Kofe (Dənələr)", 
+    "Süd Məhsulları", 
+    "Bar Məhsulları (Su/Buz)", 
+    "Siroplar", 
+    "Soslar və Pastalar", 
+    "Qablaşdırma (Stəkan/Qapaq)", 
+    "Şirniyyat (Hazır)", 
+    "Təsərrüfat/Təmizlik"
+]
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
@@ -192,6 +203,59 @@ def validate_session():
     if not st.session_state.session_token: return False
     res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     return not res.empty
+
+# --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
+def generate_ideal_recipes_excel():
+    COFFEE_BEAN = "Latina Blend Coffee"
+    MILK = "Milla Sud 3.2%"
+    CREAM = "Dom Qaymaq"
+    SYRUP_VANILLA = "Sirop Barinoff (Vanil)"
+    CHOCO_SAUCE = "Topping Chocolate PS"
+    ICE = "Buz (Ice)"
+    WATER = "Damacana Su"
+    TEA_GREEN = "Yaşıl Çay (25li)"
+    TEA_BLACK = "Meyvəli bitki çayı"
+    ICE_CREAM = "Dondurma (Vanil)"
+    CUP_XS = "Stəkan Kağız (XS)"
+    CUP_S = "Stəkan Kağız (S)"
+    CUP_M = "Stəkan Kağız (M)"
+    CUP_L = "Stəkan Kağız (L)"
+    CUP_PLASTIC_M = "Stəkan Şəffaf (M)"
+    LID_S = "Qapaq İsti (Kiçik)"
+    LID_L = "Qapaq İsti (Böyük)"
+    LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
+
+    data = [
+        ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
+        ("Americano M", COFFEE_BEAN, 0.018), ("Americano M", WATER, 0.300), ("Americano M", CUP_M, 1), ("Americano M", LID_L, 1),
+        ("Americano L", COFFEE_BEAN, 0.018), ("Americano L", WATER, 0.400), ("Americano L", CUP_L, 1), ("Americano L", LID_L, 1),
+        ("Cappuccino S", COFFEE_BEAN, 0.009), ("Cappuccino S", MILK, 0.150), ("Cappuccino S", CUP_S, 1), ("Cappuccino S", LID_S, 1),
+        ("Cappuccino M", COFFEE_BEAN, 0.018), ("Cappuccino M", MILK, 0.200), ("Cappuccino M", CUP_M, 1), ("Cappuccino M", LID_L, 1),
+        ("Cappuccino L", COFFEE_BEAN, 0.018), ("Cappuccino L", MILK, 0.250), ("Cappuccino L", CUP_L, 1), ("Cappuccino L", LID_L, 1),
+        ("Latte S", COFFEE_BEAN, 0.009), ("Latte S", MILK, 0.200), ("Latte S", CUP_S, 1), ("Latte S", LID_S, 1),
+        ("Latte M", COFFEE_BEAN, 0.018), ("Latte M", MILK, 0.250), ("Latte M", CUP_M, 1), ("Latte M", LID_L, 1),
+        ("Latte L", COFFEE_BEAN, 0.018), ("Latte L", MILK, 0.300), ("Latte L", CUP_L, 1), ("Latte L", LID_L, 1),
+        ("Raf S", COFFEE_BEAN, 0.009), ("Raf S", MILK, 0.100), ("Raf S", CREAM, 0.050), ("Raf S", SYRUP_VANILLA, 0.015), ("Raf S", CUP_S, 1), ("Raf S", LID_S, 1),
+        ("Raf M", COFFEE_BEAN, 0.018), ("Raf M", MILK, 0.150), ("Raf M", CREAM, 0.050), ("Raf M", SYRUP_VANILLA, 0.020), ("Raf M", CUP_M, 1), ("Raf M", LID_L, 1),
+        ("Raf L", COFFEE_BEAN, 0.018), ("Raf L", MILK, 0.200), ("Raf L", CREAM, 0.050), ("Raf L", SYRUP_VANILLA, 0.025), ("Raf L", CUP_L, 1), ("Raf L", LID_L, 1),
+        ("Mocha S", COFFEE_BEAN, 0.009), ("Mocha S", MILK, 0.150), ("Mocha S", CHOCO_SAUCE, 0.020), ("Mocha S", CUP_S, 1), ("Mocha S", LID_S, 1),
+        ("Mocha M", COFFEE_BEAN, 0.018), ("Mocha M", MILK, 0.200), ("Mocha M", CHOCO_SAUCE, 0.025), ("Mocha M", CUP_M, 1), ("Mocha M", LID_L, 1),
+        ("Mocha L", COFFEE_BEAN, 0.018), ("Mocha L", MILK, 0.250), ("Mocha L", CHOCO_SAUCE, 0.030), ("Mocha L", CUP_L, 1), ("Mocha L", LID_L, 1),
+        ("Ice Americano S", COFFEE_BEAN, 0.009), ("Ice Americano S", WATER, 0.150), ("Ice Americano S", ICE, 0.100), ("Ice Americano S", CUP_PLASTIC_M, 1), ("Ice Americano S", LID_PLASTIC, 1),
+        ("Ice Americano M", COFFEE_BEAN, 0.018), ("Ice Americano M", WATER, 0.200), ("Ice Americano M", ICE, 0.150), ("Ice Americano M", CUP_PLASTIC_M, 1), ("Ice Americano M", LID_PLASTIC, 1),
+        ("Ice Americano L", COFFEE_BEAN, 0.018), ("Ice Americano L", WATER, 0.250), ("Ice Americano L", ICE, 0.200), ("Ice Americano L", "Stəkan Şəffaf (L)", 1), ("Ice Americano L", LID_PLASTIC, 1),
+        ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1), ("Iced Latte S", LID_PLASTIC, 1),
+        ("Iced Latte M", COFFEE_BEAN, 0.018), ("Iced Latte M", MILK, 0.200), ("Iced Latte M", ICE, 0.150), ("Iced Latte M", CUP_PLASTIC_M, 1), ("Iced Latte M", LID_PLASTIC, 1),
+        ("Iced Latte L", COFFEE_BEAN, 0.018), ("Iced Latte L", MILK, 0.250), ("Iced Latte L", ICE, 0.200), ("Iced Latte L", "Stəkan Şəffaf (L)", 1), ("Iced Latte L", LID_PLASTIC, 1),
+        ("Yaşıl çay - jasmin", TEA_GREEN, 1), ("Yaşıl çay - jasmin", WATER, 0.300), ("Yaşıl çay - jasmin", CUP_M, 1), ("Yaşıl çay - jasmin", LID_L, 1),
+        ("Meyvəli bitki çayı", TEA_BLACK, 1), ("Meyvəli bitki çayı", WATER, 0.300), ("Meyvəli bitki çayı", CUP_M, 1), ("Meyvəli bitki çayı", LID_L, 1),
+        ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", SYRUP_VANILLA, 0.010), ("Milkşeyk S", CUP_PLASTIC_M, 1), ("Milkşeyk S", LID_PLASTIC, 1),
+        ("Milkşeyk M", ICE_CREAM, 0.200), ("Milkşeyk M", MILK, 0.080), ("Milkşeyk M", SYRUP_VANILLA, 0.015), ("Milkşeyk M", CUP_PLASTIC_M, 1), ("Milkşeyk M", LID_PLASTIC, 1),
+    ]
+    df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
+    out = BytesIO()
+    df.to_excel(out, index=False)
+    return out.getvalue()
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -473,16 +537,21 @@ else:
         with tabs[idx_anbar]:
             st.subheader("📦 Anbar İdarəetməsi")
             
-            # --- SMART SINGLE ADD (v5.93 Feature) ---
+            # --- SMART SINGLE ADD (v5.94 Feature) ---
             with st.expander("➕ Ağıllı Mal Əlavə Et (Smart)", expanded=True):
                  st.info("💡 Məs: Qaymaq (0.48 L) = 5.29 AZN. Sistem özü 1 Litrin qiymətini tapacaq.")
                  with st.form("smart_add_item", clear_on_submit=True):
                     c1, c2, c3 = st.columns(3)
                     mn_name = c1.text_input("Malın Adı (Məs: Dom Qaymaq)")
-                    mn_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["(Digər)"])
+                    
+                    # --- DYNAMIC CATEGORY LOGIC ---
+                    sel_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."])
+                    
                     mn_unit = c3.selectbox("Əsas Vahid (Resept üçün)", ["L", "KQ", "ƏDƏD"])
                     
-                    if mn_cat == "(Digər)": mn_cat = st.text_input("Yeni Kateqoriya Adı")
+                    mn_cat_final = sel_cat
+                    if sel_cat == "➕ Yeni Yarat...":
+                         mn_cat_final = st.text_input("Yeni Kateqoriya Adı (Məs: Tütün Məmulatları)")
                     
                     st.write("---")
                     c4, c5, c6 = st.columns(3)
@@ -494,15 +563,14 @@ else:
                     
                     if st.form_submit_button("Hesabla və Yarat"):
                          if mn_name and pack_size > 0:
-                             # AUTO CALCULATE
-                             calc_unit_cost = pack_price / pack_size # 1 Litr/KQ qiyməti
-                             total_stock_add = pack_size * pack_count # Cəmi stok (Litr/KQ ilə)
+                             calc_unit_cost = pack_price / pack_size 
+                             total_stock_add = pack_size * pack_count 
                              
                              run_action("""
                                  INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) 
                                  VALUES (:n, :q, :u, :c, :t, :uc, 1) 
                                  ON CONFLICT (name) DO NOTHING
-                             """, {"n":mn_name, "q":total_stock_add, "u":mn_unit, "c":mn_cat, "t":mn_type, "uc":calc_unit_cost})
+                             """, {"n":mn_name, "q":total_stock_add, "u":mn_unit, "c":mn_cat_final, "t":mn_type, "uc":calc_unit_cost})
                              
                              st.success(f"✅ {mn_name} yaradıldı!")
                              st.success(f"🧮 1 {mn_unit} = {calc_unit_cost:.2f} AZN")
@@ -559,8 +627,7 @@ else:
                     @st.dialog("✏️ Düzəliş")
                     def show_edit(r):
                         with st.form("ed_form"):
-                            en = st.text_input("Ad", r['name']); ec = st.selectbox("Kateqoriya", PRESET_CATEGORIES + ["(Digər)"], index=PRESET_CATEGORIES.index(r['category']) if r['category'] in PRESET_CATEGORIES else 0); eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
-                            if ec == "(Digər)": ec = st.text_input("Yeni Kateqoriya Adı")
+                            en = st.text_input("Ad", r['name']); ec = st.text_input("Kateqoriya", r['category']); eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])}); log_system(st.session_state.user, f"Düzəliş: {en}"); st.session_state.edit_item_id = None; st.rerun()
                     show_edit(row)
@@ -658,7 +725,7 @@ else:
             st.write("📜 Son Əməliyyatlar"); fin_df = run_query("SELECT * FROM finance"); st.dataframe(fin_df.sort_values(by="created_at", ascending=False).head(20), hide_index=True, use_container_width=True)
 
     if role == 'admin':
-        with tabs[4]: # RESEPT (UPDATED V5.93)
+        with tabs[4]: # RESEPT (UPDATED V5.94)
             st.subheader("📜 Resept")
             sel_prod = st.selectbox("Məhsul", ["(Seçin)"] + run_query("SELECT item_name FROM menu WHERE is_active=TRUE")['item_name'].tolist())
             if sel_prod != "(Seçin)":
@@ -689,7 +756,17 @@ else:
                     if st.form_submit_button("Əlavə Et"): 
                         run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":real_ing_name,"q":s_q}); st.rerun()
             
+            # --- IDEAL RECIPES GENERATOR (v5.94) ---
+            with st.expander("🛠️ FAYDA: İdeal Reseptləri Yüklə (SCA Standartı)"):
+                st.info("Bu düyməni basanda sənə lazım olan o hazır Excel faylı yaranacaq. Onu endir, sonra aşağıdakı 'Import' bölməsindən yüklə.")
+                excel_bytes = generate_ideal_recipes_excel()
+                st.download_button("📥 İdeal Reseptləri Endir (Excel)", excel_bytes, "ideal_recipes.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
             with st.expander("📤 Reseptləri İmport / Export (Excel)"):
+                # BULK DELETE
+                if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"):
+                    admin_confirm_dialog("Bütün reseptlər silinsin? Geri qaytarmaq olmayacaq!", lambda: run_action("DELETE FROM recipes"))
+                
                 with st.form("recipe_import_form"):
                     upl_rec = st.file_uploader("📥 Import", type="xlsx")
                     if st.form_submit_button("Reseptləri Yüklə"):
