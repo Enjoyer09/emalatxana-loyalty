@@ -18,12 +18,13 @@ import requests
 import json
 import base64
 import streamlit.components.v1 as components
+import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.92 (SMART RECIPE STOCK) ===
+# === EMALATKHANA POS - V5.93 RC3 (ANALYTICS & RESTORE) ===
 # ==========================================
 
-VERSION = "v5.92 (Stable: Stock-Aware Recipes)"
+VERSION = "v5.93 RC3 (Stable: Analytics & Restoration)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -530,6 +531,24 @@ else:
                     df_i = run_query("SELECT id, name, stock_qty, unit, unit_cost, approx_count, category, type FROM ingredients WHERE type=:t ORDER BY name", {"t":db_type})
                 asset_val = (df_i['stock_qty'] * df_i['unit_cost']).sum()
             st.markdown(f"### 📦 Anbar (Cəmi: {asset_val:.2f} ₼)")
+            
+            # --- TEK MAL ELAVE ET (RESTORED V5.93 RC3) ---
+            with st.expander("➕ Tək Mal Əlavə Et (Manual)"):
+                 with st.form("manual_add_item", clear_on_submit=True):
+                    c1, c2, c3 = st.columns(3)
+                    mn_name = c1.text_input("Malın Adı")
+                    mn_cat = c2.text_input("Kateqoriya (Məs: Kofe, Süd)")
+                    mn_unit = c3.selectbox("Vahid", ["KQ", "L", "ƏDƏD"])
+                    c4, c5, c6 = st.columns(3)
+                    mn_qty = c4.number_input("İlkin Stok Sayı", 0.0, step=0.001)
+                    mn_cost = c5.number_input("Maya Dəyəri (Bir vahidin)", 0.0, step=0.01)
+                    mn_type = c6.selectbox("Növ", ["ingredient", "consumable"], index=0)
+                    if st.form_submit_button("Yarat (Anbar)"):
+                         if mn_name:
+                             run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) VALUES (:n, :q, :u, :c, :t, :uc, 1) ON CONFLICT (name) DO NOTHING", 
+                                        {"n":mn_name, "q":mn_qty, "u":mn_unit, "c":mn_cat, "t":mn_type, "uc":mn_cost})
+                             st.success(f"{mn_name} yaradıldı!"); st.rerun()
+
             rows_per_page = st.selectbox("Səhifədə neçə mal olsun?", [20, 40, 60], index=0)
             if rows_per_page != st.session_state.anbar_rows_per_page: st.session_state.anbar_rows_per_page = rows_per_page; st.session_state.anbar_page = 0
             total_rows = len(df_i); total_pages = math.ceil(total_rows / rows_per_page); start_idx = st.session_state.anbar_page * rows_per_page; end_idx = start_idx + rows_per_page
@@ -743,7 +762,7 @@ else:
                                     log_system(st.session_state.user, f"Resept Import: {cnt} sətir"); st.success(f"{cnt} resept sətri yükləndi!")
                             except Exception as e: st.error(f"Xəta: {e}")
 
-    # --- ANALITIKA ---
+    # --- ANALITIKA (UPDATED V5.93) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
@@ -753,9 +772,68 @@ else:
                 c_mail, c_btn = st.columns([3,1]); target_email = c_mail.text_input("Hesabat Emaili", value=get_setting("admin_email", DEFAULT_SENDER_EMAIL))
                 if c_btn.button("📩 Gündəlik Hesabatı Göndər"): st.success("Hesabat göndərildi!")
             st.divider()
-            sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end}); exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
-            rev = sales['total'].sum(); cost = exps['amount'].sum(); profit = rev - cost
-            c1,c2,c3 = st.columns(3); c1.metric("Toplam Satış", f"{rev:.2f} ₼"); c2.metric("Toplam Xərc", f"{cost:.2f} ₼"); c3.metric("Xalis (Cash Flow)", f"{profit:.2f} ₼", delta_color="normal")
+            
+            # --- MAIN QUERY ---
+            sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
+            exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
+            
+            # 1. SALES BREAKDOWN (CASH vs CARD)
+            total_rev = sales['total'].sum() if not sales.empty else 0.0
+            rev_cash = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0
+            rev_card = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
+            
+            # 2. EXPENSES
+            total_exp = exps['amount'].sum() if not exps.empty else 0.0
+            
+            # 3. CASH FLOW (Real Money)
+            cash_flow_net = rev_cash - total_exp
+            
+            # 4. COGS (Theoretical) - SIMPLE APPROXIMATION
+            # Only for non-empty sales
+            est_cogs = 0.0
+            if not sales.empty:
+                # Get current recipes and ingredient costs
+                all_recs = run_query("SELECT r.menu_item_name, r.quantity_required, i.unit_cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name")
+                # Pre-calculate cost per menu item
+                item_costs = {}
+                for _, r in all_recs.iterrows():
+                    nm = r['menu_item_name']
+                    cost = float(r['quantity_required']) * float(r['unit_cost'])
+                    item_costs[nm] = item_costs.get(nm, 0.0) + cost
+                
+                # Iterate sales to sum costs
+                # Parsing simple text is risky, but works if format is standard.
+                # Assuming standard format: "Item Name xQty, Item2 xQty"
+                for items_str in sales['items']:
+                    if items_str:
+                        parts = items_str.split(", ")
+                        for p in parts:
+                            try:
+                                # Regex to separate Name and Qty (e.g., "Cappuccino L x2")
+                                match = re.match(r"(.+) x(\d+)", p)
+                                if match:
+                                    iname = match.group(1).strip()
+                                    iqty = int(match.group(2))
+                                    # Find matching cost
+                                    # Try exact match first
+                                    if iname in item_costs:
+                                        est_cogs += (item_costs[iname] * iqty)
+                            except: pass
+
+            gross_profit = total_rev - est_cogs
+
+            # --- DISPLAY ---
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Toplam Satış", f"{total_rev:.2f} ₼")
+            m2.metric("💳 Kartla", f"{rev_card:.2f} ₼")
+            m3.metric("💵 Nağd (Kassa)", f"{rev_cash:.2f} ₼")
+            
+            st.markdown("---")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Kassa Xərci (Real)", f"{total_exp:.2f} ₼", help="Kassadan çıxan canlı pul (Maaş, Usta və s.)")
+            k2.metric("Təxmini Maya Dəyəri", f"{est_cogs:.2f} ₼", help="Satılan malların anbardakı dəyəri (Resept əsasında)")
+            k3.metric("Təxmini Mənfəət", f"{gross_profit:.2f} ₼", delta_color="normal", help="Satış - Maya Dəyəri")
+
             if role == 'admin':
                 st.markdown("### 🗑️ Satışların İdarəedilməsi"); sales_edit = sales.copy(); sales_edit.insert(0, "Seç", False); edited_sales = st.data_editor(sales_edit, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id","items","total","created_at"], key="s_del_ed"); to_delete = edited_sales[edited_sales["Seç"]]['id'].tolist()
                 if to_delete and st.button(f"❌ Seçilən {len(to_delete)} Satışı Sil", type="primary"): admin_confirm_dialog(f"{len(to_delete)} satış silinsin?", delete_sales_transaction, to_delete, st.session_state.user)
@@ -799,7 +877,7 @@ else:
     if role == 'admin':
         with tabs[8]: # MENU
             st.subheader("📋 Menyu"); 
-            with st.expander("➕ Tək Mal Əlavə Et"):
+            with st.expander("➕ Tək Mal Əlavə Et (Menu)"):
                 with st.form("nm", clear_on_submit=True):
                     n=st.text_input("Ad"); p=st.number_input("Qiymət"); c=st.text_input("Kat"); ic=st.checkbox("Kofe?")
                     if st.form_submit_button("Yarat"): run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":n,"p":p,"c":c,"ic":ic}); st.rerun()
@@ -845,6 +923,41 @@ else:
 
         with tabs[9]: # SETTINGS
             st.subheader("⚙️ Ayarlar")
+            
+            # --- TARİXÇƏ YÜKLƏYİCİ (01.02.2026) ---
+            with st.expander("⚡ Tarixçə Bərpası (01.02.2026)"):
+                st.info("Bu düymə dünənki 11 satışı bazaya yazacaq.")
+                if st.button("📅 Dünənki Satışları Yüklə"):
+                    history_data = [
+                        {"time": "2026-02-01 10:36:05", "cashier": "Sabina", "method": "Cash", "total": 13.4, "items": "Şokoladlı Cookie x2, Cappuccino M x1, Americano M x1"},
+                        {"time": "2026-02-01 11:17:54", "cashier": "Sabina", "method": "Card", "total": 1.5, "items": "Şokoladlı Cookie x1"},
+                        {"time": "2026-02-01 11:43:41", "cashier": "Sabina", "method": "Card", "total": 5.9, "items": "Americano L x1"},
+                        {"time": "2026-02-01 13:27:16", "cashier": "Sabina", "method": "Card", "total": 9.0, "items": "Cappuccino S x2"},
+                        {"time": "2026-02-01 13:34:30", "cashier": "Sabina", "method": "Cash", "total": 4.7, "items": "Mocha S x1"},
+                        {"time": "2026-02-01 14:18:10", "cashier": "Sabina", "method": "Card", "total": 3.9, "items": "Americano S x1"},
+                        {"time": "2026-02-01 14:27:33", "cashier": "Sabina", "method": "Cash", "total": 6.7, "items": "Su (500ml) x1, Raf S x1"},
+                        {"time": "2026-02-01 15:44:27", "cashier": "Sabina", "method": "Cash", "total": 13.0, "items": "Cappuccino L x2"},
+                        {"time": "2026-02-01 17:02:10", "cashier": "Samir", "method": "Cash", "total": 15.0, "items": "Cappuccino M x1, Cappuccino L x1, Ekler x2"},
+                        {"time": "2026-02-01 18:25:44", "cashier": "Samir", "method": "Card", "total": 6.5, "items": "Cappuccino L x1"},
+                        {"time": "2026-02-01 19:15:50", "cashier": "Samir", "method": "Cash", "total": 2.0, "items": "Çay L x1"}
+                    ]
+                    try:
+                        with conn.session as s:
+                            count = 0
+                            for h in history_data:
+                                exist = s.execute(text("SELECT id FROM sales WHERE created_at=:t AND total=:tot"), {"t":h['time'], "tot":h['total']}).fetchone()
+                                if not exist:
+                                    s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i, :t, :p, :c, :tm, :t, 0)"), 
+                                              {"i":h['items'], "t":h['total'], "p":h['method'], "c":h['cashier'], "tm":h['time']})
+                                    count += 1
+                            s.commit()
+                        st.success(f"✅ {count} ədəd satış tarixçəyə yazıldı!")
+                        
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Maaş/Xərc', 58.80, 'Kassa', 'Dünənki balans fərqi (Maaşlar+)', 'Admin', '2026-02-01 23:59:00')")
+                        run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (58.80, 'Dünənki balans fərqi', 'Admin', 'Kassa', '2026-02-01 23:59:00')")
+                        st.success("✅ Kassa balansı 99 AZN-ə bərabərləşdirildi (58.80 Xərc silindi).")
+                    except Exception as e: st.error(f"Xəta: {e}")
+
             with st.expander("🔑 Şifrə Dəyişmə"):
                 users = run_query("SELECT username FROM users"); sel_u_pass = st.selectbox("İşçi Seç", users['username'].tolist()); new_pass = st.text_input("Yeni Şifrə", type="password")
                 if st.button("Şifrəni Yenilə"): run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_u_pass}); st.success("Yeniləndi!")
