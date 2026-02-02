@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.94 (MASTER) ===
+# === EMALATKHANA POS - V5.94 (MASTER FINAL) ===
 # ==========================================
 
-VERSION = "v5.94 (Ideal Recipes Generator & Smart Categories)"
+VERSION = "v5.94 (Master: All Recipes & Smart Features)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -48,6 +48,8 @@ PRESET_CATEGORIES = [
     "Soslar və Pastalar", 
     "Qablaşdırma (Stəkan/Qapaq)", 
     "Şirniyyat (Hazır)", 
+    "İçkilər (Hazır)",
+    "Meyvə-Tərəvəz",
     "Təsərrüfat/Təmizlik"
 ]
 
@@ -204,8 +206,9 @@ def validate_session():
     res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     return not res.empty
 
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
+# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (UPDATED) ---
 def generate_ideal_recipes_excel():
+    # --- ANBAR NAMES (REAL) ---
     COFFEE_BEAN = "Latina Blend Coffee"
     MILK = "Milla Sud 3.2%"
     CREAM = "Dom Qaymaq"
@@ -216,6 +219,9 @@ def generate_ideal_recipes_excel():
     TEA_GREEN = "Yaşıl Çay (25li)"
     TEA_BLACK = "Meyvəli bitki çayı"
     ICE_CREAM = "Dondurma (Vanil)"
+    ORANGE_FRUIT = "Portağal (Meyvə)"
+    
+    # --- PACKAGING ---
     CUP_XS = "Stəkan Kağız (XS)"
     CUP_S = "Stəkan Kağız (S)"
     CUP_M = "Stəkan Kağız (M)"
@@ -226,6 +232,7 @@ def generate_ideal_recipes_excel():
     LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
 
     data = [
+        # --- COFFEE ---
         ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
         ("Americano M", COFFEE_BEAN, 0.018), ("Americano M", WATER, 0.300), ("Americano M", CUP_M, 1), ("Americano M", LID_L, 1),
         ("Americano L", COFFEE_BEAN, 0.018), ("Americano L", WATER, 0.400), ("Americano L", CUP_L, 1), ("Americano L", LID_L, 1),
@@ -247,10 +254,29 @@ def generate_ideal_recipes_excel():
         ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1), ("Iced Latte S", LID_PLASTIC, 1),
         ("Iced Latte M", COFFEE_BEAN, 0.018), ("Iced Latte M", MILK, 0.200), ("Iced Latte M", ICE, 0.150), ("Iced Latte M", CUP_PLASTIC_M, 1), ("Iced Latte M", LID_PLASTIC, 1),
         ("Iced Latte L", COFFEE_BEAN, 0.018), ("Iced Latte L", MILK, 0.250), ("Iced Latte L", ICE, 0.200), ("Iced Latte L", "Stəkan Şəffaf (L)", 1), ("Iced Latte L", LID_PLASTIC, 1),
+        
+        # --- TEAS ---
         ("Yaşıl çay - jasmin", TEA_GREEN, 1), ("Yaşıl çay - jasmin", WATER, 0.300), ("Yaşıl çay - jasmin", CUP_M, 1), ("Yaşıl çay - jasmin", LID_L, 1),
         ("Meyvəli bitki çayı", TEA_BLACK, 1), ("Meyvəli bitki çayı", WATER, 0.300), ("Meyvəli bitki çayı", CUP_M, 1), ("Meyvəli bitki çayı", LID_L, 1),
+        
+        # --- MILKSHAKE ---
         ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", SYRUP_VANILLA, 0.010), ("Milkşeyk S", CUP_PLASTIC_M, 1), ("Milkşeyk S", LID_PLASTIC, 1),
         ("Milkşeyk M", ICE_CREAM, 0.200), ("Milkşeyk M", MILK, 0.080), ("Milkşeyk M", SYRUP_VANILLA, 0.015), ("Milkşeyk M", CUP_PLASTIC_M, 1), ("Milkşeyk M", LID_PLASTIC, 1),
+
+        # --- FRESH ---
+        ("Təbii sıxılmış portağal şirəsi", ORANGE_FRUIT, 0.700), ("Təbii sıxılmış portağal şirəsi", CUP_PLASTIC_M, 1),
+
+        # --- READY ITEMS (COOKIES, DRINKS) ---
+        ("Yulaflı Cookie", "Yulaflı Cookie", 1),
+        ("Ağ Cookie", "Ağ Cookie", 1),
+        ("Ekler", "Ekler", 1),
+        ("San Sebastian", "San Sebastian", 1),
+        ("Ballı tort", "Ballı tort", 1),
+        ("Su (500ml)", "Su (500ml)", 1),
+        ("Kola", "Kola", 1),
+        ("Tonik", "Tonik", 1),
+        ("Energetik (redbull 225 ml)", "Energetik (redbull 225 ml)", 1),
+        ("Meyvə şirəsi", "Meyvə şirəsi", 1)
     ]
     df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
     out = BytesIO()
@@ -563,8 +589,9 @@ else:
                     
                     if st.form_submit_button("Hesabla və Yarat"):
                          if mn_name and pack_size > 0:
-                             calc_unit_cost = pack_price / pack_size 
-                             total_stock_add = pack_size * pack_count 
+                             # AUTO CALCULATE
+                             calc_unit_cost = pack_price / pack_size # 1 Litr/KQ qiyməti
+                             total_stock_add = pack_size * pack_count # Cəmi stok (Litr/KQ ilə)
                              
                              run_action("""
                                  INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) 
@@ -627,7 +654,17 @@ else:
                     @st.dialog("✏️ Düzəliş")
                     def show_edit(r):
                         with st.form("ed_form"):
-                            en = st.text_input("Ad", r['name']); ec = st.text_input("Kateqoriya", r['category']); eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            en = st.text_input("Ad", r['name']); 
+                            # --- PRESET FOR EDIT ---
+                            current_cat = r['category']
+                            idx = 0
+                            if current_cat in PRESET_CATEGORIES: idx = PRESET_CATEGORIES.index(current_cat)
+                            
+                            ec = st.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."], index=idx); 
+                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            
+                            if ec == "➕ Yeni Yarat...": ec = st.text_input("Yeni Kateqoriya Adı")
+                            
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])}); log_system(st.session_state.user, f"Düzəliş: {en}"); st.session_state.edit_item_id = None; st.rerun()
                     show_edit(row)
