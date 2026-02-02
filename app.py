@@ -21,17 +21,17 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.02 (FULL STABLE) ===
+# === EMALATKHANA POS - V6.03 (MANAGER CONTROLS & RULES) ===
 # ==========================================
 
-VERSION = "v6.02 (Manager Limits, Dialog Fix, New Rules)"
+VERSION = "v6.03 (Manager Tables Toggle & Auto Expense Deduct)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 ADMIN_DEFAULT_PASS = os.environ.get("ADMIN_PASS", "admin123") 
 
-# --- YENİLƏNMİŞ QAYDALAR (GÖZƏL DİZAYN) ---
+# --- YENİLƏNMİŞ QAYDALAR (MÜŞTƏRİ ÜÇÜN) ---
 DEFAULT_TERMS = """
 <div style="font-family: 'Arial', sans-serif; color: #333; line-height: 1.6; font-size: 14px;">
     <h4 style="color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 10px; margin-top: 0;">
@@ -93,7 +93,7 @@ PRESET_CATEGORIES = [
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
-APP_URL = "[https://emalatxana.ironwaves.store](https://emalatxana.ironwaves.store)"
+APP_URL = "https://emalatxana.ironwaves.store"
 
 # --- STATE ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
@@ -112,6 +112,52 @@ if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
+
+# --- CSS ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap');
+
+    :root { --primary-color: #2E7D32; }
+    .stApp { background-color: #F8F9FA !important; color: #333 !important; font-family: 'Arial', sans-serif !important; }
+    
+    div[data-testid="stStatusWidget"] { visibility: hidden; }
+    #MainMenu { visibility: hidden; }
+    header { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    div.stButton > button { 
+        border-radius: 12px !important; min-height: 80px !important; 
+        font-weight: bold !important; font-size: 18px !important; 
+        border: 1px solid #ccc !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; 
+    }
+    div.stButton > button:active { transform: scale(0.98); }
+    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
+    div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; }
+
+    .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
+    @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-8px);} 100% {transform: translateY(0px);} }
+    .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
+    @keyframes pulse { 0% {transform: scale(1);} 50% {transform: scale(1.02);} 100% {transform: scale(1);} }
+
+    .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
+    .stamp-card { background: white; padding: 15px 30px; text-align: center; font-family: 'Courier Prime', monospace; font-weight: bold; transform: rotate(-3deg); border-radius: 12px; border: 4px solid #B71C1C; color: #B71C1C; box-shadow: 0 0 0 4px white, 0 0 0 7px #B71C1C; }
+
+    .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; justify-items: center; margin-top: 20px; max-width: 400px; margin-left: auto; margin-right: auto; }
+    .coffee-icon-img { width: 50px; height: 50px; transition: all 0.5s ease; }
+    .cup-earned { filter: invert(24%) sepia(96%) saturate(1720%) hue-rotate(94deg) brightness(92%) contrast(102%); opacity: 1; transform: scale(1.1); }
+    .cup-red-base { filter: invert(18%) sepia(90%) saturate(6329%) hue-rotate(356deg) brightness(96%) contrast(116%); }
+    .cup-anim { animation: bounce 1s infinite; }
+    .cup-empty { filter: grayscale(100%); opacity: 0.2; }
+    @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-5px);} }
+
+    div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); }
+    div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
+    @media print { body * { visibility: hidden; } #hidden-print-area, #hidden-print-area * { visibility: visible; } #hidden-print-area { position: fixed; left: 0; top: 0; width: 100%; } }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- DB ---
 try:
@@ -188,7 +234,7 @@ def generate_styled_qr(data):
     buf = BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
 def send_email(to_email, subject, body):
     if not RESEND_API_KEY: return "API_KEY_MISSING"
-    try: requests.post("[https://api.resend.com/emails](https://api.resend.com/emails)", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
+    try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 def create_session(username, role):
     token = secrets.token_urlsafe(32)
@@ -336,7 +382,6 @@ def smart_bulk_delete_dialog(selected_sales):
             ids_to_del = selected_sales['id'].tolist()
             
             with conn.session as s:
-                # 1. Restore Stock if requested (for each sale)
                 if restore_stock:
                     for idx, row in selected_sales.iterrows():
                         if row['items']:
@@ -351,7 +396,6 @@ def smart_bulk_delete_dialog(selected_sales):
                                         qty_to_add = float(r[1]) * iqty
                                         s.execute(text("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:n"), {"q":qty_to_add, "n":r[0]})
                 
-                # 2. Delete Sales
                 for i in ids_to_del:
                     s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":int(i)})
                 s.commit()
@@ -384,7 +428,6 @@ def smart_delete_sale_dialog(sale_row):
             sale_id = int(sale_row['id'])
             
             with conn.session as s:
-                # 1. Restore Stock if requested
                 if restore_stock and sale_row['items']:
                     items_str = sale_row['items']
                     parts = items_str.split(", ")
@@ -400,7 +443,6 @@ def smart_delete_sale_dialog(sale_row):
                                 qty_to_add = float(r[1]) * iqty
                                 s.execute(text("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:n"), {"q":qty_to_add, "n":r[0]})
                 
-                # 2. Delete Sale
                 s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":sale_id})
                 s.commit()
             
@@ -483,7 +525,7 @@ if "id" in query_params:
         st.markdown(f"<div class='stamp-container'><div class='stamp-card' style='border-color:{b_col};color:{b_col};box-shadow:0 0 0 4px white, 0 0 0 7px {b_col};'><div style='font-size:20px;border-bottom:2px solid;'>{st_lbl}</div><div style='font-size:50px;'>{user['stars']}/10</div><div>ULDUZ BALANSI</div></div></div>", unsafe_allow_html=True)
         html = '<div class="coffee-grid-container">'
         for i in range(10):
-            icon = "[https://cdn-icons-png.flaticon.com/512/751/751621.png](https://cdn-icons-png.flaticon.com/512/751/751621.png)"
+            icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"
             style = ""
             if i == 9: 
                 if user['stars'] >= 10: cls = "cup-red-base cup-anim"; style = "opacity: 1;"
@@ -543,7 +585,10 @@ else:
 
     tabs_list = []
     if role == 'admin': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📜 Resept", "📊 Analitika", "📜 Loglar", "👥 CRM", "📋 Menyu", "⚙️ Ayarlar", "💾 Baza", "QR"]
-    elif role == 'manager': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "📊 Z-Hesabat"]
+    elif role == 'manager': 
+        tabs_list = ["🏃‍♂️ AL-APAR"]
+        if get_setting("manager_show_tables", "TRUE") == "TRUE": tabs_list.append("🍽️ MASALAR")
+        tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "📊 Z-Hesabat"])
     elif role == 'staff': tabs_list = ["🏃‍♂️ AL-APAR", "🍽️ MASALAR", "Satışlar"] if show_tbl else ["🏃‍♂️ AL-APAR", "Satışlar"]
     tabs = st.tabs(tabs_list)
 
@@ -644,7 +689,7 @@ else:
                 except Exception as e: st.error(f"Xəta: {e}")
         with c2: render_menu(st.session_state.cart_takeaway, "ta")
 
-    if show_tbl or role != 'staff':
+    if show_tbl or (role == 'manager' and get_setting("manager_show_tables", "TRUE") == "TRUE"):
         with tabs[1]:
             if st.session_state.selected_table:
                 tbl = st.session_state.selected_table
@@ -656,7 +701,6 @@ else:
                     for i, it in enumerate(st.session_state.cart_table): st.write(f"{it['item_name']} x{it['qty']}")
                     st.metric("Yekun", f"{final:.2f} ₼"); st.button("🔥 Mətbəxə", on_click=lambda: (run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id", {"i":json.dumps(st.session_state.cart_table), "t":final, "id":tbl['id']}), st.success("OK")))
                     
-                    # MANAGER CAN CLOSE TABLE
                     if role in ['admin','manager']:
                         if st.button("✅ Ödəniş (Masa)", type="primary"):
                             try:
@@ -945,7 +989,7 @@ else:
                             except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-    # --- ANALITIKA (UPDATED V6.01 - FIXED KEYS) ---
+    # --- ANALITIKA (UPDATED V6.03 - FIXED KEYS) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
@@ -1079,6 +1123,14 @@ else:
 
         with tabs[9]: # SETTINGS
             st.subheader("⚙️ Ayarlar")
+            
+            # --- MANAGER TABLE TOGGLE ---
+            mgr_tbl_set = st.checkbox("Manager Masaları Görsün?", value=(get_setting("manager_show_tables", "TRUE") == "TRUE"))
+            if st.button("Yadda Saxla (Manager Tables)"):
+                set_setting("manager_show_tables", "TRUE" if mgr_tbl_set else "FALSE")
+                st.success("Tənzimləndi!")
+                time.sleep(1); st.rerun()
+
             with st.expander("👤 Rolu Dəyişdir (Promote/Demote)"):
                 with st.form("change_role_form"):
                     all_users = run_query("SELECT username, role FROM users")
