@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.93 (FINAL STABLE) ===
+# === EMALATKHANA POS - V5.93 (PROFESSIONAL IMPORT/EXPORT) ===
 # ==========================================
 
-VERSION = "v5.93 (Smart Stock & Analytics)"
+VERSION = "v5.93 (Smart Stock & Full Import/Export)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -38,6 +38,7 @@ DEFAULT_TERMS = """<div style="font-family: Arial, sans-serif; color: #333; line
 
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
 SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Təchizatçı", "Digər"]
+PRESET_CATEGORIES = ["Kofe (Dənələr)", "Süd Məhsulları", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "Təsərrüfat/Təmizlik", "Digər"]
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
@@ -478,8 +479,10 @@ else:
                  with st.form("smart_add_item", clear_on_submit=True):
                     c1, c2, c3 = st.columns(3)
                     mn_name = c1.text_input("Malın Adı (Məs: Dom Qaymaq)")
-                    mn_cat = c2.text_input("Kateqoriya (Məs: Süd Məhsulları)")
+                    mn_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["(Digər)"])
                     mn_unit = c3.selectbox("Əsas Vahid (Resept üçün)", ["L", "KQ", "ƏDƏD"])
+                    
+                    if mn_cat == "(Digər)": mn_cat = st.text_input("Yeni Kateqoriya Adı")
                     
                     st.write("---")
                     c4, c5, c6 = st.columns(3)
@@ -556,7 +559,8 @@ else:
                     @st.dialog("✏️ Düzəliş")
                     def show_edit(r):
                         with st.form("ed_form"):
-                            en = st.text_input("Ad", r['name']); ec = st.text_input("Kateqoriya", r['category']); eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            en = st.text_input("Ad", r['name']); ec = st.selectbox("Kateqoriya", PRESET_CATEGORIES + ["(Digər)"], index=PRESET_CATEGORIES.index(r['category']) if r['category'] in PRESET_CATEGORIES else 0); eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            if ec == "(Digər)": ec = st.text_input("Yeni Kateqoriya Adı")
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])}); log_system(st.session_state.user, f"Düzəliş: {en}"); st.session_state.edit_item_id = None; st.rerun()
                     show_edit(row)
@@ -568,7 +572,26 @@ else:
             with pc3: 
                 if st.button("Növbəti ➡️", disabled=(st.session_state.anbar_page >= total_pages - 1)): st.session_state.anbar_page += 1; st.rerun()
             
-            with st.expander("📤 İmport / Export"):
+            with st.expander("📤 İmport / Export (Excel)"):
+                with st.form("anbar_import_form"):
+                    upl = st.file_uploader("📥 Import", type="xlsx"); import_type = st.selectbox("Yüklənəcək Malın Növü", ["Ərzaq (Ingredient)", "Sərfiyyat (Consumable)"])
+                    if st.form_submit_button("Yüklə (Anbar)"):
+                        if upl:
+                            try:
+                                df = pd.read_excel(upl); df.columns = [str(c).lower().strip() for c in df.columns]
+                                header_map = {"ad": "name", "mal": "name", "say": "stock_qty", "vahid": "unit", "kateqoriya": "category", "qiymət": "unit_cost", "qutu sayı": "approx_count"}
+                                df.rename(columns=header_map, inplace=True)
+                                if not all(col in df.columns for col in ['name', 'stock_qty', 'unit', 'category', 'unit_cost']): st.error("Sütunlar əskikdir")
+                                else:
+                                    df['stock_qty'] = pd.to_numeric(df['stock_qty'], errors='coerce').fillna(0); df['unit_cost'] = pd.to_numeric(df['unit_cost'], errors='coerce').fillna(0); db_type = 'ingredient' if import_type.startswith("Ərzaq") else 'consumable'; count = 0
+                                    with conn.session as s:
+                                        for _, row in df.iterrows():
+                                            if pd.isna(row['name']) or str(row['name']).strip() == "": continue
+                                            ac = row['approx_count'] if 'approx_count' in df.columns else 1
+                                            s.execute(text("""INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) VALUES (:n, :q, :u, :c, :t, :uc, :ac) ON CONFLICT (name) DO UPDATE SET stock_qty = ingredients.stock_qty + :q, unit_cost = :uc"""), {"n": str(row['name']).strip(), "q": float(row['stock_qty']), "u": str(row['unit']).strip(), "c": str(row['category']).strip(), "t": db_type, "uc": float(row['unit_cost']), "ac": int(ac)}); count += 1
+                                        s.commit()
+                                    log_system(st.session_state.user, f"Anbar Import: {count} mal"); st.success(f"{count} mal yükləndi!")
+                            except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Anbarı Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM ingredients").to_excel(out, index=False); st.download_button("⬇️ Endir (anbar.xlsx)", out.getvalue(), "anbar.xlsx")
 
     if role in ['admin','manager']:
@@ -666,9 +689,23 @@ else:
                     if st.form_submit_button("Əlavə Et"): 
                         run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":real_ing_name,"q":s_q}); st.rerun()
             
-            # --- NEW EXPORT FEATURE (v5.93) ---
-            with st.expander("📤 Reseptləri Export Et (Yoxlama üçün)"):
-                st.info("Bu faylı mənə göndər, ad uyğunsuzluqlarını yoxlayım.")
+            with st.expander("📤 Reseptləri İmport / Export (Excel)"):
+                with st.form("recipe_import_form"):
+                    upl_rec = st.file_uploader("📥 Import", type="xlsx")
+                    if st.form_submit_button("Reseptləri Yüklə"):
+                        if upl_rec:
+                            try:
+                                df_r = pd.read_excel(upl_rec); df_r.columns = [str(c).lower().strip() for c in df_r.columns]; req = ['menu_item_name', 'ingredient_name', 'quantity_required']; r_map = {"mal": "menu_item_name", "məhsul": "menu_item_name", "xammal": "ingredient_name", "miqdar": "quantity_required"}; df_r.rename(columns=r_map, inplace=True)
+                                if not all(col in df_r.columns for col in req): st.error("Sütunlar əskikdir")
+                                else:
+                                    cnt = 0; 
+                                    with conn.session as s:
+                                        for _, r in df_r.iterrows():
+                                            if pd.isna(r['menu_item_name']): continue
+                                            s.execute(text("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)"), {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])}); cnt += 1
+                                        s.commit()
+                                    log_system(st.session_state.user, f"Resept Import: {cnt} sətir"); st.success(f"{cnt} resept sətri yükləndi!")
+                            except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
     # --- ANALITIKA (UPDATED V5.93) ---
@@ -757,6 +794,29 @@ else:
                             en = st.text_input("Ad", r['item_name']); ep = st.number_input("Qiymət", value=float(r['price'])); ec = st.text_input("Kateqoriya", r['category']); eic = st.checkbox("Kofe?", value=r['is_coffee'])
                             if st.form_submit_button("Yadda Saxla"): run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":en,"p":ep,"c":ec,"ic":eic,"id":int(r['id'])}); log_system(st.session_state.user, f"Menyu Düzəliş: {en}"); st.session_state.menu_edit_id = None; st.rerun()
                     edit_menu_dialog(mr)
+            
+            # --- MENU IMPORT/EXPORT (v5.93) ---
+            with st.expander("📤 Menyu İmport / Export (Excel)"):
+                with st.form("menu_imp_form"):
+                    upl_m = st.file_uploader("📥 Import Menu", type="xlsx")
+                    if st.form_submit_button("Yüklə (Menu)"):
+                        if upl_m:
+                            try:
+                                df_m = pd.read_excel(upl_m); df_m.columns = [str(c).lower().strip() for c in df_m.columns]; menu_map = {"ad": "item_name", "mal": "item_name", "qiymət": "price", "kateqoriya": "category", "kofe": "is_coffee"}; df_m.rename(columns=menu_map, inplace=True); req = ['item_name', 'price', 'category', 'is_coffee']
+                                if not all(col in df_m.columns for col in req): st.error("Sütunlar əskikdir")
+                                else:
+                                    cnt = 0; 
+                                    with conn.session as s:
+                                        for _, r in df_m.iterrows():
+                                            if pd.isna(r['item_name']): continue
+                                            existing = s.execute(text("SELECT id FROM menu WHERE item_name=:n"), {"n":str(r['item_name'])}).fetchall()
+                                            if existing: s.execute(text("UPDATE menu SET price=:p, category=:c, is_coffee=:ic WHERE id=:id"), {"p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee']), "id":int(existing[0][0])})
+                                            else: s.execute(text("INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)"), {"n":str(r['item_name']), "p":float(r['price']), "c":str(r['category']), "ic":bool(r['is_coffee'])})
+                                            cnt += 1
+                                        s.commit()
+                                    log_system(st.session_state.user, f"Menyu Import: {cnt} mal"); st.success(f"{cnt} mal yükləndi!")
+                            except Exception as e: st.error(f"Xəta: {e}")
+                if st.button("📤 Menyu Excel Kimi Endir"): out = BytesIO(); run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False); st.download_button("⬇️ Endir (menu.xlsx)", out.getvalue(), "menu.xlsx")
 
         with tabs[9]: # SETTINGS
             st.subheader("⚙️ Ayarlar")
