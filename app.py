@@ -21,20 +21,82 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.00 (STABLE FIXED) ===
+# === EMALATKHANA POS - V6.01 (FINAL POLISHED) ===
 # ==========================================
 
-VERSION = "v6.00 (Fixed: Date ID Error & Manager Tables)"
+VERSION = "v6.01 (New Terms Design & All Fixes)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 ADMIN_DEFAULT_PASS = os.environ.get("ADMIN_PASS", "admin123") 
 
-DEFAULT_TERMS = """<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-    <h4 style="color: #2E7D32; margin-bottom: 5px;">📜 İSTİFADƏÇİ RAZILAŞMASI</h4>
-    <p>Bu loyallıq proqramı "Emalatkhana" tərəfindən təqdim edilir.</p>
-</div>"""
+# --- YENİLƏNMİŞ QAYDALAR (GÖZƏL DİZAYN) ---
+DEFAULT_TERMS = """
+<div style="font-family: 'Arial', sans-serif; color: #333; line-height: 1.6; font-size: 14px;">
+    
+    <h4 style="color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 5px; margin-top: 0;">
+        📜 İSTİFADƏÇİ RAZILAŞMASI VƏ MƏXFİLİK SİYASƏTİ
+    </h4>
+
+    <div style="margin-bottom: 15px;">
+        <strong style="color: #E65100;">1. Ümumi Müddəalar</strong>
+        <p style="margin-top: 5px;">
+            Bu loyallıq proqramı "Emalatkhana Daily Drinks and Coffee" tərəfindən təqdim edilir və 
+            "Ironwaves POS" sistemi vasitəsilə idarə olunur. Bu rəqəmsal kartdan istifadə etməklə və 
+            qeydiyyatdan keçməklə siz aşağıdakı şərtləri qəbul etmiş olursunuz.
+        </p>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <strong style="color: #E65100;">2. Sadiqlik Proqramı və Ulduzlar</strong>
+        <ul style="list-style-type: none; padding-left: 10px; margin-top: 5px;">
+            <li style="margin-bottom: 5px;">
+                🔹 <strong>2.1. Hesablama:</strong> Loyallıq ulduzları və endirimlər yalnız 
+                <u>Kofe və Kofe əsaslı içkilərə</u> (isti və soyuq) şamil olunur. 
+                Çay, su, şirniyyat və digər qida məhsullarına ulduz verilmir və endirim tətbiq edilmir.
+            </li>
+            <li>
+                🔹 <strong>2.2. Hədiyyə:</strong> Balansda <strong>9 ulduz</strong> toplandıqda, 
+                növbəti kofe sistem tərəfindən avtomatik olaraq ödənişsiz (Hədiyyə) təqdim olunur.
+            </li>
+        </ul>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <strong style="color: #E65100;">3. Bonuslar və Hədiyyələrin İstifadəsi</strong>
+        <ul style="list-style-type: none; padding-left: 10px; margin-top: 5px;">
+            <li style="margin-bottom: 5px;">
+                🔸 <strong>3.1. Maddi Dəyər:</strong> Toplanılan ulduzlar, status endirimləri və bonuslar 
+                heç bir halda nağd pula çevrilə, başqa hesaba köçürülə və ya geri qaytarıla bilməz.
+            </li>
+            <li style="margin-bottom: 5px;">
+                🔸 <strong>3.2. Endirimlərin Hesablanması:</strong> Endirimlər toplanmır. Əgər istifadəçinin həm 
+                xüsusi statusu (Elite/Platinum), həm də Termos endirimi varsa, sistem avtomatik olaraq 
+                müştəri üçün ən sərfəli olan <u>ən yüksək endirimi</u> tətbiq edir.
+            </li>
+            <li>
+                🔸 <strong>3.3. Şəxsiyyətin Təsdiqi:</strong> Ad günü və ya xüsusi kampaniya hədiyyələrinin təqdim 
+                edilməsi zamanı, sui-istifadə hallarının qarşısını almaq və təvəllüdü dəqiqləşdirmək 
+                məqsədilə, şirkət əməkdaşı müştəridən şəxsiyyət vəsiqəsini təqdim etməsini tələb etmək 
+                hüququna malikdir. Sənəd təqdim edilmədikdə hədiyyə verilməyə bilər.
+            </li>
+        </ul>
+    </div>
+
+    <div style="margin-bottom: 10px;">
+        <strong style="color: #E65100;">4. Dəyişikliklər və İmtina Hüququ</strong>
+        <p style="margin-top: 5px;">
+            4.1. Şirkət, bu razılaşmanın şərtlərini və bonus sistemini əvvəlcədən xəbərdarlıq etmədən 
+            dəyişdirmək hüququnu özündə saxlayır.
+        </p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #888; margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px;">
+        © 2026 Emalatkhana Daily Drinks. Bütün hüquqlar qorunur.
+    </div>
+</div>
+"""
 
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
 SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Təchizatçı", "Digər"]
@@ -209,7 +271,7 @@ def validate_session():
 def clear_customer_data():
     st.session_state.current_customer_ta = None
 
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
+# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (FIXED) ---
 def generate_ideal_recipes_excel():
     # --- ANBAR NAMES (EXACT MATCH FROM ANBAR.XLSX) ---
     COFFEE_BEAN = "Latina Blend Coffee"
@@ -663,14 +725,17 @@ else:
                     raw, final, _, _, _, serv, _ = calculate_smart_total(st.session_state.cart_table, is_table=True)
                     for i, it in enumerate(st.session_state.cart_table): st.write(f"{it['item_name']} x{it['qty']}")
                     st.metric("Yekun", f"{final:.2f} ₼"); st.button("🔥 Mətbəxə", on_click=lambda: (run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id", {"i":json.dumps(st.session_state.cart_table), "t":final, "id":tbl['id']}), st.success("OK")))
-                    if st.button("✅ Ödəniş (Masa)", type="primary"):
-                        try:
-                            with conn.session as s:
-                                s.execute(text("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id"), {"id":tbl['id']})
-                                s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i,:t,'Table',:c,:tm, :ot, 0)"), {"i":"Table Order", "t":final, "c":st.session_state.user, "tm":get_baku_now(), "ot":final})
-                                s.commit()
-                            log_system(st.session_state.user, f"Masa Satış: {tbl['label']} - {final:.2f} AZN"); st.session_state.selected_table=None; st.session_state.cart_table=[]; st.rerun()
-                        except: st.error("Xəta")
+                    
+                    # MANAGER CAN CLOSE TABLE
+                    if role in ['admin','manager']:
+                        if st.button("✅ Ödəniş (Masa)", type="primary"):
+                            try:
+                                with conn.session as s:
+                                    s.execute(text("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id"), {"id":tbl['id']})
+                                    s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i,:t,'Table',:c,:tm, :ot, 0)"), {"i":"Table Order", "t":final, "c":st.session_state.user, "tm":get_baku_now(), "ot":final})
+                                    s.commit()
+                                log_system(st.session_state.user, f"Masa Satış: {tbl['label']} - {final:.2f} AZN"); st.session_state.selected_table=None; st.session_state.cart_table=[]; st.rerun()
+                            except: st.error("Xəta")
                 with c2: render_menu(st.session_state.cart_table, "tb")
             else:
                 if role in ['admin','manager']:
@@ -952,14 +1017,14 @@ else:
                             except Exception as e: st.error(f"Xəta: {e}")
                 if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-    # --- ANALITIKA (UPDATED V6.00 - FIXED KEYS) ---
+    # --- ANALITIKA (UPDATED V6.01 - FIXED KEYS) ---
     if role != 'staff':
         idx_ana = 5 if role == 'admin' else 4
         with tabs[idx_ana]:
             st.subheader("📊 Analitika & Mənfəət")
             c1, c2 = st.columns(2); 
-            d1 = c1.date_input("Start", datetime.date.today(), key="ana_date_start"); # ADDED KEY
-            d2 = c2.date_input("End", datetime.date.today(), key="ana_date_end"); # ADDED KEY
+            d1 = c1.date_input("Start", datetime.date.today(), key="ana_date_start"); 
+            d2 = c2.date_input("End", datetime.date.today(), key="ana_date_end"); 
             t1 = c1.time_input("Saat Başla", datetime.time(8,0)); t2 = c2.time_input("Saat Bit", datetime.time(23,59)); ts_start = datetime.datetime.combine(d1, t1); ts_end = datetime.datetime.combine(d2 + datetime.timedelta(days=1 if t2 < t1 else 0), t2)
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
@@ -1255,8 +1320,8 @@ else:
 
             st.divider(); st.markdown("### 🔍 Mənim Satışlarım")
             c1, c2 = st.columns(2); 
-            d1 = c1.date_input("Start", datetime.date.today(), key="staff_date_start"); # KEY ADDED
-            d2 = c2.date_input("End", datetime.date.today(), key="staff_date_end"); # KEY ADDED
+            d1 = c1.date_input("Start", datetime.date.today(), key="staff_date_start"); 
+            d2 = c2.date_input("End", datetime.date.today(), key="staff_date_end"); 
             ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
             
             q_staff = """SELECT s.created_at AS "Tarix", s.items AS "Mallar", s.original_total AS "Məbləğ (Endirimsiz)", s.discount_amount AS "Endirim", s.total AS "Yekun", s.payment_method AS "Ödəniş", s.customer_card_id AS "Müştəri ID" FROM sales s WHERE s.cashier = :u AND s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC"""
