@@ -21,17 +21,17 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.03 (MANAGER CONTROLS & RULES) ===
+# === EMALATKHANA POS - V6.03 (WHITE CARD EDITION) ===
 # ==========================================
 
-VERSION = "v6.03 (Manager Tables Toggle & Auto Expense Deduct)"
+VERSION = "v6.03 (Fixed Dark Mode for Customers)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 ADMIN_DEFAULT_PASS = os.environ.get("ADMIN_PASS", "admin123") 
 
-# --- YENİLƏNMİŞ QAYDALAR (MÜŞTƏRİ ÜÇÜN) ---
+# --- YENİLƏNMİŞ QAYDALAR (GÖZƏL DİZAYN) ---
 DEFAULT_TERMS = """
 <div style="font-family: 'Arial', sans-serif; color: #333; line-height: 1.6; font-size: 14px;">
     <h4 style="color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 10px; margin-top: 0;">
@@ -247,7 +247,7 @@ def validate_session():
 def clear_customer_data():
     st.session_state.current_customer_ta = None
 
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
+# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (FIXED) ---
 def generate_ideal_recipes_excel():
     # --- ANBAR NAMES (EXACT MATCH FROM ANBAR.XLSX) ---
     COFFEE_BEAN = "Latina Blend Coffee"
@@ -499,6 +499,38 @@ if "id" in query_params:
     c1, c2, c3 = st.columns([1,2,1]); logo = get_setting("receipt_logo_base64")
     with c2: 
         if logo: st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo}" width="120"></div>', unsafe_allow_html=True)
+    
+    # --- CUSTOMER VIEW CSS INJECTION (WHITE CARD EFFECT) ---
+    st.markdown("""
+        <style>
+        /* Force White Background for Customer View */
+        .stApp {
+            background-color: #FFFFFF !important;
+        }
+        /* Force Black Text */
+        h1, h2, h3, h4, h5, h6, p, div, span, label, li {
+            color: #000000 !important;
+        }
+        /* Fix Input Fields */
+        input, .stDateInput, .stTextInput {
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            border: 1px solid #cccccc !important;
+        }
+        /* Fix Buttons Visibility */
+        div.stButton > button {
+            background-color: #F0F2F6 !important;
+            color: #000000 !important;
+            border: 2px solid #2E7D32 !important;
+        }
+        /* Fix Expander Header */
+        .streamlit-expanderHeader {
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     try: df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":card_id})
     except: st.stop()
     if not df.empty:
@@ -1278,11 +1310,17 @@ else:
                         if pay_manager: salary_deduction += 25
                         
                         start_limit = float(get_setting("cash_limit", "100.0"))
+                        
+                        # --- AUTO DEDUCT MANAGER EXPENSES FROM CASH ---
+                        # Xərc çıxart düyməsi ilə götürülən pullar onsuzda 'finance' tablosunda 'out' kimi qeyd olunur.
+                        # `exp_cash` (SELECT SUM...) already includes these expenses.
+                        # So simply subtracting exp_cash is correct.
+                        
                         current_bal = start_limit + float(sales_cash) + float(inc_cash) - float(exp_cash) - salary_deduction
                         diff = current_bal - start_limit
                         
                         st.markdown(f"**Başlanğıc:** {start_limit:.2f} ₼"); st.markdown(f"**+ Satış (Nəğd):** {float(sales_cash):.2f} ₼")
-                        st.markdown(f"**- Maaşlar:** {salary_deduction:.2f} ₼"); st.markdown(f"**- Digər Xərclər:** {float(exp_cash):.2f} ₼")
+                        st.markdown(f"**- Maaşlar:** {salary_deduction:.2f} ₼"); st.markdown(f"**- Xərclər (Kassa):** {float(exp_cash):.2f} ₼")
                         st.divider(); st.markdown(f"### KASSADA OLMALIDIR: {current_bal:.2f} ₼")
                         if diff > 0: st.info(f"📥 {diff:.2f} AZN Seyfə qoyulacaq.")
                         elif diff < 0: st.error(f"📤 {abs(diff):.2f} AZN Seyfdən götürüləcək.")
