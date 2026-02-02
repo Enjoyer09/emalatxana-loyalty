@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V5.99 (FINAL MASTER) ===
+# === EMALATKHANA POS - V5.99 (FIXED MASTER) ===
 # ==========================================
 
-VERSION = "v5.99 (Manager Z-Report, Promote User, Bulk Delete)"
+VERSION = "v5.99 (Fixed: Excel Generator & Manager Tools)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -73,6 +73,7 @@ if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id =
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
+if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
 
 # --- CSS ---
 st.markdown("""
@@ -208,6 +209,110 @@ def validate_session():
 def clear_customer_data():
     st.session_state.current_customer_ta = None
 
+# --- GENERATE IDEAL RECIPES EXCEL FUNCTION ---
+def generate_ideal_recipes_excel():
+    # --- ANBAR NAMES (EXACT MATCH) ---
+    COFFEE_BEAN = "Latina Blend Coffee"
+    MILK = "Milla Sud 3.2%"
+    CREAM = "Dom qaymaq 10%"
+    SYRUP_VANILLA = "Sirop Barinoff (Vanil)"
+    SYRUP_CARAMEL = "Sirop Barinoff (Karamel)"
+    CHOCO_SAUCE = "Topping Chocolate PS"
+    WHIPPED_CREAM = "Krem Şanti (President)"
+    ICE = "Buz (Ice)"
+    WATER = "Damacana Su"
+    
+    TEA_GREEN = "Yaşıl Çay (25li)" 
+    TEA_BLACK = "Qara Çay (Paket)" 
+    
+    ICE_CREAM = "Dondurma (Vanil)"
+    ORANGE_FRUIT = "Portağal (Meyvə)" 
+    
+    CUP_XS = "Stəkan Kağız (XS)"
+    CUP_S = "Stəkan Kağız (S)"
+    CUP_M = "Stəkan Kağız (M)"
+    CUP_L = "Stəkan Kağız (L)"
+    CUP_PLASTIC_M = "Stəkan Şəffaf (M)"
+    LID_S = "Qapaq İsti (Kiçik)"
+    LID_L = "Qapaq İsti (Böyük)"
+    LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
+
+    data = [
+        # --- BLACK COFFEE ---
+        ("Espresso S", COFFEE_BEAN, 0.009), ("Espresso S", CUP_XS, 1),
+        ("Espresso M", COFFEE_BEAN, 0.018), ("Espresso M", CUP_XS, 1),
+        ("Ristretto S", COFFEE_BEAN, 0.009), ("Ristretto S", CUP_XS, 1),
+        ("Ristretto M", COFFEE_BEAN, 0.018), ("Ristretto M", CUP_XS, 1),
+        ("Ristretto L", COFFEE_BEAN, 0.027), ("Ristretto L", CUP_S, 1), 
+        ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
+        ("Americano M", COFFEE_BEAN, 0.018), ("Americano M", WATER, 0.300), ("Americano M", CUP_M, 1), ("Americano M", LID_L, 1),
+        ("Americano L", COFFEE_BEAN, 0.018), ("Americano L", WATER, 0.400), ("Americano L", CUP_L, 1), ("Americano L", LID_L, 1),
+        
+        # --- MILK COFFEE ---
+        ("Cappuccino S", COFFEE_BEAN, 0.009), ("Cappuccino S", MILK, 0.150), ("Cappuccino S", CUP_S, 1), ("Cappuccino S", LID_S, 1),
+        ("Cappuccino M", COFFEE_BEAN, 0.018), ("Cappuccino M", MILK, 0.200), ("Cappuccino M", CUP_M, 1), ("Cappuccino M", LID_L, 1),
+        ("Cappuccino L", COFFEE_BEAN, 0.018), ("Cappuccino L", MILK, 0.250), ("Cappuccino L", CUP_L, 1), ("Cappuccino L", LID_L, 1),
+        ("Latte S", COFFEE_BEAN, 0.009), ("Latte S", MILK, 0.200), ("Latte S", CUP_S, 1), ("Latte S", LID_S, 1),
+        ("Latte M", COFFEE_BEAN, 0.018), ("Latte M", MILK, 0.250), ("Latte M", CUP_M, 1), ("Latte M", LID_L, 1),
+        ("Latte L", COFFEE_BEAN, 0.018), ("Latte L", MILK, 0.300), ("Latte L", CUP_L, 1), ("Latte L", LID_L, 1),
+        
+        # --- SPECIALS ---
+        ("Raf S", COFFEE_BEAN, 0.009), ("Raf S", MILK, 0.100), ("Raf S", CREAM, 0.050), ("Raf S", SYRUP_VANILLA, 0.015), ("Raf S", CUP_S, 1), ("Raf S", LID_S, 1),
+        ("Raf M", COFFEE_BEAN, 0.018), ("Raf M", MILK, 0.150), ("Raf M", CREAM, 0.050), ("Raf M", SYRUP_VANILLA, 0.020), ("Raf M", CUP_M, 1), ("Raf M", LID_L, 1),
+        ("Raf L", COFFEE_BEAN, 0.018), ("Raf L", MILK, 0.200), ("Raf L", CREAM, 0.050), ("Raf L", SYRUP_VANILLA, 0.025), ("Raf L", CUP_L, 1), ("Raf L", LID_L, 1),
+        ("Mocha S", COFFEE_BEAN, 0.009), ("Mocha S", MILK, 0.150), ("Mocha S", CHOCO_SAUCE, 0.020), ("Mocha S", CUP_S, 1), ("Mocha S", LID_S, 1),
+        ("Mocha M", COFFEE_BEAN, 0.018), ("Mocha M", MILK, 0.200), ("Mocha M", CHOCO_SAUCE, 0.025), ("Mocha M", CUP_M, 1), ("Mocha M", LID_L, 1),
+        ("Mocha L", COFFEE_BEAN, 0.018), ("Mocha L", MILK, 0.250), ("Mocha L", CHOCO_SAUCE, 0.030), ("Mocha L", CUP_L, 1), ("Mocha L", LID_L, 1),
+        
+        # --- GLISSE & AFFOGATO ---
+        ("Affogato M", COFFEE_BEAN, 0.009), ("Affogato M", ICE_CREAM, 0.100), ("Affogato M", CUP_M, 1),
+        ("Affogato L", COFFEE_BEAN, 0.018), ("Affogato L", ICE_CREAM, 0.150), ("Affogato L", CUP_L, 1),
+        ("Glisse S", COFFEE_BEAN, 0.009), ("Glisse S", ICE_CREAM, 0.050), ("Glisse S", WHIPPED_CREAM, 0.020), ("Glisse S", CUP_S, 1),
+        ("Glisse M", COFFEE_BEAN, 0.009), ("Glisse M", ICE_CREAM, 0.100), ("Glisse M", WHIPPED_CREAM, 0.020), ("Glisse M", CUP_M, 1),
+        ("Glisse L", COFFEE_BEAN, 0.018), ("Glisse L", ICE_CREAM, 0.150), ("Glisse L", WHIPPED_CREAM, 0.020), ("Glisse L", CUP_L, 1),
+
+        # --- ICED ---
+        ("Ice Americano S", COFFEE_BEAN, 0.009), ("Ice Americano S", WATER, 0.150), ("Ice Americano S", ICE, 0.100), ("Ice Americano S", CUP_PLASTIC_M, 1), ("Ice Americano S", LID_PLASTIC, 1),
+        ("Ice Americano M", COFFEE_BEAN, 0.018), ("Ice Americano M", WATER, 0.200), ("Ice Americano M", ICE, 0.150), ("Ice Americano M", CUP_PLASTIC_M, 1), ("Ice Americano M", LID_PLASTIC, 1),
+        ("Ice Americano L", COFFEE_BEAN, 0.018), ("Ice Americano L", WATER, 0.250), ("Ice Americano L", ICE, 0.200), ("Ice Americano L", "Stəkan Şəffaf (L)", 1), ("Ice Americano L", LID_PLASTIC, 1),
+        ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1), ("Iced Latte S", LID_PLASTIC, 1),
+        ("Iced Latte M", COFFEE_BEAN, 0.018), ("Iced Latte M", MILK, 0.200), ("Iced Latte M", ICE, 0.150), ("Iced Latte M", CUP_PLASTIC_M, 1), ("Iced Latte M", LID_PLASTIC, 1),
+        ("Iced Latte L", COFFEE_BEAN, 0.018), ("Iced Latte L", MILK, 0.250), ("Iced Latte L", ICE, 0.200), ("Iced Latte L", "Stəkan Şəffaf (L)", 1), ("Iced Latte L", LID_PLASTIC, 1),
+        ("Iced Cappuccino S", COFFEE_BEAN, 0.009), ("Iced Cappuccino S", MILK, 0.150), ("Iced Cappuccino S", ICE, 0.100), ("Iced Cappuccino S", CUP_PLASTIC_M, 1),
+        ("Iced Cappuccino M", COFFEE_BEAN, 0.018), ("Iced Cappuccino M", MILK, 0.200), ("Iced Cappuccino M", ICE, 0.150), ("Iced Cappuccino M", CUP_PLASTIC_M, 1),
+        ("Iced Cappuccino L", COFFEE_BEAN, 0.018), ("Iced Cappuccino L", MILK, 0.250), ("Iced Cappuccino L", ICE, 0.200), ("Iced Cappuccino L", "Stəkan Şəffaf (L)", 1),
+
+        # --- TEAS ---
+        ("Yaşıl çay - jasmin", TEA_GREEN, 1), ("Yaşıl çay - jasmin", WATER, 0.300), ("Yaşıl çay - jasmin", CUP_M, 1), ("Yaşıl çay - jasmin", LID_L, 1),
+        ("Meyvəli bitki çayı", "Meyvəli bitki çayı", 1), ("Meyvəli bitki çayı", WATER, 0.300), ("Meyvəli bitki çayı", CUP_M, 1), ("Meyvəli bitki çayı", LID_L, 1),
+        ("Çay M", TEA_BLACK, 1), ("Çay M", WATER, 0.300), ("Çay M", CUP_M, 1), ("Çay M", LID_L, 1), 
+        
+        # --- MILKSHAKE ---
+        ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", SYRUP_VANILLA, 0.025), ("Milkşeyk S", CUP_PLASTIC_M, 1), ("Milkşeyk S", LID_PLASTIC, 1),
+        ("Milkşeyk M", ICE_CREAM, 0.200), ("Milkşeyk M", MILK, 0.080), ("Milkşeyk M", SYRUP_VANILLA, 0.035), ("Milkşeyk M", CUP_PLASTIC_M, 1), ("Milkşeyk M", LID_PLASTIC, 1),
+
+        # --- FRESH ---
+        ("Təbii sıxılmış portağal şirəsi", ORANGE_FRUIT, 0.700), ("Təbii sıxılmış portağal şirəsi", CUP_PLASTIC_M, 1),
+
+        # --- READY ITEMS ---
+        ("Yulaflı Cookie", "Yulaflı Cookie", 1),
+        ("Ağ Cookie", "Ağ Cookie", 1),
+        ("Kətə", "Kətə", 1),
+        ("Ekler", "Ekler", 1),
+        ("San Sebastian", "San Sebastian", 1),
+        ("Ballı tort", "Ballı tort", 1),
+        ("Su (500ml)", "Su (500ml)", 1),
+        ("Kola", "Kola", 1),
+        ("Tonik", "Tonik", 1),
+        ("Energetik (redbull 225 ml)", "Energetik (redbull 225 ml)", 1),
+        ("Meyvə şirəsi", "Meyvə şirəsi", 1),
+        ("Extra badam südü M", "Milla Sud 3.2%", 0.001), 
+    ]
+    df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
+    out = BytesIO()
+    df.to_excel(out, index=False)
+    return out.getvalue()
+
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
     st.warning(f"⚠️ {action_name}")
@@ -262,6 +367,54 @@ def smart_bulk_delete_dialog(selected_sales):
             action_desc = f"Toplu Silmə ({cnt} ədəd) - {'Stok Bərpa' if restore_stock else 'Stok Silindi'}"
             log_system(st.session_state.user, action_desc)
             st.success("Uğurla Silindi!")
+            time.sleep(1.5)
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Xəta: {e}")
+
+@st.dialog("🗑️ Satışı Sil")
+def smart_delete_sale_dialog(sale_row):
+    st.warning(f"Satış ID: {sale_row['id']}")
+    st.info(f"Mallar: {sale_row['items']}")
+    st.error(f"Məbləğ: {sale_row['total']} ₼")
+    
+    st.write("---")
+    st.write("❓ **NİYƏ SİLİRSİNİZ?**")
+    reason = st.radio("Səbəb seçin:", [
+        "🅰️ Səhv Vurulub / Test (Mal Qayıtsın) 🔄", 
+        "🅱️ Zay Olub / Dağılıb (Mal Qayıtmasın) 🗑️"
+    ])
+    
+    if st.button("🔴 TƏSDİQLƏ VƏ SİL"):
+        try:
+            restore_stock = "Səhv" in reason
+            sale_id = int(sale_row['id'])
+            
+            with conn.session as s:
+                # 1. Restore Stock if requested
+                if restore_stock and sale_row['items']:
+                    items_str = sale_row['items']
+                    parts = items_str.split(", ")
+                    for p in parts:
+                        match = re.match(r"(.+) x(\d+)", p)
+                        if match:
+                            iname = match.group(1).strip()
+                            iqty = int(match.group(2))
+                            # Get recipe for this item
+                            recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":iname}).fetchall()
+                            for r in recs:
+                                # Add back to stock
+                                qty_to_add = float(r[1]) * iqty
+                                s.execute(text("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:n"), {"q":qty_to_add, "n":r[0]})
+                
+                # 2. Delete Sale
+                s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":sale_id})
+                s.commit()
+            
+            action_desc = "Silindi (Stok Bərpa Olundu)" if restore_stock else "Silindi (Zay Oldu - Stok Getdi)"
+            log_system(st.session_state.user, f"Satış Silindi #{sale_id}: {action_desc}")
+            st.success("Satış uğurla silindi!")
             time.sleep(1.5)
             st.rerun()
             
@@ -537,7 +690,6 @@ else:
         with tabs[idx_anbar]:
             st.subheader("📦 Anbar İdarəetməsi")
             
-            # --- SMART SINGLE ADD ---
             if role == 'admin' or role == 'manager':
                 with st.expander("➕ Mədaxil / Yeni Mal", expanded=False):
                      st.info("💡 Məs: Qaymaq (0.48 L) = 5.29 AZN. Sistem özü 1 Litrin qiymətini tapacaq.")
@@ -842,7 +994,6 @@ else:
 
             if role == 'admin' or role == 'manager':
                 st.markdown("### 🗑️ Satışların İdarəedilməsi")
-                # NEW CHECKBOX BASED DELETE UI
                 df_to_edit = sales.copy()
                 df_to_edit.insert(0, "Seç", False)
                 edited_sales = st.data_editor(
