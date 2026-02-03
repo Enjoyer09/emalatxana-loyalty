@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.11 (SMART FINANCE & NOTES) ===
+# === EMALATKHANA POS - V6.12 (ULTRA STABLE FIX) ===
 # ==========================================
 
-VERSION = "v6.11 (Finance Delete & Calculator Notes)"
+VERSION = "v6.12 (Fixed KeyError: Settings, Manager Safe)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -194,7 +194,6 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
         # ADMIN NOTES UPDATE
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS title TEXT")); s.commit()
@@ -254,32 +253,6 @@ def validate_session():
     return not res.empty
 def clear_customer_data():
     st.session_state.current_customer_ta = None
-
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (FIXED) ---
-def generate_ideal_recipes_excel():
-    # --- ANBAR NAMES (EXACT MATCH FROM ANBAR.XLSX) ---
-    COFFEE_BEAN = "Latina Blend Coffee"; MILK = "Milla Sud 3.2%"; CREAM = "Dom qaymaq 10%"
-    SYRUP_VANILLA = "Sirop Barinoff (Vanil)"; SYRUP_CARAMEL = "Sirop Barinoff (Karamel)"
-    CHOCO_SAUCE = "Topping Chocolate PS"; WHIPPED_CREAM = "Krem Şanti (President)"
-    ICE = "Buz (Ice)"; WATER = "Damacana Su"; ICE_CREAM = "Dondurma (Vanil)"
-    ORANGE_FRUIT = "Portağal (Meyvə)"; CUP_XS = "Stəkan Kağız (XS)"; CUP_S = "Stəkan Kağız (S)"
-    CUP_M = "Stəkan Kağız (M)"; CUP_L = "Stəkan Kağız (L)"; CUP_PLASTIC_M = "Stəkan Şəffaf (M)"
-    LID_S = "Qapaq İsti (Kiçik)"; LID_L = "Qapaq İsti (Böyük)"; LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
-
-    data = [
-        ("Espresso S", COFFEE_BEAN, 0.009), ("Espresso S", CUP_XS, 1),
-        ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
-        ("Cappuccino S", COFFEE_BEAN, 0.009), ("Cappuccino S", MILK, 0.150), ("Cappuccino S", CUP_S, 1), ("Cappuccino S", LID_S, 1),
-        ("Latte S", COFFEE_BEAN, 0.009), ("Latte S", MILK, 0.200), ("Latte S", CUP_S, 1), ("Latte S", LID_S, 1),
-        ("Raf S", COFFEE_BEAN, 0.009), ("Raf S", MILK, 0.100), ("Raf S", CREAM, 0.050), ("Raf S", SYRUP_VANILLA, 0.015), ("Raf S", CUP_S, 1), ("Raf S", LID_S, 1),
-        ("Mocha S", COFFEE_BEAN, 0.009), ("Mocha S", MILK, 0.150), ("Mocha S", CHOCO_SAUCE, 0.020), ("Mocha S", CUP_S, 1), ("Mocha S", LID_S, 1),
-        ("Ice Americano S", COFFEE_BEAN, 0.009), ("Ice Americano S", WATER, 0.150), ("Ice Americano S", ICE, 0.100), ("Ice Americano S", CUP_PLASTIC_M, 1),
-        ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1),
-        ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", CUP_PLASTIC_M, 1),
-        ("Təbii sıxılmış portağal şirəsi", ORANGE_FRUIT, 0.700), ("Təbii sıxılmış portağal şirəsi", CUP_PLASTIC_M, 1)
-    ]
-    df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
-    out = BytesIO(); df.to_excel(out, index=False); return out.getvalue()
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -697,7 +670,19 @@ else:
             
             if role == 'manager':
                 df_page_display = df_page[['id', 'name', 'stock_qty', 'unit', 'category']]
-                st.dataframe(df_page_display, hide_index=True, use_container_width=True)
+                df_page_display.insert(0, "Seç", False) # Manager checkbox view
+                edited_mgr_anbar = st.data_editor(
+                    df_page_display, 
+                    hide_index=True, 
+                    column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
+                    disabled=["id","name","stock_qty","unit","category"],
+                    use_container_width=True
+                )
+                sel_mgr_rows = edited_mgr_anbar[edited_mgr_anbar["Seç"]]
+                if len(sel_mgr_rows) == 1:
+                     if st.button("✏️ Düzəliş (Manager)", use_container_width=True):
+                         st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+                
             else:
                 df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
                 df_page.insert(0, "Seç", False)
@@ -762,7 +747,7 @@ else:
                                 log_system(st.session_state.user, f"Mədaxil: {r['name']} (+{total_new_qty})"); st.session_state.restock_item_id = None; st.rerun()
                     show_restock(row)
 
-            if st.session_state.edit_item_id and role == 'admin':
+            if st.session_state.edit_item_id and role in ['admin', 'manager']:
                 r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id})
                 if not r_item.empty:
                     row = r_item.iloc[0]
@@ -773,8 +758,16 @@ else:
                             current_cat = r['category']; idx = 0
                             if current_cat in PRESET_CATEGORIES: idx = PRESET_CATEGORIES.index(current_cat)
                             ec = st.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."], index=idx); 
-                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            eu = st.selectbox("Vahid", ["KQ", "L", "ƏDƏD"], index=["KQ", "L", "ƏDƏD"].index(r['unit']) if r['unit'] in ["KQ", "L", "ƏDƏD"] else 0); 
+                            
+                            if role == 'admin':
+                                et = st.selectbox("Növ", ["ingredient","consumable"], index=0 if r['type']=='ingredient' else 1); 
+                                ecost = st.number_input("Maya Dəyəri", value=float(r['unit_cost']), format="%.5f")
+                            else:
+                                et = r['type']; ecost = float(r['unit_cost']) # Manager cannot change cost/type
+
                             if ec == "➕ Yeni Yarat...": ec = st.text_input("Yeni Kateqoriya Adı")
+                            
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc, type=:t WHERE id=:id", {"n":en, "c":ec, "u":eu, "uc":ecost, "t":et, "id":int(r['id'])}); log_system(st.session_state.user, f"Düzəliş: {en}"); st.session_state.edit_item_id = None; st.rerun()
                     show_edit(row)
@@ -1110,88 +1103,89 @@ else:
                                 except Exception as e: st.error(f"Xəta: {e}")
                     if st.button("📤 Menyu Excel Kimi Endir"): out = BytesIO(); run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False); st.download_button("⬇️ Endir (menu.xlsx)", out.getvalue(), "menu.xlsx")
 
-        with tab_map["⚙️ Ayarlar"]: # FIXED ALL TAB REFERENCES
-            st.subheader("⚙️ Ayarlar")
-            st.markdown("### 🛠️ Menecer Səlahiyyətləri")
-            col_mp1, col_mp2, col_mp3, col_mp4 = st.columns(4)
-            perm_menu = col_mp1.checkbox("✅ Menyu (Düzəliş)", value=(get_setting("manager_perm_menu", "FALSE") == "TRUE"))
-            if col_mp1.button("Yadda Saxla (Menu)"): set_setting("manager_perm_menu", "TRUE" if perm_menu else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
-            perm_tables = col_mp2.checkbox("✅ Masalar", value=(get_setting("manager_show_tables", "TRUE") == "TRUE"))
-            if col_mp2.button("Yadda Saxla (Tables)", key="save_mgr_tables"): set_setting("manager_show_tables", "TRUE" if perm_tables else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
-            perm_crm = col_mp3.checkbox("✅ CRM (Müştəri)", value=(get_setting("manager_perm_crm", "TRUE") == "TRUE")) 
-            if col_mp3.button("Yadda Saxla (CRM)"): set_setting("manager_perm_crm", "TRUE" if perm_crm else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
-            perm_recipes = col_mp4.checkbox("✅ Reseptlər", value=(get_setting("manager_perm_recipes", "FALSE") == "TRUE"))
-            if col_mp4.button("Yadda Saxla (Resept)"): set_setting("manager_perm_recipes", "TRUE" if perm_recipes else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
-            st.divider()
+        if "⚙️ Ayarlar" in tab_map:
+            with tab_map["⚙️ Ayarlar"]: # FIXED ALL TAB REFERENCES
+                st.subheader("⚙️ Ayarlar")
+                st.markdown("### 🛠️ Menecer Səlahiyyətləri")
+                col_mp1, col_mp2, col_mp3, col_mp4 = st.columns(4)
+                perm_menu = col_mp1.checkbox("✅ Menyu (Düzəliş)", value=(get_setting("manager_perm_menu", "FALSE") == "TRUE"))
+                if col_mp1.button("Yadda Saxla (Menu)"): set_setting("manager_perm_menu", "TRUE" if perm_menu else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
+                perm_tables = col_mp2.checkbox("✅ Masalar", value=(get_setting("manager_show_tables", "TRUE") == "TRUE"))
+                if col_mp2.button("Yadda Saxla (Tables)", key="save_mgr_tables"): set_setting("manager_show_tables", "TRUE" if perm_tables else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
+                perm_crm = col_mp3.checkbox("✅ CRM (Müştəri)", value=(get_setting("manager_perm_crm", "TRUE") == "TRUE")) 
+                if col_mp3.button("Yadda Saxla (CRM)"): set_setting("manager_perm_crm", "TRUE" if perm_crm else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
+                perm_recipes = col_mp4.checkbox("✅ Reseptlər", value=(get_setting("manager_perm_recipes", "FALSE") == "TRUE"))
+                if col_mp4.button("Yadda Saxla (Resept)"): set_setting("manager_perm_recipes", "TRUE" if perm_recipes else "FALSE"); st.success("OK"); time.sleep(0.5); st.rerun()
+                st.divider()
 
-            with st.expander("👤 Rolu Dəyişdir (Promote/Demote)"):
-                with st.form("change_role_form"):
-                    all_users = run_query("SELECT username, role FROM users")
-                    target_user = st.selectbox("İşçi Seç", all_users['username'].tolist())
-                    new_role = st.selectbox("Yeni Rol", ["staff", "manager", "admin"])
-                    if st.form_submit_button("Rolu Dəyiş"):
-                        run_action("UPDATE users SET role=:r WHERE username=:u", {"r":new_role, "u":target_user})
-                        st.success(f"{target_user} artıq {new_role} oldu!")
-                        time.sleep(1); st.rerun()
+                with st.expander("👤 Rolu Dəyişdir (Promote/Demote)"):
+                    with st.form("change_role_form"):
+                        all_users = run_query("SELECT username, role FROM users")
+                        target_user = st.selectbox("İşçi Seç", all_users['username'].tolist())
+                        new_role = st.selectbox("Yeni Rol", ["staff", "manager", "admin"])
+                        if st.form_submit_button("Rolu Dəyiş"):
+                            run_action("UPDATE users SET role=:r WHERE username=:u", {"r":new_role, "u":target_user})
+                            st.success(f"{target_user} artıq {new_role} oldu!")
+                            time.sleep(1); st.rerun()
 
-            with st.expander("⚡ Tarixçə Bərpası (01.02.2026)"):
-                st.info("Bu düymə dünənki 11 satışı bazaya yazacaq.")
-                if st.button("📅 Dünənki Satışları Yüklə"):
-                    history_data = [
-                        {"time": "2026-02-01 10:36:05", "cashier": "Sabina", "method": "Cash", "total": 13.4, "items": "Şokoladlı Cookie x2, Cappuccino M x1, Americano M x1"},
-                        {"time": "2026-02-01 11:17:54", "cashier": "Sabina", "method": "Card", "total": 1.5, "items": "Şokoladlı Cookie x1"},
-                        {"time": "2026-02-01 11:43:41", "cashier": "Sabina", "method": "Card", "total": 5.9, "items": "Americano L x1"},
-                        {"time": "2026-02-01 13:27:16", "cashier": "Sabina", "method": "Card", "total": 9.0, "items": "Cappuccino S x2"},
-                        {"time": "2026-02-01 13:34:30", "cashier": "Sabina", "method": "Cash", "total": 4.7, "items": "Mocha S x1"},
-                        {"time": "2026-02-01 14:18:10", "cashier": "Sabina", "method": "Card", "total": 3.9, "items": "Americano S x1"},
-                        {"time": "2026-02-01 14:27:33", "cashier": "Sabina", "method": "Cash", "total": 6.7, "items": "Su (500ml) x1, Raf S x1"},
-                        {"time": "2026-02-01 15:44:27", "cashier": "Sabina", "method": "Cash", "total": 13.0, "items": "Cappuccino L x2"},
-                        {"time": "2026-02-01 17:02:10", "cashier": "Samir", "method": "Cash", "total": 15.0, "items": "Cappuccino M x1, Cappuccino L x1, Ekler x2"},
-                        {"time": "2026-02-01 18:25:44", "cashier": "Samir", "method": "Card", "total": 6.5, "items": "Cappuccino L x1"},
-                        {"time": "2026-02-01 19:15:50", "cashier": "Samir", "method": "Cash", "total": 2.0, "items": "Çay L x1"}
-                    ]
-                    try:
-                        with conn.session as s:
-                            count = 0
-                            for h in history_data:
-                                exist = s.execute(text("SELECT id FROM sales WHERE created_at=:t AND total=:tot"), {"t":h['time'], "tot":h['total']}).fetchone()
-                                if not exist:
-                                    s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i, :t, :p, :c, :tm, :t, 0)"), 
-                                              {"i":h['items'], "t":h['total'], "p":h['method'], "c":h['cashier'], "tm":h['time']})
-                                    count += 1
-                            s.commit()
-                        st.success(f"✅ {count} ədəd satış tarixçəyə yazıldı!")
-                        
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Maaş/Xərc', 58.80, 'Kassa', 'Dünənki balans fərqi (Maaşlar+)', 'Admin', '2026-02-01 23:59:00')")
-                        run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (58.80, 'Dünənki balans fərqi', 'Admin', 'Kassa', '2026-02-01 23:59:00')")
-                        st.success("✅ Kassa balansı 99 AZN-ə bərabərləşdirildi (58.80 Xərc silindi).")
-                    except Exception as e: st.error(f"Xəta: {e}")
+                with st.expander("⚡ Tarixçə Bərpası (01.02.2026)"):
+                    st.info("Bu düymə dünənki 11 satışı bazaya yazacaq.")
+                    if st.button("📅 Dünənki Satışları Yüklə"):
+                        history_data = [
+                            {"time": "2026-02-01 10:36:05", "cashier": "Sabina", "method": "Cash", "total": 13.4, "items": "Şokoladlı Cookie x2, Cappuccino M x1, Americano M x1"},
+                            {"time": "2026-02-01 11:17:54", "cashier": "Sabina", "method": "Card", "total": 1.5, "items": "Şokoladlı Cookie x1"},
+                            {"time": "2026-02-01 11:43:41", "cashier": "Sabina", "method": "Card", "total": 5.9, "items": "Americano L x1"},
+                            {"time": "2026-02-01 13:27:16", "cashier": "Sabina", "method": "Card", "total": 9.0, "items": "Cappuccino S x2"},
+                            {"time": "2026-02-01 13:34:30", "cashier": "Sabina", "method": "Cash", "total": 4.7, "items": "Mocha S x1"},
+                            {"time": "2026-02-01 14:18:10", "cashier": "Sabina", "method": "Card", "total": 3.9, "items": "Americano S x1"},
+                            {"time": "2026-02-01 14:27:33", "cashier": "Sabina", "method": "Cash", "total": 6.7, "items": "Su (500ml) x1, Raf S x1"},
+                            {"time": "2026-02-01 15:44:27", "cashier": "Sabina", "method": "Cash", "total": 13.0, "items": "Cappuccino L x2"},
+                            {"time": "2026-02-01 17:02:10", "cashier": "Samir", "method": "Cash", "total": 15.0, "items": "Cappuccino M x1, Cappuccino L x1, Ekler x2"},
+                            {"time": "2026-02-01 18:25:44", "cashier": "Samir", "method": "Card", "total": 6.5, "items": "Cappuccino L x1"},
+                            {"time": "2026-02-01 19:15:50", "cashier": "Samir", "method": "Cash", "total": 2.0, "items": "Çay L x1"}
+                        ]
+                        try:
+                            with conn.session as s:
+                                count = 0
+                                for h in history_data:
+                                    exist = s.execute(text("SELECT id FROM sales WHERE created_at=:t AND total=:tot"), {"t":h['time'], "tot":h['total']}).fetchone()
+                                    if not exist:
+                                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i, :t, :p, :c, :tm, :t, 0)"), 
+                                                {"i":h['items'], "t":h['total'], "p":h['method'], "c":h['cashier'], "tm":h['time']})
+                                        count += 1
+                                s.commit()
+                            st.success(f"✅ {count} ədəd satış tarixçəyə yazıldı!")
+                            
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Maaş/Xərc', 58.80, 'Kassa', 'Dünənki balans fərqi (Maaşlar+)', 'Admin', '2026-02-01 23:59:00')")
+                            run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (58.80, 'Dünənki balans fərqi', 'Admin', 'Kassa', '2026-02-01 23:59:00')")
+                            st.success("✅ Kassa balansı 99 AZN-ə bərabərləşdirildi (58.80 Xərc silindi).")
+                        except Exception as e: st.error(f"Xəta: {e}")
 
-            with st.expander("🔑 Şifrə Dəyişmə"):
-                users = run_query("SELECT username FROM users"); sel_u_pass = st.selectbox("İşçi Seç", users['username'].tolist(), key="pass_change_sel"); new_pass = st.text_input("Yeni Şifrə", type="password")
-                if st.button("Şifrəni Yenilə"): run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_u_pass}); st.success("Yeniləndi!")
-            
-            with st.expander("👥 İşçi İdarə"):
-                with st.form("nu"):
-                    u = st.text_input("İstifadəçi"); p = st.text_input("Şifrə"); r = st.selectbox("Rol", ["staff","manager","admin"])
-                    if st.form_submit_button("Yarat"): run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r) ON CONFLICT (username) DO NOTHING", {"u":u, "p":hash_password(p), "r":r}); st.success("OK"); st.rerun()
-                du = st.selectbox("Silinəcək", users['username'].tolist(), key="del_user_sel")
-                if st.button("İşçini Sil"): admin_confirm_dialog(f"Sil: {du}?", lambda: run_action("DELETE FROM users WHERE username=:u", {"u":du}))
-            
-            with st.expander("🔧 Sistem"):
-                st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
-                if st.button("Yadda Saxla (Tables)", key="save_staff_tables"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
-                test_mode = st.checkbox("Z-Hesabat [TEST MODE]?", value=(get_setting("z_report_test_mode") == "TRUE"))
-                if st.button("Yadda Saxla (Test Mode)"): set_setting("z_report_test_mode", "TRUE" if test_mode else "FALSE"); st.success("Dəyişdirildi!"); st.rerun()
-                c_lim = st.number_input("Standart Kassa Limiti (Z-Hesabat üçün)", value=float(get_setting("cash_limit", "100.0")))
-                if st.button("Limiti Yenilə"): set_setting("cash_limit", str(c_lim)); st.success("Yeniləndi!")
-                rules = st.text_area("Qaydalar", value=get_setting("customer_rules", DEFAULT_TERMS))
-                if st.button("Qaydaları Yenilə"): set_setting("customer_rules", rules); st.success("Yeniləndi")
-            lg = st.file_uploader("Logo"); 
-            if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
+                with st.expander("🔑 Şifrə Dəyişmə"):
+                    users = run_query("SELECT username FROM users"); sel_u_pass = st.selectbox("İşçi Seç", users['username'].tolist(), key="pass_change_sel"); new_pass = st.text_input("Yeni Şifrə", type="password")
+                    if st.button("Şifrəni Yenilə"): run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_u_pass}); st.success("Yeniləndi!")
+                
+                with st.expander("👥 İşçi İdarə"):
+                    with st.form("nu"):
+                        u = st.text_input("İstifadəçi"); p = st.text_input("Şifrə"); r = st.selectbox("Rol", ["staff","manager","admin"])
+                        if st.form_submit_button("Yarat"): run_action("INSERT INTO users (username, password, role) VALUES (:u, :p, :r) ON CONFLICT (username) DO NOTHING", {"u":u, "p":hash_password(p), "r":r}); st.success("OK"); st.rerun()
+                    du = st.selectbox("Silinəcək", users['username'].tolist(), key="del_user_sel")
+                    if st.button("İşçini Sil"): admin_confirm_dialog(f"Sil: {du}?", lambda: run_action("DELETE FROM users WHERE username=:u", {"u":du}))
+                
+                with st.expander("🔧 Sistem"):
+                    st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
+                    if st.button("Yadda Saxla (Tables)", key="save_staff_tables"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
+                    test_mode = st.checkbox("Z-Hesabat [TEST MODE]?", value=(get_setting("z_report_test_mode") == "TRUE"))
+                    if st.button("Yadda Saxla (Test Mode)"): set_setting("z_report_test_mode", "TRUE" if test_mode else "FALSE"); st.success("Dəyişdirildi!"); st.rerun()
+                    c_lim = st.number_input("Standart Kassa Limiti (Z-Hesabat üçün)", value=float(get_setting("cash_limit", "100.0")))
+                    if st.button("Limiti Yenilə"): set_setting("cash_limit", str(c_lim)); st.success("Yeniləndi!")
+                    rules = st.text_area("Qaydalar", value=get_setting("customer_rules", DEFAULT_TERMS))
+                    if st.button("Qaydaları Yenilə"): set_setting("customer_rules", rules); st.success("Yeniləndi")
+                lg = st.file_uploader("Logo"); 
+                if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
 
     if "💾 Baza" in tab_map:
-         with tab_map["💾 Baza"]:
+         with tab_map["💾 Baza"]: # FIXED: Was 'tabs[10]'
              c1, c2 = st.columns(2)
              with c1:
                  if st.button("FULL BACKUP"):
@@ -1211,7 +1205,7 @@ else:
                      except: st.error("Xəta")
         
     if "QR" in tab_map:
-        with tab_map["QR"]:
+        with tab_map["QR"]: # FIXED: Was 'tabs[11]'
             st.subheader("QR Kodlar")
             cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
             if st.button("QR Yarat"):
