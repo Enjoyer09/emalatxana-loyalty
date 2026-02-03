@@ -21,17 +21,17 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.08 (STABLE NO TABS ERROR) ===
+# === EMALATKHANA POS - V6.09 (MANAGER EDIT) ===
 # ==========================================
 
-VERSION = "v6.08 (Fixed NameError: tabs, Manager Rights)"
+VERSION = "v6.09 (Manager Can Edit Inventory)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 ADMIN_DEFAULT_PASS = os.environ.get("ADMIN_PASS", "admin123") 
 
-# --- YENİLƏNMİŞ QAYDALAR (MÜŞTƏRİ ÜÇÜN) ---
+# --- YENİLƏNMİŞ QAYDALAR ---
 DEFAULT_TERMS = """
 <div style="font-family: 'Arial', sans-serif; color: #333; line-height: 1.6; font-size: 14px;">
     <h4 style="color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 10px; margin-top: 0;">
@@ -246,31 +246,6 @@ def validate_session():
     return not res.empty
 def clear_customer_data():
     st.session_state.current_customer_ta = None
-
-# --- GENERATE IDEAL RECIPES EXCEL FUNCTION (FIXED) ---
-def generate_ideal_recipes_excel():
-    COFFEE_BEAN = "Latina Blend Coffee"; MILK = "Milla Sud 3.2%"; CREAM = "Dom qaymaq 10%"
-    SYRUP_VANILLA = "Sirop Barinoff (Vanil)"; SYRUP_CARAMEL = "Sirop Barinoff (Karamel)"
-    CHOCO_SAUCE = "Topping Chocolate PS"; WHIPPED_CREAM = "Krem Şanti (President)"
-    ICE = "Buz (Ice)"; WATER = "Damacana Su"; ICE_CREAM = "Dondurma (Vanil)"
-    ORANGE_FRUIT = "Portağal (Meyvə)"; CUP_XS = "Stəkan Kağız (XS)"; CUP_S = "Stəkan Kağız (S)"
-    CUP_M = "Stəkan Kağız (M)"; CUP_L = "Stəkan Kağız (L)"; CUP_PLASTIC_M = "Stəkan Şəffaf (M)"
-    LID_S = "Qapaq İsti (Kiçik)"; LID_L = "Qapaq İsti (Böyük)"; LID_PLASTIC = "Qapaq Şəffaf (Stəkan üçün)"
-
-    data = [
-        ("Espresso S", COFFEE_BEAN, 0.009), ("Espresso S", CUP_XS, 1),
-        ("Americano S", COFFEE_BEAN, 0.009), ("Americano S", WATER, 0.200), ("Americano S", CUP_S, 1), ("Americano S", LID_S, 1),
-        ("Cappuccino S", COFFEE_BEAN, 0.009), ("Cappuccino S", MILK, 0.150), ("Cappuccino S", CUP_S, 1), ("Cappuccino S", LID_S, 1),
-        ("Latte S", COFFEE_BEAN, 0.009), ("Latte S", MILK, 0.200), ("Latte S", CUP_S, 1), ("Latte S", LID_S, 1),
-        ("Raf S", COFFEE_BEAN, 0.009), ("Raf S", MILK, 0.100), ("Raf S", CREAM, 0.050), ("Raf S", SYRUP_VANILLA, 0.015), ("Raf S", CUP_S, 1), ("Raf S", LID_S, 1),
-        ("Mocha S", COFFEE_BEAN, 0.009), ("Mocha S", MILK, 0.150), ("Mocha S", CHOCO_SAUCE, 0.020), ("Mocha S", CUP_S, 1), ("Mocha S", LID_S, 1),
-        ("Ice Americano S", COFFEE_BEAN, 0.009), ("Ice Americano S", WATER, 0.150), ("Ice Americano S", ICE, 0.100), ("Ice Americano S", CUP_PLASTIC_M, 1),
-        ("Iced Latte S", COFFEE_BEAN, 0.009), ("Iced Latte S", MILK, 0.150), ("Iced Latte S", ICE, 0.100), ("Iced Latte S", CUP_PLASTIC_M, 1),
-        ("Milkşeyk S", ICE_CREAM, 0.150), ("Milkşeyk S", MILK, 0.050), ("Milkşeyk S", CUP_PLASTIC_M, 1),
-        ("Təbii sıxılmış portağal şirəsi", ORANGE_FRUIT, 0.700), ("Təbii sıxılmış portağal şirəsi", CUP_PLASTIC_M, 1)
-    ]
-    df = pd.DataFrame(data, columns=["menu_item_name", "ingredient_name", "quantity_required"])
-    out = BytesIO(); df.to_excel(out, index=False); return out.getvalue()
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -877,10 +852,6 @@ else:
                             run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)",{"m":sel_prod,"i":real_ing_name,"q":s_q}); st.rerun()
             
             if role == 'admin':
-                with st.expander("🛠️ İdeal Reseptləri Yüklə (SCA Standartı)"):
-                    excel_bytes = generate_ideal_recipes_excel()
-                    st.download_button("📥 İdeal Reseptləri Endir (Excel)", excel_bytes, "ideal_recipes.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
                 with st.expander("📤 Reseptləri İmport / Export (Excel)"):
                     if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"):
                         admin_confirm_dialog("Bütün reseptlər silinsin? Geri qaytarmaq olmayacaq!", lambda: run_action("DELETE FROM recipes"))
@@ -1033,8 +1004,7 @@ else:
                                 except Exception as e: st.error(f"Xəta: {e}")
                     if st.button("📤 Menyu Excel Kimi Endir"): out = BytesIO(); run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False); st.download_button("⬇️ Endir (menu.xlsx)", out.getvalue(), "menu.xlsx")
 
-    if "⚙️ Ayarlar" in tab_map:
-        with tab_map["⚙️ Ayarlar"]:
+        with tab_map["⚙️ Ayarlar"]: # FIXED: Was 'tabs[9]'
             st.subheader("⚙️ Ayarlar")
             st.markdown("### 🛠️ Menecer Səlahiyyətləri")
             col_mp1, col_mp2, col_mp3, col_mp4 = st.columns(4)
@@ -1115,7 +1085,7 @@ else:
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
 
     if "💾 Baza" in tab_map:
-         with tab_map["💾 Baza"]:
+         with tab_map["💾 Baza"]: # FIXED: Was 'tabs[10]'
              c1, c2 = st.columns(2)
              with c1:
                  if st.button("FULL BACKUP"):
@@ -1135,7 +1105,7 @@ else:
                      except: st.error("Xəta")
         
     if "QR" in tab_map:
-        with tab_map["QR"]:
+        with tab_map["QR"]: # FIXED: Was 'tabs[11]'
             st.subheader("QR Kodlar")
             cnt = st.number_input("Say",1,50); kt = st.selectbox("Növ", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
             if st.button("QR Yarat"):
