@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.12 (ULTRA STABLE FIX) ===
+# === EMALATKHANA POS - V6.13 (MANAGER RESTOCK) ===
 # ==========================================
 
-VERSION = "v6.12 (Fixed KeyError: Settings, Manager Safe)"
+VERSION = "v6.13 (Manager Can Restock from List)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -194,6 +194,7 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
         # ADMIN NOTES UPDATE
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS title TEXT")); s.commit()
@@ -680,8 +681,14 @@ else:
                 )
                 sel_mgr_rows = edited_mgr_anbar[edited_mgr_anbar["Seç"]]
                 if len(sel_mgr_rows) == 1:
-                     if st.button("✏️ Düzəliş (Manager)", use_container_width=True):
-                         st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+                    c_m1, c_m2 = st.columns(2)
+                    with c_m1:
+                        if st.button("➕ Mədaxil (Artır)", use_container_width=True, key="mgr_restock_btn"):
+                            st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id'])
+                            st.rerun()
+                    with c_m2:
+                         if st.button("✏️ Düzəliş (Manager)", use_container_width=True, key="mgr_edit_btn"):
+                             st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
                 
             else:
                 df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
