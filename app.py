@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.17 (INVESTOR SELECTOR & RENT) ===
+# === EMALATKHANA POS - V6.18 (SMART SCANNER FIX) ===
 # ==========================================
 
-VERSION = "v6.17 (Rent Category & Specific Investor Selection)"
+VERSION = "v6.18 (Robust QR Parsing for Any Keyboard Layout)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -596,8 +596,14 @@ else:
                 with st.form("scta", clear_on_submit=True):
                     code = st.text_input("Müştəri", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
                     if st.form_submit_button("🔍") or code:
+                        # SMART QR PARSING FIX (V6.18)
+                        code = code.strip()
+                        if "id=" in code:
+                            try: cid = code.split("id=")[1].split("&")[0]
+                            except: cid = code
+                        else: cid = code
+                        
                         try: 
-                            cid = code.split("id=")[1].split("&")[0] if "id=" in code else code
                             r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                             if not r.empty: 
                                 st.session_state.current_customer_ta = r.iloc[0].to_dict()
@@ -1308,7 +1314,7 @@ else:
                         with st.form("staff_exp"):
                             e_cat = st.selectbox("Nə üçün?", ["Xammal Alışı", "Kommunal (İşıq/Su)", "Kirayə", "Təmizlik", "Digər"]); e_amt = st.number_input("Məbləğ (AZN)", min_value=0.1); e_desc = st.text_input("Qeyd")
                             
-                            # --- NEW: ADMIN SOURCE SELECTION ---
+                            # --- NEW: ADMIN SOURCE SELECTION (V6.17) ---
                             selected_investor = None
                             if st.session_state.role == 'admin':
                                 e_source = st.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"])
