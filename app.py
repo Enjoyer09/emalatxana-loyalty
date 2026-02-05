@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.16 (ADMIN FLEXIBLE EXPENSE) ===
+# === EMALATKHANA POS - V6.17 (INVESTOR SELECTOR & RENT) ===
 # ==========================================
 
-VERSION = "v6.16 (Admin Can Select Expense Source)"
+VERSION = "v6.17 (Rent Category & Specific Investor Selection)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -1306,16 +1306,26 @@ else:
                     @st.dialog("💸 Xərc Çıxart")
                     def staff_expense_dialog():
                         with st.form("staff_exp"):
-                            e_cat = st.selectbox("Nə üçün?", ["Kommunal (İşıq/Su)", "Xammal Alışı", "Təmizlik", "Digər"]); e_amt = st.number_input("Məbləğ (AZN)", min_value=0.1); e_desc = st.text_input("Qeyd")
+                            e_cat = st.selectbox("Nə üçün?", ["Xammal Alışı", "Kommunal (İşıq/Su)", "Kirayə", "Təmizlik", "Digər"]); e_amt = st.number_input("Məbləğ (AZN)", min_value=0.1); e_desc = st.text_input("Qeyd")
                             
                             # --- NEW: ADMIN SOURCE SELECTION ---
+                            selected_investor = None
                             if st.session_state.role == 'admin':
                                 e_source = st.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"])
+                                if e_source == "Investor":
+                                    # Filter subjects for investors
+                                    investor_list = [s for s in SUBJECTS if "Investor" in s]
+                                    selected_investor = st.selectbox("Hansı Investor?", investor_list)
                             else:
                                 e_source = 'Kassa'
 
                             if st.form_submit_button("Təsdiqlə"):
-                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', :c, :a, :src, :d, :u)", {"c":e_cat, "a":e_amt, "src":e_source, "d":e_desc, "u":st.session_state.user})
+                                # Determine Subject for Finance Table
+                                final_subject = st.session_state.user # Default to logged in user
+                                if selected_investor:
+                                    final_subject = selected_investor # If specific investor selected
+
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject) VALUES ('out', :c, :a, :src, :d, :u, :sb)", {"c":e_cat, "a":e_amt, "src":e_source, "d":e_desc, "u":st.session_state.user, "sb":final_subject})
                                 run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":e_amt, "r":f"{e_cat} - {e_desc}", "s":st.session_state.user, "src":e_source})
                                 st.success(f"Xərc ({e_source}) qeydə alındı!"); st.rerun()
 
