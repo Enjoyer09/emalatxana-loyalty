@@ -21,10 +21,10 @@ import streamlit.components.v1 as components
 import re
 
 # ==========================================
-# === EMALATKHANA POS - V6.15 (ADMIN SHORTCUTS) ===
+# === EMALATKHANA POS - V6.16 (ADMIN FLEXIBLE EXPENSE) ===
 # ==========================================
 
-VERSION = "v6.15 (Admin Z-Report & Quick Expense)"
+VERSION = "v6.16 (Admin Can Select Expense Source)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -547,7 +547,6 @@ else:
         if "📜 Resept" not in tabs_list: tabs_list.append("📜 Resept")
         tabs_list.extend(["📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
     
-    # 🌟 NEW: ADMIN SEES Z-REPORT TOO
     if role in ['staff', 'manager', 'admin']:
         tabs_list.append("📊 Z-Hesabat")
 
@@ -1308,10 +1307,18 @@ else:
                     def staff_expense_dialog():
                         with st.form("staff_exp"):
                             e_cat = st.selectbox("Nə üçün?", ["Kommunal (İşıq/Su)", "Xammal Alışı", "Təmizlik", "Digər"]); e_amt = st.number_input("Məbləğ (AZN)", min_value=0.1); e_desc = st.text_input("Qeyd")
+                            
+                            # --- NEW: ADMIN SOURCE SELECTION ---
+                            if st.session_state.role == 'admin':
+                                e_source = st.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"])
+                            else:
+                                e_source = 'Kassa'
+
                             if st.form_submit_button("Təsdiqlə"):
-                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', :c, :a, 'Kassa', :d, :u)", {"c":e_cat, "a":e_amt, "d":e_desc, "u":st.session_state.user})
-                                run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, 'Kassa')", {"a":e_amt, "r":f"{e_cat} - {e_desc}", "s":st.session_state.user})
-                                st.success("Xərc qeydə alındı!"); st.rerun()
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', :c, :a, :src, :d, :u)", {"c":e_cat, "a":e_amt, "src":e_source, "d":e_desc, "u":st.session_state.user})
+                                run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":e_amt, "r":f"{e_cat} - {e_desc}", "s":st.session_state.user, "src":e_source})
+                                st.success(f"Xərc ({e_source}) qeydə alındı!"); st.rerun()
+
                     if st.button("💸 Xərc Çıxart", use_container_width=True): 
                         if st.session_state.show_receipt_popup: st.error("Əvvəl çeki bağlayın!")
                         else: staff_expense_dialog()
