@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.21 (PERFORMANCE & CACHE) ===
+# === EMALATKHANA POS - V6.22 (FINAL FIX - TABS VISIBLE) ===
 # ==========================================
 
-VERSION = "v6.21 (Smart Cache & Optimized Queries)"
+VERSION = "v6.22 (Tabs Visibility Fixed & Performance Cache)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
