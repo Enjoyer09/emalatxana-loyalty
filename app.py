@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.23 (TABS INDENTATION FIX) ===
+# === EMALATKHANA POS - V6.24 (PRODUCTION HOTFIX - FLAT STRUCTURE) ===
 # ==========================================
 
-VERSION = "v6.23 (Fixed Empty Tabs Issue & Layout)"
+VERSION = "v6.24 (Tabs Indentation Fully Fixed & Flattened)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -217,7 +217,7 @@ def send_email(to_email, subject, body):
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 
-# --- CACHED DATA HELPERS (V6.21) ---
+# --- CACHED DATA HELPERS ---
 @st.cache_data(ttl=300) # Cache for 5 minutes
 def get_cached_menu():
     return run_query("SELECT * FROM menu WHERE is_active=TRUE")
