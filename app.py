@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.30 (STAFF COOKIE BLOCKER) ===
+# === EMALATKHANA POS - V6.30 (STAFF UPDATE) ===
 # ==========================================
 
-VERSION = "v6.30 (Staff Limit 6AZN + No Food Rule + Manual Discount)"
+VERSION = "v6.30 (Staff Update + Manual Discount)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
