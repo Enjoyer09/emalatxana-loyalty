@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.31 (ECO MODE & STAFF REVENUE FIX) ===
+# === EMALATKHANA POS - V6.32 (CRASH PREVENTION & STABLE TABLES) ===
 # ==========================================
 
-VERSION = "v6.31 (Eco Mode for Inventory, Staff Sales = 0.00 Revenue)"
+VERSION = "v6.32 (Bulletproof Tables: No Crash on Checkbox)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -662,7 +662,7 @@ else:
                 
                 # --- PAYMENT METHODS & OWN CUP CHECK ---
                 pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True) 
-                own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check") # V6.31 ECO MODE
+                own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check") 
 
                 # --- VALIDATION FOR BUTTON ---
                 btn_disabled = False
@@ -688,14 +688,10 @@ else:
                             for it in st.session_state.cart_takeaway:
                                 recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                                 for r in recs:
-                                    # --- V6.31: SMART INVENTORY DEDUCTION (ECO MODE) ---
                                     ing_name = r[0]
-                                    
-                                    # Fetch ingredient category to check if it's packaging
                                     ing_info = s.execute(text("SELECT category FROM ingredients WHERE name=:n"), {"n":ing_name}).fetchone()
                                     ing_cat = ing_info[0] if ing_info else ""
 
-                                    # If Eco Mode is ON and ingredient is Packaging -> SKIP
                                     if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name):
                                         continue 
 
@@ -709,7 +705,6 @@ else:
                             if pm == "Personal (Staff)": final_note = "Staff Limit (6AZN)"
                             if own_cup: final_note += " [Eko Mod]"
 
-                            # --- V6.31: REVENUE FIX (Staff = 0.00) ---
                             final_db_total = final
                             if pm == "Personal (Staff)": final_db_total = 0.00
 
@@ -823,7 +818,8 @@ else:
                     hide_index=True, 
                     column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
                     disabled=["id","name","stock_qty","unit","category"],
-                    use_container_width=True
+                    use_container_width=True,
+                    key="anbar_mgr_ed"
                 )
                 sel_mgr_rows = edited_mgr_anbar[edited_mgr_anbar["Seç"]]
                 if len(sel_mgr_rows) == 1:
@@ -837,7 +833,11 @@ else:
                              st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
                 
             else:
+                # --- V6.32 CRASH FIX: HANDLE NULLS & TYPES ---
+                df_page['stock_qty'] = pd.to_numeric(df_page['stock_qty'], errors='coerce').fillna(0.0)
+                df_page['unit_cost'] = pd.to_numeric(df_page['unit_cost'], errors='coerce').fillna(0.0)
                 df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
+                
                 df_page.insert(0, "Seç", False)
                 edited_df = st.data_editor(df_page, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "unit_cost": st.column_config.NumberColumn(format="%.5f"), "Total Value": st.column_config.NumberColumn(format="%.2f")}, disabled=["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value", "type"], use_container_width=True, key="anbar_editor")
                 sel_rows = edited_df[edited_df["Seç"]]; sel_ids = sel_rows['id'].tolist(); sel_count = len(sel_ids)
@@ -1016,7 +1016,8 @@ else:
                     hide_index=True, 
                     column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
                     disabled=["id","type","category","amount","source","description","created_by","created_at","subject"],
-                    use_container_width=True
+                    use_container_width=True,
+                    key="fin_admin_ed"
                 )
                 sel_fin_rows = edited_fin[edited_fin["Seç"]]
                 
