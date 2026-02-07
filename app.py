@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.27 (STABLE: ALL TABS + CRM COUPON) ===
+# === EMALATKHANA POS - V6.28 (FULL STABLE ARCHITECTURE) ===
 # ==========================================
 
-VERSION = "v6.27 (Stable: Tabs Fixed, CRM Coupon Added)"
+VERSION = "v6.28 (Fixed: Z-Report, Logs, Bank Card Subject)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -47,7 +47,9 @@ DEFAULT_TERMS = """
 """
 
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
-SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Təchizatçı", "Digər"]
+
+# --- UPDATED SUBJECTS (V6.28) ---
+SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Bank Kartı (Şirkət)", "Təchizatçı", "Digər"]
 
 # --- PRESET KATEQORIYALAR ---
 PRESET_CATEGORIES = [
@@ -194,8 +196,11 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 def log_system(user, action, cid=None):
-    try: run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
+    # Simplified logging to ensure it works
+    try: 
+        run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except: pass
+
 def delete_sales_transaction(ids, user):
     try:
         with conn.session as s:
@@ -973,10 +978,19 @@ else:
                                 new_amt = st.number_input("Məbləğ", value=float(r['amount']), min_value=0.01)
                                 new_cat = st.text_input("Kateqoriya", value=r['category'])
                                 new_desc = st.text_input("Qeyd", value=r['description'])
-                                new_src = st.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"], index=["Kassa", "Bank Kartı", "Seyf", "Investor"].index(r['source']) if r['source'] in ["Kassa", "Bank Kartı", "Seyf", "Investor"] else 0)
+                                
+                                # Updated Source Selection
+                                src_opts = ["Kassa", "Bank Kartı", "Seyf", "Investor"]
+                                curr_src = r['source'] if r['source'] in src_opts else "Kassa"
+                                new_src = st.selectbox("Mənbə", src_opts, index=src_opts.index(curr_src))
+                                
+                                # New Subject Selection for Edit
+                                curr_subj = r['subject'] if r['subject'] in SUBJECTS else SUBJECTS[0]
+                                new_subj = st.selectbox("Subyekt", SUBJECTS, index=SUBJECTS.index(curr_subj) if curr_subj in SUBJECTS else 0)
+
                                 if st.form_submit_button("Yadda Saxla"):
-                                    run_action("UPDATE finance SET amount=:a, category=:c, description=:d, source=:s WHERE id=:id", 
-                                            {"a":new_amt, "c":new_cat, "d":new_desc, "s":new_src, "id":int(r['id'])})
+                                    run_action("UPDATE finance SET amount=:a, category=:c, description=:d, source=:s, subject=:sub WHERE id=:id", 
+                                            {"a":new_amt, "c":new_cat, "d":new_desc, "s":new_src, "sub":new_subj, "id":int(r['id'])})
                                     st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_finance_id = None; st.rerun()
                         edit_finance_dialog(fr)
 
@@ -1357,5 +1371,116 @@ else:
                     for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[kt]}.png", img)
                 st.success(f"{cnt} QR Kod yaradıldı!")
                 st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
+
+    # 🌟 ADMIN / MANAGER / STAFF Z-REPORT SECTION
+    if "📊 Z-Hesabat" in tab_map:
+        with tab_map["📊 Z-Hesabat"]:
+            st.subheader("📊 Z-Hesabat & Satışlar")
+            sc1, sc2 = st.columns([1,3])
+            with sc1:
+                @st.dialog("💸 Xərc Çıxart")
+                def staff_expense_dialog():
+                    with st.form("staff_exp"):
+                        e_cat = st.selectbox("Nə üçün?", ["Xammal Alışı", "Kommunal (İşıq/Su)", "Kirayə", "Təmizlik", "Digər"]); e_amt = st.number_input("Məbləğ (AZN)", min_value=0.1); e_desc = st.text_input("Qeyd")
+                        
+                        # --- NEW: ADMIN SOURCE SELECTION (V6.17) ---
+                        selected_investor = None
+                        if st.session_state.role == 'admin':
+                            e_source = st.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"])
+                            if e_source == "Investor":
+                                # Filter subjects for investors
+                                investor_list = [s for s in SUBJECTS if "Investor" in s]
+                                selected_investor = st.selectbox("Hansı Investor?", investor_list)
+                        else:
+                            e_source = 'Kassa'
+
+                        if st.form_submit_button("Təsdiqlə"):
+                            # Determine Subject for Finance Table
+                            final_subject = st.session_state.user # Default to logged in user
+                            if selected_investor:
+                                final_subject = selected_investor # If specific investor selected
+
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject) VALUES ('out', :c, :a, :src, :d, :u, :sb)", {"c":e_cat, "a":e_amt, "src":e_source, "d":e_desc, "u":st.session_state.user, "sb":final_subject})
+                            run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":e_amt, "r":f"{e_cat} - {e_desc}", "s":st.session_state.user, "src":e_source})
+                            st.success(f"Xərc ({e_source}) qeydə alındı!"); st.rerun()
+
+                if st.button("💸 Xərc Çıxart", use_container_width=True): 
+                    if st.session_state.show_receipt_popup: st.error("Əvvəl çeki bağlayın!")
+                    else: staff_expense_dialog()
+            with sc2:
+                btn_lbl = "🔴 Günü Bitir (Z-Hesabat)"
+                if get_setting("z_report_test_mode") == "TRUE": btn_lbl += " [TEST MODE]"
+                if st.button(btn_lbl, type="primary", use_container_width=True): 
+                    if st.session_state.show_receipt_popup: st.error("Əvvəl çeki bağlayın!")
+                    else:
+                        st.session_state.z_report_active = True; st.session_state.z_calculated = False; st.rerun()
+            
+            if st.session_state.z_report_active and not st.session_state.show_receipt_popup:
+                @st.dialog("📊 GÜNÜN BAĞLANIŞI")
+                def z_report_dialog():
+                    st.write("---"); st.write("💸 **GÜNLÜK MAAŞLAR ÖDƏNİLDİ?**")
+                    c1, c2 = st.columns(2)
+                    pay_staff = c1.checkbox("Staff (20 AZN)", key="z_chk_staff"); pay_manager = c2.checkbox("Manager (25 AZN)", key="z_chk_mgr")
+                    st.write("---")
+                    if st.button("🧮 HESABLA"): st.session_state.z_calculated = True
+                    
+                    if st.session_state.z_calculated:
+                        now = get_baku_now()
+                        if now.hour >= 8: shift_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                        else: shift_start = (now - datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+                        sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
+                        exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['e'] or 0.0
+                        inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                        
+                        salary_deduction = 0
+                        if pay_staff: salary_deduction += 20
+                        if pay_manager: salary_deduction += 25
+                        
+                        start_limit = float(get_setting("cash_limit", "100.0"))
+                        current_bal = start_limit + float(sales_cash) + float(inc_cash) - float(exp_cash) - salary_deduction
+                        diff = current_bal - start_limit
+                        
+                        st.markdown(f"**Başlanğıc:** {start_limit:.2f} ₼"); st.markdown(f"**+ Satış (Nəğd):** {float(sales_cash):.2f} ₼")
+                        st.markdown(f"**- Maaşlar:** {salary_deduction:.2f} ₼"); st.markdown(f"**- Xərclər (Kassa):** {float(exp_cash):.2f} ₼")
+                        st.divider(); st.markdown(f"### KASSADA OLMALIDIR: {current_bal:.2f} ₼")
+                        if diff > 0: st.info(f"📥 {diff:.2f} AZN Seyfə qoyulacaq.")
+                        elif diff < 0: st.error(f"📤 {abs(diff):.2f} AZN Seyfdən götürüləcək.")
+                        st.divider()
+                        if st.button("✅ TƏSDİQLƏ VƏ GÜNÜ BAĞLA", type="primary"):
+                            if pay_staff: run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş', 20, 'Kassa', 'Z-Hesabat: Staff', :u)", {"u":st.session_state.user})
+                            if pay_manager: run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş', 25, 'Kassa', 'Z-Hesabat: Manager', :u)", {"u":st.session_state.user})
+                            if diff > 0:
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya', :a, 'Kassa', 'Z-Hesabat: Seyfə Transfer', :u)", {"a":diff, "u":st.session_state.user})
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'İnkassasiya', :a, 'Seyf', 'Z-Hesabat: Kassadan Gələn', :u)", {"a":diff, "u":st.session_state.user})
+                            elif diff < 0:
+                                needed = abs(diff)
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Kassa Tamamlama', :a, 'Kassa', 'Z-Hesabat: Seyfdən Gələn', :u)", {"a":needed, "u":st.session_state.user})
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Kassa Tamamlama', :a, 'Seyf', 'Z-Hesabat: Kassaya Gedən', :u)", {"a":needed, "u":st.session_state.user})
+                            
+                            set_setting("last_z_report_time", get_baku_now().isoformat())
+                            log_system(st.session_state.user, f"Z-Hesabat Bağlandı. Qalıq: {current_bal}")
+                            st.session_state.z_report_active = False; st.session_state.z_calculated = False; st.success("Gün Uğurla Bağlandı! 🎉"); time.sleep(2); st.rerun()
+                z_report_dialog()
+
+            st.divider(); st.markdown("### 🔍 Mənim Satışlarım")
+            c1, c2 = st.columns(2); 
+            
+            # --- OPTIMIZATION (V6.21): DEFAULT TO TODAY ---
+            default_start = datetime.date.today()
+            default_end = datetime.date.today()
+            
+            d1 = c1.date_input("Start", default_start, key="staff_date_start"); 
+            d2 = c2.date_input("End", default_end, key="staff_date_end"); 
+            ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
+            
+            # ONLY FETCH IF DATES ARE VALID (Prevents huge load on init)
+            if role == 'admin' or d1 == datetime.date.today():
+                    q_staff = """SELECT s.created_at AS "Tarix", s.items AS "Mallar", s.original_total AS "Məbləğ (Endirimsiz)", s.discount_amount AS "Endirim", s.total AS "Yekun", s.payment_method AS "Ödəniş", s.customer_card_id AS "Müştəri ID" FROM sales s WHERE s.cashier = :u AND s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC"""
+                    mys = run_query(q_staff, {"u":st.session_state.user, "s":ts_start, "e":ts_end})
+                    total_sales = mys['Yekun'].sum() if not mys.empty else 0.0
+                    st.metric(f"Seçilən Tarix Üzrə Cəm", f"{total_sales:.2f} ₼")
+                    st.dataframe(mys, hide_index=True, use_container_width=True)
+            else:
+                    st.info("Keçmiş tarixçə üçün tarix seçin.")
 
     st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
