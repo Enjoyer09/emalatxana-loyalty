@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.35 (MODULAR ARCHITECTURE - FINAL STABLE) ===
+# === EMALATKHANA POS - V6.36 (DUPLICATE ID FIX) ===
 # ==========================================
 
-VERSION = "v6.35 (Modular Logic: No Empty Tabs, All Features Included)"
+VERSION = "v6.36 (Fixed: Unique Keys for All Buttons)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -148,7 +148,6 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS amount DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
-
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -530,9 +529,9 @@ else:
                 if role in ['admin','manager']:
                     with st.expander("🛠️ Masa İdarə"):
                         nl = st.text_input("Ad"); 
-                        if st.button("Yarat"): run_action("INSERT INTO tables (label) VALUES (:l)", {"l":nl}); st.rerun()
+                        if st.button("Yarat", key="create_table_btn"): run_action("INSERT INTO tables (label) VALUES (:l)", {"l":nl}); st.rerun()
                         dl = st.selectbox("Sil", run_query("SELECT label FROM tables")['label'].tolist() if not run_query("SELECT label FROM tables").empty else [])
-                        if st.button("Sil"): admin_confirm_dialog("Silinsin?", lambda: run_action("DELETE FROM tables WHERE label=:l", {"l":dl}))
+                        if st.button("Sil", key="delete_table_btn"): admin_confirm_dialog("Silinsin?", lambda: run_action("DELETE FROM tables WHERE label=:l", {"l":dl}))
                 df_t = run_query("SELECT * FROM tables ORDER BY id"); cols = st.columns(3)
                 for i, r in df_t.iterrows():
                     with cols[i%3]:
@@ -562,22 +561,22 @@ else:
                 sel_mgr_rows = edited_mgr_anbar[edited_mgr_anbar["Seç"]]
                 if len(sel_mgr_rows) == 1:
                     c1, c2 = st.columns(2)
-                    if c1.button("➕ Mədaxil"): st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
-                    if c2.button("✏️ Düzəliş"): st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+                    if c1.button("➕ Mədaxil", key="anbar_restock_mgr"): st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+                    if c2.button("✏️ Düzəliş", key="anbar_edit_mgr"): st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
             else:
                 df_page['stock_qty'] = pd.to_numeric(df_page['stock_qty']).fillna(0.0); df_page['unit_cost'] = pd.to_numeric(df_page['unit_cost']).fillna(0.0); df_page['Total'] = df_page['stock_qty'] * df_page['unit_cost']; df_page.insert(0, "Seç", False)
                 edited_df = st.data_editor(df_page, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "unit_cost": st.column_config.NumberColumn(format="%.5f"), "Total": st.column_config.NumberColumn(format="%.2f")}, disabled=["id", "name", "stock_qty", "unit", "unit_cost", "category", "Total"], use_container_width=True, key="anbar_editor")
                 sel_rows = edited_df[edited_df["Seç"]]; sel_ids = sel_rows['id'].tolist()
                 c1, c2, c3 = st.columns(3)
                 if len(sel_ids) == 1:
-                    if c1.button("➕ Mədaxil"): st.session_state.restock_item_id = int(sel_ids[0]); st.rerun()
-                    if c2.button("✏️ Düzəliş"): st.session_state.edit_item_id = int(sel_ids[0]); st.rerun()
-                if len(sel_ids) > 0 and c3.button("🗑️ Sil"): [run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)}) for i in sel_ids]; st.success("Silindi!"); st.rerun()
+                    if c1.button("➕ Mədaxil", key="anbar_restock_btn"): st.session_state.restock_item_id = int(sel_ids[0]); st.rerun()
+                    if c2.button("✏️ Düzəliş", key="anbar_edit_btn"): st.session_state.edit_item_id = int(sel_ids[0]); st.rerun()
+                if len(sel_ids) > 0 and c3.button("🗑️ Sil", key="anbar_del_btn"): [run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)}) for i in sel_ids]; st.success("Silindi!"); st.rerun()
 
             pc1, pc2, pc3 = st.columns([1,2,1])
-            if pc1.button("⬅️") and st.session_state.anbar_page > 0: st.session_state.anbar_page -= 1; st.rerun()
+            if pc1.button("⬅️", key="anbar_prev") and st.session_state.anbar_page > 0: st.session_state.anbar_page -= 1; st.rerun()
             pc2.write(f"Səhifə {st.session_state.anbar_page + 1}")
-            if pc3.button("➡️") and end_idx < total_rows: st.session_state.anbar_page += 1; st.rerun()
+            if pc3.button("➡️", key="anbar_next") and end_idx < total_rows: st.session_state.anbar_page += 1; st.rerun()
 
             if st.session_state.restock_item_id:
                 r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id}).iloc[0]
@@ -617,8 +616,8 @@ else:
                 fin_df.insert(0, "Seç", False)
                 ed_fin = st.data_editor(fin_df, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id","type","category","amount","source","description","created_by","subject"], use_container_width=True, key="fin_ed_safe")
                 sel_fin = ed_fin[ed_fin["Seç"]]
-                if len(sel_fin) == 1 and st.button("✏️ Düzəliş"): st.session_state.edit_finance_id = int(sel_fin.iloc[0]['id']); st.rerun()
-                if not sel_fin.empty and st.button("🗑️ Sil"): [run_action("DELETE FROM finance WHERE id=:id", {"id":int(i)}) for i in sel_fin['id'].tolist()]; st.rerun()
+                if len(sel_fin) == 1 and st.button("✏️ Düzəliş", key="fin_edit_btn"): st.session_state.edit_finance_id = int(sel_fin.iloc[0]['id']); st.rerun()
+                if not sel_fin.empty and st.button("🗑️ Sil", key="fin_del_btn"): [run_action("DELETE FROM finance WHERE id=:id", {"id":int(i)}) for i in sel_fin['id'].tolist()]; st.rerun()
                 
                 if st.session_state.edit_finance_id:
                     fr = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_finance_id}).iloc[0]
@@ -661,7 +660,7 @@ else:
                 recs = run_query("SELECT id, ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:n", {"n":sel_p}); recs.insert(0,"Seç",False)
                 erd = st.data_editor(recs, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="rec_ed_safe")
                 srd = erd[erd["Seç"]]['id'].tolist()
-                if srd and st.button("Sil"): [run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)}) for i in srd]; st.rerun()
+                if srd and st.button("Sil", key="rec_del_btn"): [run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)}) for i in srd]; st.rerun()
                 with st.form("nrec"):
                     ing = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); qty = st.number_input("Miqdar", format="%.3f")
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":qty}); st.rerun()
@@ -670,11 +669,17 @@ else:
         with tab_map["⚙️ Ayarlar"]:
             st.subheader("⚙️ Ayarlar")
             pm = st.checkbox("Manager Menu Edit", value=(get_setting("manager_perm_menu")=="TRUE"))
-            if st.button("Yadda Saxla"): set_setting("manager_perm_menu", "TRUE" if pm else "FALSE"); st.rerun()
+            if st.button("Yadda Saxla", key="save_perm_btn"): set_setting("manager_perm_menu", "TRUE" if pm else "FALSE"); st.rerun()
             with st.expander("👤 Rol"):
                 u = st.selectbox("User", run_query("SELECT username FROM users")['username'].tolist())
                 nr = st.selectbox("Rol", ["staff","manager","admin"])
-                if st.button("Dəyiş"): run_action("UPDATE users SET role=:r WHERE username=:u", {"r":nr,"u":u}); st.success("OK")
+                if st.button("Dəyiş", key="role_change_btn"): run_action("UPDATE users SET role=:r WHERE username=:u", {"r":nr,"u":u}); st.success("OK")
+            with st.expander("👥 İşçi İdarə"):
+                with st.form("new_user_form"):
+                    nu = st.text_input("User"); np = st.text_input("Pass"); nr = st.selectbox("Role", ["staff","manager","admin"])
+                    if st.form_submit_button("Yarat"): run_action("INSERT INTO users (username,password,role) VALUES (:u,:p,:r)", {"u":nu,"p":hash_password(np),"r":nr}); st.success("OK"); st.rerun()
+                du = st.selectbox("Sil", run_query("SELECT username FROM users")['username'].tolist(), key="del_u_sel")
+                if st.button("İşçini Sil", key="del_user_btn"): run_action("DELETE FROM users WHERE username=:u", {"u":du}); st.success("Silindi"); st.rerun()
 
     if "💾 Baza" in tab_map:
         with tab_map["💾 Baza"]:
@@ -688,7 +693,7 @@ else:
         with tab_map["QR"]:
             st.subheader("QR")
             cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["golden","platinum"])
-            if st.button("Yarat"):
+            if st.button("Yarat", key="create_qr_btn"):
                 for _ in range(cnt): run_action("INSERT INTO customers (card_id, type) VALUES (:c, :t)", {"c":str(random.randint(10000,99999)), "t":tp})
                 st.success("Yarandı!")
 
