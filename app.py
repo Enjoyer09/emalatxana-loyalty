@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.30 (STAFF UPDATE) ===
+# === EMALATKHANA POS - V6.31 (ECO MODE & STAFF REVENUE FIX) ===
 # ==========================================
 
-VERSION = "v6.30 (Staff Update + Manual Discount)"
+VERSION = "v6.31 (Eco Mode for Inventory, Staff Sales = 0.00 Revenue)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -635,7 +635,7 @@ else:
                     c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
                     c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
                 
-                # --- MANUAL DISCOUNT SELECTOR (V6.29) ---
+                # --- MANUAL DISCOUNT SELECTOR ---
                 man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel")
                 disc_note = ""
                 if man_disc_val > 0:
@@ -660,9 +660,10 @@ else:
                 if is_ikram: st.success("🎁 İKRAM")
                 elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
                 
-                # --- PAYMENT METHODS ---
-                pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True) # Added Staff
-                
+                # --- PAYMENT METHODS & OWN CUP CHECK ---
+                pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True) 
+                own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check") # V6.31 ECO MODE
+
                 # --- VALIDATION FOR BUTTON ---
                 btn_disabled = False
                 if man_disc_val > 0 and not disc_note: btn_disabled = True
@@ -670,17 +671,13 @@ else:
                 if st.button("✅ ÖDƏNİŞ", type="primary", use_container_width=True, disabled=btn_disabled):
                     if not st.session_state.cart_takeaway: st.error("Boşdur"); st.stop()
                     
-                    # --- STAFF LIMIT CHECK (V6.30) ---
+                    # --- STAFF LIMIT CHECK ---
                     if pm == "Personal (Staff)":
-                        # 1. Price Limit
                         if final > 6.00:
                             st.error("⛔ Limit (6.00 AZN) keçildi! Fərqi ödəyin və ya məhsulu azaldın.")
                             st.stop()
-                        
-                        # 2. Food Blocker
                         for item in st.session_state.cart_takeaway:
                             cat = item.get('category', '')
-                            # Block if it's Sweets/Food. Allow Coffee, Drinks, Water.
                             if "Şirniyyat" in cat or "Yemək" in cat or "Qablaşdırma" in cat or "Siroplar" in cat:
                                 st.error(f"⛔ {item['item_name']} personal limiti üçün keçərli deyil! Yalnız içki olar.")
                                 st.warning("💡 Yemək üçün 'Manual Endirim' (50%) istifadə edin.")
@@ -691,16 +688,32 @@ else:
                             for it in st.session_state.cart_takeaway:
                                 recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                                 for r in recs:
-                                    res = s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":r[0]})
-                                    if res.rowcount == 0: raise Exception(f"Stok yoxdur: {r[0]}")
+                                    # --- V6.31: SMART INVENTORY DEDUCTION (ECO MODE) ---
+                                    ing_name = r[0]
+                                    
+                                    # Fetch ingredient category to check if it's packaging
+                                    ing_info = s.execute(text("SELECT category FROM ingredients WHERE name=:n"), {"n":ing_name}).fetchone()
+                                    ing_cat = ing_info[0] if ing_info else ""
+
+                                    # If Eco Mode is ON and ingredient is Packaging -> SKIP
+                                    if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name):
+                                        continue 
+
+                                    res = s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":ing_name})
+                                    if res.rowcount == 0: raise Exception(f"Stok yoxdur: {ing_name}")
+                            
                             items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                             discount_amt = raw - final
                             
-                            # Final Note
                             final_note = disc_note
                             if pm == "Personal (Staff)": final_note = "Staff Limit (6AZN)"
+                            if own_cup: final_note += " [Eko Mod]"
 
-                            s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":discount_amt, "n":final_note})
+                            # --- V6.31: REVENUE FIX (Staff = 0.00) ---
+                            final_db_total = final
+                            if pm == "Personal (Staff)": final_db_total = 0.00
+
+                            s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":discount_amt, "n":final_note})
                             
                             if cust and not is_ikram and pm != "Personal (Staff)":
                                 cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')])
@@ -709,7 +722,7 @@ else:
                             s.commit()
                         
                         log_msg = f"Satış: {final:.2f} AZN ({items_str})"
-                        if man_disc_val > 0: log_msg += f" [Endirim: {man_disc_val}% - {disc_note}]"
+                        if man_disc_val > 0: log_msg += f" [Endirim: {man_disc_val}%]"
                         if pm == "Personal (Staff)": log_msg += " [Staff Meal]"
                         
                         log_system(st.session_state.user, log_msg, cust['card_id'] if cust else None)
@@ -1169,6 +1182,11 @@ else:
             total_rev = sales['total'].sum() if not sales.empty else 0.0
             rev_cash = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0
             rev_card = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
+            
+            # --- V6.31 STAFF EXPENSE CALCULATION ---
+            # Sum of original_total where payment_method is Staff
+            staff_expense_val = sales[sales['payment_method']=='Staff']['original_total'].sum() if not sales.empty else 0.0
+            
             total_exp = exps['amount'].sum() if not exps.empty else 0.0
             
             est_cogs = 0.0
@@ -1193,12 +1211,15 @@ else:
             gross_profit = total_rev - est_cogs
             
             m1, m2, m3 = st.columns(3); m1.metric("Toplam Satış", f"{total_rev:.2f} ₼"); m2.metric("💳 Kartla", f"{rev_card:.2f} ₼"); m3.metric("💵 Nağd (Kassa)", f"{rev_cash:.2f} ₼")
-            st.markdown("---"); k1, k2, k3 = st.columns(3)
+            st.markdown("---"); k1, k2, k3, k4 = st.columns(4) # Added k4 for Staff
             
             if role == 'admin':
-                k1.metric("Kassa Xərci (Real)", f"{total_exp:.2f} ₼", help="Kassadan çıxan canlı pul"); k2.metric("Təxmini Maya Dəyəri", f"{est_cogs:.2f} ₼", help="Resept əsasında silinən mal"); k3.metric("Təxmini Mənfəət", f"{gross_profit:.2f} ₼", delta_color="normal")
+                k1.metric("Kassa Xərci (Real)", f"{total_exp:.2f} ₼", help="Kassadan çıxan canlı pul"); 
+                k2.metric("Təxmini Maya Dəyəri", f"{est_cogs:.2f} ₼", help="Resept əsasında silinən mal"); 
+                k3.metric("Təxmini Mənfəət", f"{gross_profit:.2f} ₼", delta_color="normal")
+                k4.metric("Staff Xərci (Satış Qiyməti)", f"{staff_expense_val:.2f} ₼", help="Personalın içdiyi kofelərin satış dəyəri")
             else:
-                k1.metric("Kassa Xərci (Real)", "***"); k2.metric("Təxmini Maya Dəyəri", "***"); k3.metric("Təxmini Mənfəət", "***")
+                k1.metric("Kassa Xərci (Real)", "***"); k2.metric("Təxmini Maya Dəyəri", "***"); k3.metric("Təxmini Mənfəət", "***"); k4.metric("Staff Xərci", "***")
 
             if role == 'admin' or role == 'manager':
                 st.markdown("### 🗑️ Satışların İdarəedilməsi")
