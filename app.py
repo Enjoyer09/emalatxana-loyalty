@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.20 (MANAGER RECIPE FIX) ===
+# === EMALATKHANA POS - V6.21 (PERFORMANCE & CACHE) ===
 # ==========================================
 
-VERSION = "v6.20 (Manager Can Now FULLY Edit/Delete Recipes)"
+VERSION = "v6.21 (Smart Cache & Optimized Queries)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -216,6 +216,15 @@ def send_email(to_email, subject, body):
     if not RESEND_API_KEY: return "API_KEY_MISSING"
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
+
+# --- CACHED DATA HELPERS (V6.21) ---
+@st.cache_data(ttl=300) # Cache for 5 minutes
+def get_cached_menu():
+    return run_query("SELECT * FROM menu WHERE is_active=TRUE")
+
+@st.cache_data(ttl=300) # Cache for 5 minutes
+def get_cached_users():
+    return run_query("SELECT * FROM users")
 
 # --- MODIFIED SESSION & LOGIN LOGIC (URL PERSISTENCE) ---
 def create_session(username, role):
@@ -466,10 +475,10 @@ if not st.session_state.logged_in:
             with st.form("sl"):
                 p = st.text_input("PIN", type="password")
                 if st.form_submit_button("Giriş", use_container_width=True):
-                    u = run_query("SELECT * FROM users WHERE role IN ('staff','manager')")
+                    u = get_cached_users() # Use Cached Users
                     found = False
                     for _,r in u.iterrows():
-                        if verify_password(p, r['password']):
+                        if r['role'] in ['staff','manager'] and verify_password(p, r['password']):
                             st.session_state.logged_in=True; st.session_state.user=r['username']; st.session_state.role=r['role']
                             token = create_session(r['username'],r['role'])
                             st.session_state.session_token = token
@@ -543,10 +552,17 @@ else:
         cart.append(item)
 
     def render_menu(cart, key):
-        cats = ["Hamısı"] + run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
+        # USE CACHED MENU
+        menu_df = get_cached_menu()
+        cats = ["Hamısı"] + sorted(menu_df['category'].unique().tolist())
+        
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
-        sql = "SELECT * FROM menu WHERE is_active=TRUE" + (" AND category=:c" if sc!="Hamısı" else "")
-        prods = run_query(sql + " ORDER BY price ASC", {"c":sc})
+        
+        if sc != "Hamısı":
+            prods = menu_df[menu_df['category'] == sc].sort_values(by="price")
+        else:
+            prods = menu_df.sort_values(by="price")
+
         if not prods.empty:
             groups = {}
             for _, r in prods.iterrows():
@@ -1219,14 +1235,23 @@ else:
 
                 st.divider(); st.markdown("### 🔍 Mənim Satışlarım")
                 c1, c2 = st.columns(2); 
-                d1 = c1.date_input("Start", datetime.date.today(), key="staff_date_start"); 
-                d2 = c2.date_input("End", datetime.date.today(), key="staff_date_end"); 
+                
+                # --- OPTIMIZATION (V6.21): DEFAULT TO TODAY ---
+                default_start = datetime.date.today()
+                default_end = datetime.date.today()
+                
+                d1 = c1.date_input("Start", default_start, key="staff_date_start"); 
+                d2 = c2.date_input("End", default_end, key="staff_date_end"); 
                 ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
                 
-                q_staff = """SELECT s.created_at AS "Tarix", s.items AS "Mallar", s.original_total AS "Məbləğ (Endirimsiz)", s.discount_amount AS "Endirim", s.total AS "Yekun", s.payment_method AS "Ödəniş", s.customer_card_id AS "Müştəri ID" FROM sales s WHERE s.cashier = :u AND s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC"""
-                mys = run_query(q_staff, {"u":st.session_state.user, "s":ts_start, "e":ts_end})
-                total_sales = mys['Yekun'].sum() if not mys.empty else 0.0
-                st.metric(f"Seçilən Tarix Üzrə Cəm", f"{total_sales:.2f} ₼")
-                st.dataframe(mys, hide_index=True, use_container_width=True)
+                # ONLY FETCH IF DATES ARE VALID (Prevents huge load on init)
+                if role == 'admin' or d1 == datetime.date.today():
+                     q_staff = """SELECT s.created_at AS "Tarix", s.items AS "Mallar", s.original_total AS "Məbləğ (Endirimsiz)", s.discount_amount AS "Endirim", s.total AS "Yekun", s.payment_method AS "Ödəniş", s.customer_card_id AS "Müştəri ID" FROM sales s WHERE s.cashier = :u AND s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC"""
+                     mys = run_query(q_staff, {"u":st.session_state.user, "s":ts_start, "e":ts_end})
+                     total_sales = mys['Yekun'].sum() if not mys.empty else 0.0
+                     st.metric(f"Seçilən Tarix Üzrə Cəm", f"{total_sales:.2f} ₼")
+                     st.dataframe(mys, hide_index=True, use_container_width=True)
+                else:
+                     st.info("Keçmiş tarixçə üçün tarix seçin.")
 
     st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
