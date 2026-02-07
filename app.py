@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.39 (STABLE FEATURES + MANUAL EMAIL) ===
+# === EMALATKHANA POS - V6.40 (STAFF SALES HISTORY ADDED) ===
 # ==========================================
 
-VERSION = "v6.39 (Full QR Types, Manual Email, Anti-Crash Tables)"
+VERSION = "v6.40 (Staff Can See Own Sales, QR & Discounts)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -253,6 +253,29 @@ def smart_bulk_delete_dialog(selected_sales):
                 for i in ids_to_del: s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":int(i)})
                 s.commit()
             log_system(st.session_state.user, f"Toplu Silmə ({cnt} ədəd)"); st.success("Uğurla Silindi!"); time.sleep(1.5); st.rerun()
+        except Exception as e: st.error(f"Xəta: {e}")
+
+@st.dialog("🗑️ Satışı Sil")
+def smart_delete_sale_dialog(sale_row):
+    st.warning(f"Satış ID: {sale_row['id']}"); st.info(f"Mallar: {sale_row['items']}"); st.error(f"Məbləğ: {sale_row['total']} ₼")
+    st.write("---"); reason = st.radio("Səbəb seçin:", ["🅰️ Səhv Vurulub / Test (Mal Qayıtsın) 🔄", "🅱️ Zay Olub / Dağılıb (Mal Qayıtmasın) 🗑️"])
+    if st.button("🔴 TƏSDİQLƏ VƏ SİL"):
+        try:
+            restore_stock = "Səhv" in reason; sale_id = int(sale_row['id'])
+            with conn.session as s:
+                if restore_stock and sale_row['items']:
+                    items_str = sale_row['items']; parts = items_str.split(", ")
+                    for p in parts:
+                        match = re.match(r"(.+) x(\d+)", p)
+                        if match:
+                            iname = match.group(1).strip(); iqty = int(match.group(2))
+                            recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":iname}).fetchall()
+                            for r in recs:
+                                qty_to_add = float(r[1]) * iqty
+                                s.execute(text("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:n"), {"q":qty_to_add, "n":r[0]})
+                s.execute(text("DELETE FROM sales WHERE id=:id"), {"id":sale_id}); s.commit()
+            log_system(st.session_state.user, f"Satış Silindi #{sale_id}: {'Stok Bərpa' if restore_stock else 'Stok Getdi'}")
+            st.success("Satış uğurla silindi!"); time.sleep(1.5); st.rerun()
         except Exception as e: st.error(f"Xəta: {e}")
 
 def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0):
@@ -554,7 +577,7 @@ else:
             rows_per_page = st.selectbox("Səhifə", [20, 40, 60]); total_rows = len(df_i); start_idx = st.session_state.anbar_page * rows_per_page; end_idx = start_idx + rows_per_page
             df_page = df_i.iloc[start_idx:end_idx].copy()
 
-            # --- ANTI-CRASH: TYPE CASTING & FILLNA ---
+            # --- ANTI-CRASH CASTING & FILLNA ---
             df_page['stock_qty'] = pd.to_numeric(df_page['stock_qty'], errors='coerce').fillna(0.0)
             df_page['unit_cost'] = pd.to_numeric(df_page['unit_cost'], errors='coerce').fillna(0.0)
             df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
@@ -687,7 +710,7 @@ else:
                 
                 fin_df.insert(0, "Seç", False)
                 edited_fin = st.data_editor(
-                    fin_df, 
+                    fin_df.head(50), 
                     hide_index=True, 
                     column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
                     disabled=["id","type","category","amount","source","description","created_by","created_at","subject"],
@@ -974,7 +997,7 @@ else:
                     url = f"{APP_URL}/?id={cid}&t={tok}"; img_bytes = generate_styled_qr(url); generated_qrs.append((cid, img_bytes))
                 zip_buf = BytesIO()
                 with zipfile.ZipFile(zip_buf, "w") as zf:
-                    for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[tp]}.png", img)
+                    for cid, img in generated_qrs: zf.writestr(f"{cid}_{tp}.png", img)
                 st.success(f"{cnt} QR Kod yaradıldı!"); st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
 
     if "👥 CRM" in tab_map:
@@ -1078,6 +1101,48 @@ else:
                                    run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('in','İnkassasiya',:a,'Seyf','Z:Kassa',:u)",{"a":diff,"u":st.session_state.user})
                               set_setting("last_z_report_time", get_baku_now().isoformat()); st.session_state.z_report_active=False; st.session_state.z_calculated=False; st.success("Bitdi!"); time.sleep(1); st.rerun()
                 z_final_d()
+            
+            # --- STAFF HISTORY VIEW (NEW IN v6.40) ---
+            st.divider()
+            st.subheader("🔍 Mənim Şəxsi Satışlarım")
+            col_d1, col_d2 = st.columns(2)
+            d_start_st = col_d1.date_input("Başlanğıc", datetime.date.today(), key="staff_hist_d1")
+            d_end_st = col_d2.date_input("Bitmə", datetime.date.today(), key="staff_hist_d2")
+            
+            ts_s_st = datetime.datetime.combine(d_start_st, datetime.time(0,0))
+            ts_e_st = datetime.datetime.combine(d_end_st, datetime.time(23,59))
+            
+            q_staff = """
+                SELECT 
+                    created_at as "Tarix", 
+                    items as "Məhsullar", 
+                    total as "Ödənilən (AZN)", 
+                    original_total as "Real Dəyər",
+                    discount_amount as "Endirim (AZN)",
+                    note as "Qeyd / Səbəb",
+                    customer_card_id as "QR / Müştəri"
+                FROM sales 
+                WHERE cashier = :u 
+                AND created_at BETWEEN :s AND :e 
+                ORDER BY created_at DESC
+            """
+            try:
+                my_sales = run_query(q_staff, {"u": st.session_state.user, "s": ts_s_st, "e": ts_e_st})
+                if not my_sales.empty:
+                    # Calculate totals for the staff member
+                    total_sold = my_sales["Ödənilən (AZN)"].sum()
+                    total_disc = my_sales["Endirim (AZN)"].sum()
+                    
+                    ms1, ms2 = st.columns(2)
+                    ms1.metric("Cəmi Satışım (Kassaya girən)", f"{total_sold:.2f} ₼")
+                    ms2.metric("Etdiyim Endirimlər", f"{total_disc:.2f} ₼")
+                    
+                    st.dataframe(my_sales, hide_index=True, use_container_width=True)
+                else:
+                    st.info("Bu tarixlər aralığında satışınız yoxdur.")
+            except Exception as e:
+                st.error(f"Xəta: {e}")
+
 
     if "📜 Loglar" in tab_map:
         with tab_map["📜 Loglar"]:
