@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.36 (DUPLICATE ID FIX) ===
+# === EMALATKHANA POS - V6.37 (ULTIMATE RESTORE + UNIQUE KEYS) ===
 # ==========================================
 
-VERSION = "v6.36 (Fixed: Unique Keys for All Buttons)"
+VERSION = "v6.37 (All Features Restored + No Crash + Unique Keys)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -143,11 +143,14 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS customer_id TEXT")); s.commit()
         except: pass
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # ADMIN NOTES UPDATE
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS title TEXT")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS amount DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
+
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -167,8 +170,10 @@ def verify_password(p, h):
     try: return bcrypt.checkpw(p.encode(), h.encode()) if h.startswith('$2b$') else p == h
     except: return False
 def log_system(user, action, cid=None):
-    try: run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
+    try: 
+        run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except: pass
+
 def delete_sales_transaction(ids, user):
     try:
         with conn.session as s:
@@ -430,8 +435,7 @@ else:
                             add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'}); st.rerun()
                 i+=1
 
-    # --- TAB CONTENT (FLAT STRUCTURE) ---
-    
+    # --- TAB CONTENT ---
     if "🏃‍♂️ AL-APAR" in tab_map:
         with tab_map["🏃‍♂️ AL-APAR"]:
             c1, c2 = st.columns([1.5, 3])
@@ -564,8 +568,11 @@ else:
                     if c1.button("➕ Mədaxil", key="anbar_restock_mgr"): st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
                     if c2.button("✏️ Düzəliş", key="anbar_edit_mgr"): st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
             else:
-                df_page['stock_qty'] = pd.to_numeric(df_page['stock_qty']).fillna(0.0); df_page['unit_cost'] = pd.to_numeric(df_page['unit_cost']).fillna(0.0); df_page['Total'] = df_page['stock_qty'] * df_page['unit_cost']; df_page.insert(0, "Seç", False)
-                edited_df = st.data_editor(df_page, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "unit_cost": st.column_config.NumberColumn(format="%.5f"), "Total": st.column_config.NumberColumn(format="%.2f")}, disabled=["id", "name", "stock_qty", "unit", "unit_cost", "category", "Total"], use_container_width=True, key="anbar_editor")
+                df_page['stock_qty'] = pd.to_numeric(df_page['stock_qty'], errors='coerce').fillna(0.0)
+                df_page['unit_cost'] = pd.to_numeric(df_page['unit_cost'], errors='coerce').fillna(0.0)
+                df_page['Total Value'] = df_page['stock_qty'] * df_page['unit_cost']
+                df_page.insert(0, "Seç", False)
+                edited_df = st.data_editor(df_page, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "unit_cost": st.column_config.NumberColumn(format="%.5f"), "Total Value": st.column_config.NumberColumn(format="%.2f")}, disabled=["id", "name", "stock_qty", "unit", "unit_cost", "approx_count", "category", "Total Value", "type"], use_container_width=True, key="anbar_editor")
                 sel_rows = edited_df[edited_df["Seç"]]; sel_ids = sel_rows['id'].tolist()
                 c1, c2, c3 = st.columns(3)
                 if len(sel_ids) == 1:
@@ -594,7 +601,10 @@ else:
                 def show_edit(r):
                     with st.form("ed"):
                         n = st.text_input("Ad", r['name']); c = st.selectbox("Kat", PRESET_CATEGORIES, index=0); u = st.selectbox("Vahid", ["KQ","L","ƏDƏD"], index=0); uc = st.number_input("Qiymət", value=float(r['unit_cost']))
-                        if st.form_submit_button("Yadda Saxla"): run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":uc,"id":int(r['id'])}); st.session_state.edit_item_id=None; st.rerun()
+                        if st.form_submit_button("Yadda Saxla"): 
+                             try:
+                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":float(uc),"id":int(r['id'])}); st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_item_id=None; st.rerun()
+                             except Exception as e: st.error(f"Xəta: {e}")
                 show_edit(r_item)
 
     if "💰 Maliyyə" in tab_map:
@@ -602,10 +612,45 @@ else:
             st.subheader("💰 Maliyyə Mərkəzi")
             if st.button("🔓 Kassanı Aç"): set_setting("cash_limit", str(st.number_input("Start", 0.0))); st.success("OK")
             view_mode = st.radio("Rejim:", ["Növbə", "Ümumi"], horizontal=True)
-            # ... (Simplified finance display logic would go here, kept brief for stability) ...
-            st.divider(); m1, m2, m3, m4 = st.columns(4)
-            # Metrics placeholders (populate with queries as in previous versions)
             
+            # --- Metrics ---
+            now = get_baku_now()
+            if now.hour >= 8: shift_start = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            else: shift_start = (now - datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+            
+            if "Növbə" in view_mode:
+                sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
+                sales_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at >= :d", {"d":shift_start}).iloc[0]['s'] or 0.0
+                exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['e'] or 0.0
+                inc_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                start_lim = float(get_setting("cash_limit", "0.0")); disp_cash = start_lim + float(sales_cash) + float(inc_cash) - float(exp_cash); disp_card = float(sales_card)
+                inc_safe = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in' AND created_at >= :d", {"d":shift_start}).iloc[0]['i'] or 0.0
+                out_safe = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['o'] or 0.0
+                disp_safe = float(inc_safe) - float(out_safe)
+                inv_shift_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Investor' AND type='out' AND created_at >= :d", {"d":shift_start}).iloc[0]['o'] or 0.0
+                disp_investor = float(inv_shift_out)
+            else:
+                last_z = get_setting("last_z_report_time")
+                if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
+                else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
+                s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
+                e_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
+                i_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
+                start_lim = float(get_setting("cash_limit", "100.0")); disp_cash = start_lim + float(s_cash) + float(i_cash) - float(e_cash)
+                s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
+                f_card_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in'").iloc[0]['i'] or 0.0
+                f_card_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Bank Kartı' AND type='out'").iloc[0]['o'] or 0.0
+                disp_card = float(s_card) + float(f_card_in) - float(f_card_out)
+                f_safe_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in'").iloc[0]['i'] or 0.0
+                f_safe_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out'").iloc[0]['o'] or 0.0
+                disp_safe = float(f_safe_in) - float(f_safe_out)
+                inv_total_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Investor' AND type='out'").iloc[0]['o'] or 0.0
+                inv_total_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Investor' AND type='in'").iloc[0]['i'] or 0.0
+                disp_investor = float(inv_total_out) - float(inv_total_in)
+
+            st.divider(); m1, m2, m3, m4 = st.columns(4)
+            m1.metric("🏪 Kassa (Cibdə)", f"{disp_cash:.2f} ₼"); m2.metric("💳 Bank Kartı", f"{disp_card:.2f} ₼"); m3.metric("🏦 Seyf", f"{disp_safe:.2f} ₼"); m4.metric("👤 Investor (Borc)", f"{disp_investor:.2f} ₼")
+
             with st.expander("➕ Yeni Əməliyyat"):
                 with st.form("nft"):
                     t = st.selectbox("Növ", ["out","in"]); s = st.selectbox("Mənbə", ["Kassa","Bank Kartı","Seyf","Investor"]); sub = st.selectbox("Subyekt", SUBJECTS); c = st.text_input("Kat"); a = st.number_input("Məbləğ"); d = st.text_input("Qeyd")
@@ -625,9 +670,27 @@ else:
                     def ed_fin_d(r):
                         with st.form("fed"):
                             na = st.number_input("Məb", value=float(r['amount'])); nc = st.text_input("Kat", r['category']); ns = st.selectbox("Sub", SUBJECTS)
-                            if st.form_submit_button("Yadda"): run_action("UPDATE finance SET amount=:a, category=:c, subject=:s WHERE id=:id", {"a":na,"c":nc,"s":ns,"id":int(r['id'])}); st.session_state.edit_finance_id=None; st.rerun()
+                            if st.form_submit_button("Yadda"): 
+                                 run_action("UPDATE finance SET amount=:a, category=:c, subject=:s WHERE id=:id", {"a":na,"c":nc,"s":ns,"id":int(r['id'])})
+                                 st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_finance_id=None; st.rerun()
                     ed_fin_d(fr)
             else: st.dataframe(fin_df, hide_index=True)
+
+    if "📝 Qeydlər" in tab_map:
+        with tab_map["📝 Qeydlər"]:
+            st.subheader("📝 Şəxsi Qeydlər & Hesablayıcı (Admin)")
+            with st.form("add_note_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns([2, 1, 2]); n_title = c1.text_input("Nə Aldın?"); n_amount = c2.number_input("Nə Qədər?", step=0.1); n_desc = c3.text_input("Qeyd")
+                if st.form_submit_button("➕ Əlavə Et"): run_action("INSERT INTO admin_notes (title, amount, note) VALUES (:t, :a, :n)", {"t":n_title, "a":n_amount, "n":n_desc}); st.success("Yazıldı!"); st.rerun()
+            
+            notes = run_query("SELECT * FROM admin_notes ORDER BY created_at DESC")
+            if not notes.empty:
+                st.markdown(f"### 💰 CƏM: {notes['amount'].sum():.2f} AZN")
+                notes['Seç'] = False; edited_notes = st.data_editor(notes, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, use_container_width=True, key="notes_ed")
+                sel_notes = edited_notes[edited_notes["Seç"]]
+                if not sel_notes.empty and st.button("🗑️ Sil", key="del_notes_btn"):
+                    for i in sel_notes['id'].tolist(): run_action("DELETE FROM admin_notes WHERE id=:id", {"id":int(i)})
+                    st.success("Silindi!"); st.rerun()
 
     if "📋 Menyu" in tab_map:
         with tab_map["📋 Menyu"]:
@@ -651,6 +714,10 @@ else:
                         nn = st.text_input("Ad", r['item_name']); np = st.number_input("Qiymət", value=float(r['price']))
                         if st.form_submit_button("Yadda"): run_action("UPDATE menu SET item_name=:n, price=:p WHERE id=:id", {"n":nn,"p":np,"id":int(r['id'])}); st.session_state.menu_edit_id=None; st.rerun()
                 ed_men_d(mr)
+            
+            if role == 'admin':
+                with st.expander("📤 İmport / Export"):
+                     if st.button("Excel Endir"): out = BytesIO(); run_query("SELECT * FROM menu").to_excel(out, index=False); st.download_button("Menu.xlsx", out.getvalue(), "menu.xlsx")
 
     if "📜 Resept" in tab_map:
         with tab_map["📜 Resept"]:
@@ -674,6 +741,9 @@ else:
                 u = st.selectbox("User", run_query("SELECT username FROM users")['username'].tolist())
                 nr = st.selectbox("Rol", ["staff","manager","admin"])
                 if st.button("Dəyiş", key="role_change_btn"): run_action("UPDATE users SET role=:r WHERE username=:u", {"r":nr,"u":u}); st.success("OK")
+            with st.expander("🔑 Şifrə Dəyişmə"):
+                users = run_query("SELECT username FROM users"); sel_u_pass = st.selectbox("İşçi Seç", users['username'].tolist(), key="pass_change_sel_2"); new_pass = st.text_input("Yeni Şifrə", type="password")
+                if st.button("Şifrəni Yenilə", key="pass_upd_btn"): run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_u_pass}); st.success("Yeniləndi!")
             with st.expander("👥 İşçi İdarə"):
                 with st.form("new_user_form"):
                     nu = st.text_input("User"); np = st.text_input("Pass"); nr = st.selectbox("Role", ["staff","manager","admin"])
@@ -683,19 +753,39 @@ else:
 
     if "💾 Baza" in tab_map:
         with tab_map["💾 Baza"]:
-            if st.button("BACKUP"):
+            if st.button("FULL BACKUP", key="full_backup_btn"):
                 out = BytesIO()
                 with pd.ExcelWriter(out, engine='xlsxwriter') as w:
-                    for t in ["users","menu","sales","finance"]: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
-                st.download_button("Download", out.getvalue(), "backup.xlsx")
+                    for t in ["users","menu","sales","finance","ingredients","recipes","customers","notifications","settings","system_logs","tables","promo_codes","customer_coupons","expenses","admin_notes"]:
+                         try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
+                         except: pass
+                st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
+            rf = st.file_uploader("Restore (.xlsx)")
+            if rf and st.button("Bərpa Et", key="restore_btn"):
+                try:
+                    xls = pd.ExcelFile(rf)
+                    for t in xls.sheet_names: run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
+                    st.success("Bərpa Olundu!"); st.rerun()
+                except: st.error("Xəta")
 
     if "QR" in tab_map:
         with tab_map["QR"]:
             st.subheader("QR")
             cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["golden","platinum"])
             if st.button("Yarat", key="create_qr_btn"):
-                for _ in range(cnt): run_action("INSERT INTO customers (card_id, type) VALUES (:c, :t)", {"c":str(random.randint(10000,99999)), "t":tp})
-                st.success("Yarandı!")
+                type_map = {"golden":"golden", "platinum":"platinum"}
+                generated_qrs = []
+                for _ in range(cnt):
+                    cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
+                    run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok})
+                    url = f"{APP_URL}/?id={cid}&t={tok}"
+                    img_bytes = generate_styled_qr(url)
+                    generated_qrs.append((cid, img_bytes))
+                zip_buf = BytesIO()
+                with zipfile.ZipFile(zip_buf, "w") as zf:
+                    for cid, img in generated_qrs: zf.writestr(f"{cid}_{tp}.png", img)
+                st.success(f"{cnt} QR Kod yaradıldı!")
+                st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
 
     if "👥 CRM" in tab_map:
         with tab_map["👥 CRM"]:
@@ -710,9 +800,49 @@ else:
     if "📊 Z-Hesabat" in tab_map:
         with tab_map["📊 Z-Hesabat"]:
             st.subheader("Z-Hesabat")
-            if st.button("Günlük Bağlanış"):
-                # Calculation logic here
-                st.success("Gün bağlandı!")
+            c1, c2 = st.columns([1,3])
+            with c1:
+                @st.dialog("Xərc")
+                def z_exp_d():
+                     with st.form("zexp"):
+                          c = st.selectbox("Kat", ["Xammal", "Kommunal", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
+                          src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
+                          if st.form_submit_button("Təsdiq"): 
+                               run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
+                               run_action("INSERT INTO expenses (amount,reason,spender,source) VALUES (:a,:r,:s,:src)", {"a":a,"r":f"{c}-{d}","s":st.session_state.user,"src":src})
+                               st.rerun()
+                if st.button("💸 Xərc", key="z_exp_btn"): z_exp_d()
+            
+            with c2:
+                if st.button("🔴 Günü Bitir", type="primary", key="end_day_btn"): st.session_state.z_report_active = True; st.rerun()
+            
+            if st.session_state.z_report_active:
+                @st.dialog("Günlük Hesabat")
+                def z_final_d():
+                    st.write("---"); pay_st = st.checkbox("Staff (20 AZN)"); pay_mg = st.checkbox("Manager (25 AZN)")
+                    if st.button("Hesabla", key="calc_z_btn"):
+                         st.session_state.z_calculated = True
+                    
+                    if st.session_state.z_calculated:
+                         now = get_baku_now()
+                         sh_start = now.replace(hour=8, minute=0, second=0, microsecond=0) if now.hour >=8 else (now - datetime.timedelta(days=1)).replace(hour=8, minute=0)
+                         scash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d",{"d":sh_start}).iloc[0]['s'] or 0.0
+                         ecash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d",{"d":sh_start}).iloc[0]['e'] or 0.0
+                         icash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d",{"d":sh_start}).iloc[0]['i'] or 0.0
+                         sal = (20 if pay_st else 0) + (25 if pay_mg else 0)
+                         start = float(get_setting("cash_limit", "100.0"))
+                         curr = start + float(scash) + float(icash) - float(ecash) - sal
+                         diff = curr - start
+                         st.markdown(f"**Kassa:** {curr:.2f} ₼ (Start: {start})")
+                         if diff > 0: st.info(f"Seyfə: {diff:.2f}")
+                         if st.button("Təsdiq", key="confirm_z_btn"):
+                              if pay_st: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',20,'Kassa','Z:Staff',:u)",{"u":st.session_state.user})
+                              if pay_mg: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',25,'Kassa','Z:Manager',:u)",{"u":st.session_state.user})
+                              if diff > 0:
+                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','İnkassasiya',:a,'Kassa','Z:Seyf',:u)",{"a":diff,"u":st.session_state.user})
+                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('in','İnkassasiya',:a,'Seyf','Z:Kassa',:u)",{"a":diff,"u":st.session_state.user})
+                              set_setting("last_z_report_time", get_baku_now().isoformat()); st.session_state.z_report_active=False; st.session_state.z_calculated=False; st.success("Bitdi!"); time.sleep(1); st.rerun()
+                z_final_d()
 
     if "📜 Loglar" in tab_map:
         with tab_map["📜 Loglar"]:
