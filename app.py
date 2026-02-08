@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.42 (CACHE CLEAR FIX & STABILITY) ===
+# === EMALATKHANA POS - V6.43 (INDEX ERROR FIX & POPUP RESET) ===
 # ==========================================
 
-VERSION = "v6.42 (Fixed: Menu Delete Cache Issue & Crash Handler)"
+VERSION = "v6.43 (Fixed: Out of Bounds Error & Popup Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -48,7 +48,6 @@ DEFAULT_TERMS = """
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
 SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Bank Kartı (Şirkət)", "Təchizatçı", "Digər"]
 PRESET_CATEGORIES = ["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik"]
-# SORT MAP
 CAT_ORDER_MAP = {cat: i for i, cat in enumerate(PRESET_CATEGORIES)}
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -92,9 +91,7 @@ st.markdown("""
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; }
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
-    @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-8px);} 100% {transform: translateY(0px);} }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
-    @keyframes pulse { 0% {transform: scale(1);} 50% {transform: scale(1.02);} 100% {transform: scale(1);} }
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
     .stamp-card { background: white; padding: 15px 30px; text-align: center; font-family: 'Courier Prime', monospace; font-weight: bold; transform: rotate(-3deg); border-radius: 12px; border: 4px solid #B71C1C; color: #B71C1C; box-shadow: 0 0 0 4px white, 0 0 0 7px #B71C1C; }
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; justify-items: center; margin-top: 20px; max-width: 400px; margin-left: auto; margin-right: auto; }
@@ -103,7 +100,6 @@ st.markdown("""
     .cup-red-base { filter: invert(18%) sepia(90%) saturate(6329%) hue-rotate(356deg) brightness(96%) contrast(116%); }
     .cup-anim { animation: bounce 1s infinite; }
     .cup-empty { filter: grayscale(100%); opacity: 0.2; }
-    @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-5px);} }
     div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); }
     div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
     @media print { body * { visibility: hidden; } #hidden-print-area, #hidden-print-area * { visibility: visible; } #hidden-print-area { position: fixed; left: 0; top: 0; width: 100%; } }
@@ -179,6 +175,13 @@ def verify_password(p, h):
 def log_system(user, action, cid=None):
     try: run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except: pass
+def delete_sales_transaction(ids, user):
+    try:
+        with conn.session as s:
+            for i in ids: s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
+            s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), {"u": user, "a": f"Satış Silindi ({len(ids)} ədəd)", "t": get_baku_now()})
+            s.commit()
+    except Exception as e: st.error(f"Xəta: {e}")
 def get_setting(key, default=""):
     try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
     except: return default
@@ -194,13 +197,11 @@ def send_email(to_email, subject, body):
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 
-# --- CRITICAL: CACHE HELPERS ---
 @st.cache_data(ttl=300)
 def get_cached_menu(): return run_query("SELECT * FROM menu WHERE is_active=TRUE")
 @st.cache_data(ttl=300)
 def get_cached_users(): return run_query("SELECT * FROM users")
 
-# --- AUTH FUNCTIONS ---
 def create_session(username, role):
     token = secrets.token_urlsafe(32)
     run_action("INSERT INTO active_sessions (token, username, role, created_at, last_activity) VALUES (:t, :u, :r, :c, :c)", {"t":token, "u":username, "r":role, "c":get_baku_now()})
@@ -380,7 +381,7 @@ if not st.session_state.logged_in:
                 if st.form_submit_button("Login"):
                     ud = run_query("SELECT * FROM users WHERE username=:u", {"u":u})
                     if not ud.empty and verify_password(p, ud.iloc[0]['password']):
-                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
+                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params['token'] = token; st.rerun()
                     else: st.error("Səhv")
 
 else:
@@ -609,26 +610,37 @@ else:
             if pc3.button("➡️", key="anbar_next") and end_idx < total_rows: st.session_state.anbar_page += 1; st.rerun()
 
             if st.session_state.restock_item_id:
-                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id}).iloc[0]
-                @st.dialog("➕ Mədaxil")
-                def show_restock(r):
-                    with st.form("rs"):
-                        p = st.number_input("Say", 1); w = st.number_input(f"Çəki ({r['unit']})", 1.0); pr = st.number_input("Yekun Qiymət", 0.0)
-                        if st.form_submit_button("Təsdiq"):
-                             tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']; run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id", {"q":tq,"uc":float(uc),"id":int(r['id'])}); st.rerun()
-                show_restock(r_item)
+                # FIX: Check if empty to avoid index error
+                res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id})
+                if not res.empty:
+                    r_item = res.iloc[0]
+                    @st.dialog("➕ Mədaxil")
+                    def show_restock(r):
+                        with st.form("rs"):
+                            p = st.number_input("Say", 1); w = st.number_input(f"Çəki ({r['unit']})", 1.0); pr = st.number_input("Yekun Qiymət", 0.0)
+                            if st.form_submit_button("Təsdiq"):
+                                tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']
+                                run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id", {"q":tq,"uc":float(uc),"id":int(r['id'])})
+                                st.session_state.restock_item_id=None # RESET ID
+                                st.rerun()
+                    show_restock(r_item)
 
             if st.session_state.edit_item_id:
-                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id}).iloc[0]
-                @st.dialog("✏️ Düzəliş")
-                def show_edit(r):
-                    with st.form("ed"):
-                        n = st.text_input("Ad", r['name']); c = st.selectbox("Kat", PRESET_CATEGORIES, index=0); u = st.selectbox("Vahid", ["KQ","L","ƏDƏD"], index=0); uc = st.number_input("Qiymət", value=float(r['unit_cost']))
-                        if st.form_submit_button("Yadda Saxla"): 
-                             try:
-                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":float(uc),"id":int(r['id'])}); st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_item_id=None; st.rerun()
-                             except Exception as e: st.error(f"Xəta: {e}")
-                show_edit(r_item)
+                res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id})
+                if not res.empty:
+                    r_item = res.iloc[0]
+                    @st.dialog("✏️ Düzəliş")
+                    def show_edit(r):
+                        with st.form("ed"):
+                            n = st.text_input("Ad", r['name']); c = st.selectbox("Kat", PRESET_CATEGORIES, index=0); u = st.selectbox("Vahid", ["KQ","L","ƏDƏD"], index=0); uc = st.number_input("Qiymət", value=float(r['unit_cost']))
+                            if st.form_submit_button("Yadda Saxla"): 
+                                try:
+                                    run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":float(uc),"id":int(r['id'])})
+                                    st.success("Yeniləndi!"); time.sleep(0.5)
+                                    st.session_state.edit_item_id=None # RESET ID
+                                    st.rerun()
+                                except Exception as e: st.error(f"Xəta: {e}")
+                    show_edit(r_item)
 
     if "💰 Maliyyə" in tab_map:
         with tab_map["💰 Maliyyə"]:
@@ -741,9 +753,10 @@ else:
                 
                 # --- FINANCE EDIT DIALOG ---
                 if st.session_state.edit_finance_id:
-                    fin_data = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_finance_id})
-                    if not fin_data.empty:
-                        fr = fin_data.iloc[0]
+                    # FIX: Check if record exists
+                    res = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_finance_id})
+                    if not res.empty:
+                        fr = res.iloc[0]
                         @st.dialog("✏️ Maliyyə Düzəliş")
                         def edit_finance_dialog(r):
                             with st.form("fin_edit_form"):
@@ -763,7 +776,9 @@ else:
                                 if st.form_submit_button("Yadda Saxla"):
                                     run_action("UPDATE finance SET amount=:a, category=:c, description=:d, source=:s, subject=:sub WHERE id=:id", 
                                             {"a":new_amt, "c":new_cat, "d":new_desc, "s":new_src, "sub":new_subj, "id":int(r['id'])})
-                                    st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_finance_id = None; st.rerun()
+                                    st.success("Yeniləndi!"); time.sleep(0.5)
+                                    st.session_state.edit_finance_id = None # RESET ID
+                                    st.rerun()
                         edit_finance_dialog(fr)
 
             else:
@@ -843,16 +858,20 @@ else:
                     except Exception as e: st.error(f"Xəta: {e}")
             
             if st.session_state.menu_edit_id:
-                mr = run_query("SELECT * FROM menu WHERE id=:id", {"id":st.session_state.menu_edit_id}).iloc[0]
-                @st.dialog("✏️ Menyu Düzəliş")
-                def ed_men_d(r):
-                    with st.form("me"):
-                        nn = st.text_input("Ad", r['item_name']); np = st.number_input("Qiymət", value=float(r['price'])); ec = st.text_input("Kateqoriya", r['category']); eic = st.checkbox("Kofe?", value=r['is_coffee'])
-                        if st.form_submit_button("Yadda"): 
-                            run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":nn,"p":np,"c":ec,"ic":eic,"id":int(r['id'])})
-                            get_cached_menu.clear() # CLEAR CACHE
-                            st.session_state.menu_edit_id=None; st.rerun()
-                ed_men_d(mr)
+                # FIX: Check if menu item exists
+                res = run_query("SELECT * FROM menu WHERE id=:id", {"id":st.session_state.menu_edit_id})
+                if not res.empty:
+                    mr = res.iloc[0]
+                    @st.dialog("✏️ Menyu Düzəliş")
+                    def ed_men_d(r):
+                        with st.form("me"):
+                            nn = st.text_input("Ad", r['item_name']); np = st.number_input("Qiymət", value=float(r['price'])); ec = st.text_input("Kateqoriya", r['category']); eic = st.checkbox("Kofe?", value=r['is_coffee'])
+                            if st.form_submit_button("Yadda"): 
+                                run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":nn,"p":np,"c":ec,"ic":eic,"id":int(r['id'])})
+                                get_cached_menu.clear() # CLEAR CACHE
+                                st.session_state.menu_edit_id=None # RESET ID
+                                st.rerun()
+                    ed_men_d(mr)
             
             if role == 'admin':
                 with st.expander("📤 Menyu İmport / Export (Excel)"):
