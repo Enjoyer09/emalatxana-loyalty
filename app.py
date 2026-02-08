@@ -22,23 +22,15 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.41 (SECURITY CORE + MANAGER POWER) ===
+# === EMALATKHANA POS - V6.42 (CACHE CLEAR FIX & STABILITY) ===
 # ==========================================
 
-VERSION = "v6.41 (Security Hardened + Manager Delete + Sorted Menu)"
+VERSION = "v6.42 (Fixed: Menu Delete Cache Issue & Crash Handler)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
-
-# --- SECURITY: ENV CHECK ---
-# Prod-da bu mütləq olmalıdır. Localda xəta verməsin deyə default qoyuruq, amma xəbərdarlıq edirik.
-ADMIN_PASS_ENV = os.environ.get("ADMIN_PASS")
-if not ADMIN_PASS_ENV:
-    # st.warning("⚠️ TƏHLÜKƏSİZLİK XƏBƏRDARLIĞI: 'ADMIN_PASS' təyin edilməyib! Default 'admin123' istifadə olunur.")
-    ADMIN_DEFAULT_PASS = "admin123"
-else:
-    ADMIN_DEFAULT_PASS = ADMIN_PASS_ENV
 
 # --- CONFIG ---
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
+ADMIN_DEFAULT_PASS = os.environ.get("ADMIN_PASS", "admin123") 
 
 # --- CONSTANTS ---
 DEFAULT_TERMS = """
@@ -55,21 +47,8 @@ DEFAULT_TERMS = """
 """
 CARTOON_QUOTES = ["Bu gün sənin günündür! 🚀", "Qəhrəman kimi parılda! ⭐", "Bir fincan kofe = Xoşbəxtlik! ☕", "Enerjini topla, dünyanı fəth et! 🌍"]
 SUBJECTS = ["Admin", "Abbas (Manager)", "Nicat (Investor)", "Elvin (Investor)", "Bank Kartı (Şirkət)", "Təchizatçı", "Digər"]
-
-# --- SORTED CATEGORIES (Priority Order) ---
-PRESET_CATEGORIES = [
-    "Kofe (Dənələr)", 
-    "Süd Məhsulları", 
-    "Bar Məhsulları (Su/Buz)", 
-    "Siroplar", 
-    "Soslar və Pastalar", 
-    "Qablaşdırma (Stəkan/Qapaq)", 
-    "Şirniyyat (Hazır)", 
-    "İçkilər (Hazır)", 
-    "Meyvə-Tərəvəz", 
-    "Təsərrüfat/Təmizlik"
-]
-# Create a mapping for sorting
+PRESET_CATEGORIES = ["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik"]
+# SORT MAP
 CAT_ORDER_MAP = {cat: i for i, cat in enumerate(PRESET_CATEGORIES)}
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
@@ -113,7 +92,9 @@ st.markdown("""
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; }
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
+    @keyframes float { 0% {transform: translateY(0px);} 50% {transform: translateY(-8px);} 100% {transform: translateY(0px);} }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
+    @keyframes pulse { 0% {transform: scale(1);} 50% {transform: scale(1.02);} 100% {transform: scale(1);} }
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
     .stamp-card { background: white; padding: 15px 30px; text-align: center; font-family: 'Courier Prime', monospace; font-weight: bold; transform: rotate(-3deg); border-radius: 12px; border: 4px solid #B71C1C; color: #B71C1C; box-shadow: 0 0 0 4px white, 0 0 0 7px #B71C1C; }
     .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; justify-items: center; margin-top: 20px; max-width: 400px; margin-left: auto; margin-right: auto; }
@@ -122,6 +103,7 @@ st.markdown("""
     .cup-red-base { filter: invert(18%) sepia(90%) saturate(6329%) hue-rotate(356deg) brightness(96%) contrast(116%); }
     .cup-anim { animation: bounce 1s infinite; }
     .cup-empty { filter: grayscale(100%); opacity: 0.2; }
+    @keyframes bounce { 0%, 100% {transform: translateY(0);} 50% {transform: translateY(-5px);} }
     div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); }
     div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
     @media print { body * { visibility: hidden; } #hidden-print-area, #hidden-print-area * { visibility: visible; } #hidden-print-area { position: fixed; left: 0; top: 0; width: 100%; } }
@@ -149,17 +131,13 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS note TEXT")); s.commit()
         except: pass
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
-        
-        # --- SECURITY SCHEMA UPDATES ---
         try: s.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0")); s.commit()
         except: pass
         try: s.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP")); s.commit()
         except: pass
-        
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP")); s.commit()
         except: pass
-
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE finance ADD COLUMN IF NOT EXISTS subject TEXT")); s.commit()
@@ -201,13 +179,6 @@ def verify_password(p, h):
 def log_system(user, action, cid=None):
     try: run_action("INSERT INTO system_logs (username, action, customer_id, created_at) VALUES (:u, :a, :c, :t)", {"u":user, "a":action, "c":cid, "t":get_baku_now()})
     except: pass
-def delete_sales_transaction(ids, user):
-    try:
-        with conn.session as s:
-            for i in ids: s.execute(text("DELETE FROM sales WHERE id=:id"), {"id": i})
-            s.execute(text("INSERT INTO system_logs (username, action, created_at) VALUES (:u, :a, :t)"), {"u": user, "a": f"Satış Silindi ({len(ids)} ədəd)", "t": get_baku_now()})
-            s.commit()
-    except Exception as e: st.error(f"Xəta: {e}")
 def get_setting(key, default=""):
     try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
     except: return default
@@ -223,41 +194,35 @@ def send_email(to_email, subject, body):
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 
+# --- CRITICAL: CACHE HELPERS ---
 @st.cache_data(ttl=300)
 def get_cached_menu(): return run_query("SELECT * FROM menu WHERE is_active=TRUE")
 @st.cache_data(ttl=300)
 def get_cached_users(): return run_query("SELECT * FROM users")
 
-# --- SECURITY FUNCTIONS (SESSION & LOGIN) ---
+# --- AUTH FUNCTIONS ---
 def create_session(username, role):
     token = secrets.token_urlsafe(32)
     run_action("INSERT INTO active_sessions (token, username, role, created_at, last_activity) VALUES (:t, :u, :r, :c, :c)", {"t":token, "u":username, "r":role, "c":get_baku_now()})
     return token
 
 def check_url_token_login():
-    """Checks URL token but clears it immediately for security."""
     qp = st.query_params; token_in_url = qp.get("token")
     if token_in_url and not st.session_state.logged_in:
         res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":token_in_url})
         if not res.empty:
             r = res.iloc[0]
-            # TIMEOUT CHECK
-            last_act = pd.to_datetime(r['last_activity']) if r['last_activity'] else pd.to_datetime(r['created_at'])
-            if (get_baku_now() - last_act).total_seconds() > 28800: # 8 hours
-                 run_action("DELETE FROM active_sessions WHERE token=:t", {"t":token_in_url})
-                 st.error("Sessiya bitib."); return False
-            
+            if (get_baku_now() - (pd.to_datetime(r['last_activity']) if r['last_activity'] else pd.to_datetime(r['created_at']))).total_seconds() > 28800:
+                 run_action("DELETE FROM active_sessions WHERE token=:t", {"t":token_in_url}); st.error("Sessiya bitib."); return False
             st.session_state.logged_in = True; st.session_state.user = r['username']; st.session_state.role = r['role']; st.session_state.session_token = token_in_url
             run_action("UPDATE active_sessions SET last_activity=:n WHERE token=:t", {"n":get_baku_now(), "t":token_in_url})
-            st.query_params.clear() # SECURITY: Clear URL
-            return True
+            st.query_params.clear(); return True
     return False
 
 def validate_session():
     if not st.session_state.session_token: return False
     res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     if res.empty: return False
-    # Update activity
     run_action("UPDATE active_sessions SET last_activity=:n WHERE token=:t", {"n":get_baku_now(), "t":st.session_state.session_token})
     return True
 
@@ -400,16 +365,15 @@ if not st.session_state.logged_in:
                     u = get_cached_users(); found = False
                     for _,r in u.iterrows():
                         if r['role'] in ['staff','manager']:
-                            # BRUTE FORCE CHECK
-                            if r['locked_until'] and pd.to_datetime(r['locked_until']) > get_baku_now(): st.error("Çox sayda səhv cəhd! 5 dəqiqə gözləyin."); found=True; break
+                            if r['locked_until'] and pd.to_datetime(r['locked_until']) > get_baku_now(): st.error("BLOKLANDI! 5 dəqiqə gözləyin."); found=True; break
                             if verify_password(p, r['password']):
                                 st.session_state.logged_in=True; st.session_state.user=r['username']; st.session_state.role=r['role']; token = create_session(r['username'],r['role']); st.session_state.session_token = token; run_action("UPDATE users SET failed_attempts=0 WHERE username=:u", {"u":r['username']}); st.query_params.clear(); found = True; st.rerun()
                             else:
                                 fail = (r['failed_attempts'] or 0) + 1
-                                if fail >= 5: run_action("UPDATE users SET failed_attempts=:f, locked_until=:l WHERE username=:u", {"f":fail, "l":get_baku_now()+datetime.timedelta(minutes=5), "u":r['username']}); st.error("BLOKLANDI! 5 dəqiqə gözləyin.")
-                                else: run_action("UPDATE users SET failed_attempts=:f WHERE username=:u", {"f":fail, "u":r['username']}); st.error(f"Səhv PIN! Qalan cəhd: {5-fail}")
+                                if fail >= 5: run_action("UPDATE users SET failed_attempts=:f, locked_until=:l WHERE username=:u", {"f":fail, "l":get_baku_now()+datetime.timedelta(minutes=5), "u":r['username']}); st.error("Çox sayda səhv cəhd!")
+                                else: run_action("UPDATE users SET failed_attempts=:f WHERE username=:u", {"f":fail, "u":r['username']}); st.error(f"Səhv PIN!")
                                 found = True
-                    if not found: st.error("İstifadəçi tapılmadı")
+                    if not found: st.error("Tapılmadı")
         with t2:
             with st.form("al"):
                 u = st.text_input("User"); p = st.text_input("Pass", type="password")
@@ -421,7 +385,7 @@ if not st.session_state.logged_in:
 
 else:
     if not validate_session(): logout_user()
-    # --- MAIN DASHBOARD ---
+    
     if st.session_state.show_receipt_popup and st.session_state.last_receipt_data: show_receipt_dialog(st.session_state.last_receipt_data['cart'], st.session_state.last_receipt_data['total'], st.session_state.last_receipt_data['email'])
 
     h1, h2, h3 = st.columns([4,1,1])
@@ -459,7 +423,6 @@ else:
 
     def render_menu(cart, key):
         menu_df = get_cached_menu()
-        # SORTING LOGIC
         menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER_MAP).fillna(99)
         menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
         
@@ -547,7 +510,6 @@ else:
                                 for r in recs:
                                     ing_name = r[0]; ing_info = s.execute(text("SELECT category FROM ingredients WHERE name=:n"), {"n":ing_name}).fetchone(); ing_cat = ing_info[0] if ing_info else ""
                                     if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name): continue 
-                                    # ATOMIC STOCK UPDATE
                                     res = s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":ing_name})
                                     if res.rowcount == 0: raise Exception(f"Stok yetmir: {ing_name}")
 
@@ -861,14 +823,24 @@ else:
                            mn = st.text_input("Ad"); mp = st.number_input("Qiymət"); mc = st.text_input("Kat"); mic = st.checkbox("Kofe")
                            if st.form_submit_button("Yarat"): run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":mn,"p":mp,"c":mc,"ic":mic}); st.rerun()
             mdf = get_cached_menu(); mdf.insert(0, "Seç", False)
+            
+            # FORCE FLOAT TYPE FOR PRICE TO AVOID CRASH
+            mdf['price'] = mdf['price'].astype(float)
+
             emd = st.data_editor(mdf, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id","item_name","price","category"], use_container_width=True, key="menu_ed_safe")
             smd = emd[emd["Seç"]]; sm_ids = smd['id'].tolist()
             
             # --- MANAGER CAN DELETE ---
-            if role in ['admin', 'manager'] and len(sm_ids) == 1 and st.button("✏️ Düzəliş", key="med_btn"): 
-                st.session_state.menu_edit_id = int(sm_ids[0]); st.rerun()
-            if role in ['admin', 'manager'] and sm_ids and st.button("🗑️ Sil", key="mdel_btn"): 
-                [run_action("DELETE FROM menu WHERE id=:id", {"id":int(i)}) for i in sm_ids]; st.rerun()
+            c_m1, c_m2 = st.columns(2)
+            if role in ['admin', 'manager']:
+                if len(sm_ids) == 1 and c_m1.button("✏️ Düzəliş", key="med_btn"): 
+                    st.session_state.menu_edit_id = int(sm_ids[0]); st.rerun()
+                if sm_ids and c_m2.button("🗑️ Sil", key="mdel_btn"): 
+                    try:
+                        for i in sm_ids: run_action("DELETE FROM menu WHERE id=:id", {"id":int(i)})
+                        get_cached_menu.clear() # CLEAR CACHE
+                        st.success("Silindi!"); time.sleep(0.5); st.rerun()
+                    except Exception as e: st.error(f"Xəta: {e}")
             
             if st.session_state.menu_edit_id:
                 mr = run_query("SELECT * FROM menu WHERE id=:id", {"id":st.session_state.menu_edit_id}).iloc[0]
@@ -876,7 +848,10 @@ else:
                 def ed_men_d(r):
                     with st.form("me"):
                         nn = st.text_input("Ad", r['item_name']); np = st.number_input("Qiymət", value=float(r['price'])); ec = st.text_input("Kateqoriya", r['category']); eic = st.checkbox("Kofe?", value=r['is_coffee'])
-                        if st.form_submit_button("Yadda"): run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":nn,"p":np,"c":ec,"ic":eic,"id":int(r['id'])}); st.session_state.menu_edit_id=None; st.rerun()
+                        if st.form_submit_button("Yadda"): 
+                            run_action("UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id", {"n":nn,"p":np,"c":ec,"ic":eic,"id":int(r['id'])})
+                            get_cached_menu.clear() # CLEAR CACHE
+                            st.session_state.menu_edit_id=None; st.rerun()
                 ed_men_d(mr)
             
             if role == 'admin':
