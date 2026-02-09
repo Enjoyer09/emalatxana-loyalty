@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.43 (INDEX ERROR FIX & POPUP RESET) ===
+# === EMALATKHANA POS - V6.44 (MENU SEARCH + INSTANT UPDATE FIX) ===
 # ==========================================
 
-VERSION = "v6.43 (Fixed: Out of Bounds Error & Popup Logic)"
+VERSION = "v6.44 (Fixed: Menu Insert Cache & Added Search)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -220,16 +220,13 @@ def check_url_token_login():
             st.query_params.clear(); return True
     return False
 
-def validate_session():
-    if not st.session_state.session_token: return False
-    res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
-    if res.empty: return False
-    run_action("UPDATE active_sessions SET last_activity=:n WHERE token=:t", {"n":get_baku_now(), "t":st.session_state.session_token})
-    return True
-
 def logout_user():
     if st.session_state.session_token: run_action("DELETE FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     st.session_state.logged_in = False; st.session_state.session_token = None; st.query_params.clear(); st.rerun()
+
+def validate_session():
+    if not st.session_state.session_token: return False
+    res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token}); return not res.empty
 
 def clear_customer_data(): st.session_state.current_customer_ta = None
 
@@ -610,37 +607,26 @@ else:
             if pc3.button("➡️", key="anbar_next") and end_idx < total_rows: st.session_state.anbar_page += 1; st.rerun()
 
             if st.session_state.restock_item_id:
-                # FIX: Check if empty to avoid index error
-                res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id})
-                if not res.empty:
-                    r_item = res.iloc[0]
-                    @st.dialog("➕ Mədaxil")
-                    def show_restock(r):
-                        with st.form("rs"):
-                            p = st.number_input("Say", 1); w = st.number_input(f"Çəki ({r['unit']})", 1.0); pr = st.number_input("Yekun Qiymət", 0.0)
-                            if st.form_submit_button("Təsdiq"):
-                                tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']
-                                run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id", {"q":tq,"uc":float(uc),"id":int(r['id'])})
-                                st.session_state.restock_item_id=None # RESET ID
-                                st.rerun()
-                    show_restock(r_item)
+                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.restock_item_id}).iloc[0]
+                @st.dialog("➕ Mədaxil")
+                def show_restock(r):
+                    with st.form("rs"):
+                        p = st.number_input("Say", 1); w = st.number_input(f"Çəki ({r['unit']})", 1.0); pr = st.number_input("Yekun Qiymət", 0.0)
+                        if st.form_submit_button("Təsdiq"):
+                             tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']; run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id", {"q":tq,"uc":float(uc),"id":int(r['id'])}); st.rerun()
+                show_restock(r_item)
 
             if st.session_state.edit_item_id:
-                res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id})
-                if not res.empty:
-                    r_item = res.iloc[0]
-                    @st.dialog("✏️ Düzəliş")
-                    def show_edit(r):
-                        with st.form("ed"):
-                            n = st.text_input("Ad", r['name']); c = st.selectbox("Kat", PRESET_CATEGORIES, index=0); u = st.selectbox("Vahid", ["KQ","L","ƏDƏD"], index=0); uc = st.number_input("Qiymət", value=float(r['unit_cost']))
-                            if st.form_submit_button("Yadda Saxla"): 
-                                try:
-                                    run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":float(uc),"id":int(r['id'])})
-                                    st.success("Yeniləndi!"); time.sleep(0.5)
-                                    st.session_state.edit_item_id=None # RESET ID
-                                    st.rerun()
-                                except Exception as e: st.error(f"Xəta: {e}")
-                    show_edit(r_item)
+                r_item = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id}).iloc[0]
+                @st.dialog("✏️ Düzəliş")
+                def show_edit(r):
+                    with st.form("ed"):
+                        n = st.text_input("Ad", r['name']); c = st.selectbox("Kat", PRESET_CATEGORIES, index=0); u = st.selectbox("Vahid", ["KQ","L","ƏDƏD"], index=0); uc = st.number_input("Qiymət", value=float(r['unit_cost']))
+                        if st.form_submit_button("Yadda Saxla"): 
+                             try:
+                                 run_action("UPDATE ingredients SET name=:n, category=:c, unit=:u, unit_cost=:uc WHERE id=:id", {"n":n,"c":c,"u":u,"uc":float(uc),"id":int(r['id'])}); st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_item_id=None; st.rerun()
+                             except Exception as e: st.error(f"Xəta: {e}")
+                show_edit(r_item)
 
     if "💰 Maliyyə" in tab_map:
         with tab_map["💰 Maliyyə"]:
@@ -753,10 +739,9 @@ else:
                 
                 # --- FINANCE EDIT DIALOG ---
                 if st.session_state.edit_finance_id:
-                    # FIX: Check if record exists
-                    res = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_finance_id})
-                    if not res.empty:
-                        fr = res.iloc[0]
+                    fin_data = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_finance_id})
+                    if not fin_data.empty:
+                        fr = fin_data.iloc[0]
                         @st.dialog("✏️ Maliyyə Düzəliş")
                         def edit_finance_dialog(r):
                             with st.form("fin_edit_form"):
@@ -776,9 +761,7 @@ else:
                                 if st.form_submit_button("Yadda Saxla"):
                                     run_action("UPDATE finance SET amount=:a, category=:c, description=:d, source=:s, subject=:sub WHERE id=:id", 
                                             {"a":new_amt, "c":new_cat, "d":new_desc, "s":new_src, "sub":new_subj, "id":int(r['id'])})
-                                    st.success("Yeniləndi!"); time.sleep(0.5)
-                                    st.session_state.edit_finance_id = None # RESET ID
-                                    st.rerun()
+                                    st.success("Yeniləndi!"); time.sleep(0.5); st.session_state.edit_finance_id = None; st.rerun()
                         edit_finance_dialog(fr)
 
             else:
@@ -836,8 +819,19 @@ else:
                  with st.expander("➕ Tək Mal Əlavə Et (Menu)"):
                       with st.form("nmenu"):
                            mn = st.text_input("Ad"); mp = st.number_input("Qiymət"); mc = st.text_input("Kat"); mic = st.checkbox("Kofe")
-                           if st.form_submit_button("Yarat"): run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":mn,"p":mp,"c":mc,"ic":mic}); st.rerun()
-            mdf = get_cached_menu(); mdf.insert(0, "Seç", False)
+                           if st.form_submit_button("Yarat"): 
+                                run_action("INSERT INTO menu (item_name,price,category,is_active,is_coffee) VALUES (:n,:p,:c,TRUE,:ic)", {"n":mn,"p":mp,"c":mc,"ic":mic})
+                                get_cached_menu.clear() # IMMEDIATE CACHE CLEAR
+                                st.success("Yarandı"); time.sleep(0.5); st.rerun()
+            
+            mdf = get_cached_menu()
+            
+            # --- MENU SEARCH ---
+            menu_search = st.text_input("🔍 Menyu Axtarış", placeholder="Məhsul adı...")
+            if menu_search:
+                mdf = mdf[mdf['item_name'].str.contains(menu_search, case=False, na=False)]
+
+            mdf.insert(0, "Seç", False)
             
             # FORCE FLOAT TYPE FOR PRICE TO AVOID CRASH
             mdf['price'] = mdf['price'].astype(float)
