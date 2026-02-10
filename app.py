@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.47 (FINAL NAV FIX) ===
+# === EMALATKHANA POS - V6.48 (CRITICAL FIX: CUSTOMER CLEAR) ===
 # ==========================================
 
-VERSION = "v6.47 (Fixed: Tab Map Error & Navigation Logic)"
+VERSION = "v6.48 (Fixed: QR/Customer Clear Button Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -286,7 +286,11 @@ def logout_user():
     if st.session_state.session_token: run_action("DELETE FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     st.session_state.logged_in = False; st.session_state.session_token = None; st.query_params.clear(); st.rerun()
 
-def clear_customer_data(): st.session_state.current_customer_ta = None
+def clear_customer_data(): 
+    st.session_state.current_customer_ta = None
+    # CRITICAL FIX: Explicitly clear the input field in session state to prevent re-fetch
+    if "search_input_ta" in st.session_state:
+        st.session_state["search_input_ta"] = ""
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -529,7 +533,11 @@ else:
                             else: st.error("Tapılmadı")
                         except: pass
                 cust = st.session_state.current_customer_ta
-                if cust: c_head, c_del = st.columns([4,1]); c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}"); c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
+                if cust: 
+                    c_head, c_del = st.columns([4,1])
+                    c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
+                    # FIX: Explicitly clear input state on delete
+                    c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
                 
                 man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel"); disc_note = ""
                 if man_disc_val > 0:
@@ -1075,25 +1083,6 @@ else:
                 if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
             lg = st.file_uploader("Logo"); 
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
-
-    elif selected_tab == "💾 Baza":
-            if st.button("FULL BACKUP", key="full_backup_btn"):
-                out = BytesIO()
-                with pd.ExcelWriter(out, engine='xlsxwriter') as w:
-                    for t in ["users","menu","sales","finance","ingredients","recipes","customers","notifications","settings","system_logs","tables","promo_codes","customer_coupons","expenses","admin_notes"]:
-                         try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
-                         except: pass
-                st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
-            rf = st.file_uploader("Restore (.xlsx)")
-            if rf and st.button("Bərpa Et", key="restore_btn"):
-                try:
-                    xls = pd.ExcelFile(rf)
-                    # SECURITY: Whitelist check
-                    for t in xls.sheet_names: 
-                        if t in ALLOWED_TABLES:
-                            run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
-                    st.success("Bərpa Olundu!"); st.rerun()
-                except: st.error("Xəta")
 
     elif selected_tab == "QR":
             st.subheader("QR")
