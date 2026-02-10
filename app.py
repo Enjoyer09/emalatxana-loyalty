@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.46 (SHIFT LOGIC + NAV FIX + QR CLEANER) ===
+# === EMALATKHANA POS - V6.47 (FINAL NAV FIX) ===
 # ==========================================
 
-VERSION = "v6.46 (08:00 Shift Logic, Persistent Nav, Fast Mode)"
+VERSION = "v6.47 (Fixed: Tab Map Error & Navigation Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -144,7 +144,6 @@ except Exception as e: st.error(f"DB Error: {e}"); st.stop()
 @st.cache_resource
 def ensure_schema():
     with conn.session as s:
-        # Tables creation (Standard) - simplified for brevity as they likely exist
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT);"))
@@ -212,14 +211,10 @@ def get_shift_range(date_obj=None):
 def clean_qr_code(raw_code):
     """Clean nasty keyboard artifacts from AZ layout."""
     if not raw_code: return ""
-    # Remove whitespace
     code = raw_code.strip()
-    # If URL, extract ID
     if "id=" in code:
         try: return code.split("id=")[1].split("&")[0]
         except: pass
-    # If raw input (simulating keyboard), remove non-alphanumeric except specific expected chars if needed
-    # But usually ID is purely alphanumeric
     return re.sub(r'[^a-zA-Z0-9]', '', code)
 
 def run_query(q, p=None): return conn.query(q, params=p if p else {}, ttl=0)
@@ -255,8 +250,8 @@ def send_email(to_email, subject, body):
     try: requests.post("https://api.resend.com/emails", json={"from": f"{BRAND_NAME} <{DEFAULT_SENDER_EMAIL}>", "to": [to_email], "subject": subject, "html": body}, headers={"Authorization": f"Bearer {RESEND_API_KEY}"}); return "OK"
     except: return "Error"
 
-# --- CACHE (SPEED FIX) ---
-@st.cache_data(ttl=600) # Increased TTL for speed
+# --- CACHE ---
+@st.cache_data(ttl=600)
 def get_cached_menu(): return run_query("SELECT * FROM menu WHERE is_active=TRUE")
 @st.cache_data(ttl=600)
 def get_cached_users(): return run_query("SELECT * FROM users")
@@ -716,7 +711,6 @@ else:
             shift_start, shift_end = get_shift_range(log_date)
             
             if "Növbə" in view_mode:
-                # Use calculated shift range
                 sales_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at >= :d AND created_at < :e", {"d":shift_start, "e":shift_end}).iloc[0]['s'] or 0.0
                 sales_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at >= :d AND created_at < :e", {"d":shift_start, "e":shift_end}).iloc[0]['s'] or 0.0
                 exp_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d AND created_at < :e", {"d":shift_start, "e":shift_end}).iloc[0]['e'] or 0.0
@@ -726,7 +720,6 @@ else:
                 disp_cash = start_lim + float(sales_cash) + float(inc_cash) - float(exp_cash)
                 disp_card = float(sales_card)
                 
-                # Safe & Investor metrics for Shift (Usually 0 or specific shift input)
                 inc_safe = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Seyf' AND type='in' AND created_at >= :d AND created_at < :e", {"d":shift_start, "e":shift_end}).iloc[0]['i'] or 0.0
                 out_safe = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Seyf' AND type='out' AND created_at >= :d AND created_at < :e", {"d":shift_start, "e":shift_end}).iloc[0]['o'] or 0.0
                 disp_safe = float(inc_safe) - float(out_safe)
@@ -735,19 +728,16 @@ else:
                 disp_investor = float(inv_shift_out)
 
             else:
-                # All Time Logic
                 last_z = get_setting("last_z_report_time")
                 if last_z: last_z_dt = datetime.datetime.fromisoformat(last_z)
                 else: last_z_dt = datetime.datetime.now() - datetime.timedelta(days=365)
                 
-                # Cash in Hand since last Z
                 s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at > :d", {"d":last_z_dt}).iloc[0]['s'] or 0.0
                 e_cash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at > :d", {"d":last_z_dt}).iloc[0]['e'] or 0.0
                 i_cash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at > :d", {"d":last_z_dt}).iloc[0]['i'] or 0.0
                 start_lim = float(get_setting("cash_limit", "100.0"))
                 disp_cash = start_lim + float(s_cash) + float(i_cash) - float(e_cash)
                 
-                # Card, Safe, Investor Total
                 s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
                 f_card_in = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in'").iloc[0]['i'] or 0.0
                 f_card_out = run_query("SELECT SUM(amount) as o FROM finance WHERE source='Bank Kartı' AND type='out'").iloc[0]['o'] or 0.0
@@ -1313,8 +1303,7 @@ else:
                 st.error(f"Xəta: {e}")
 
 
-    if "📜 Loglar" in tab_map:
-        with tab_map["📜 Loglar"]:
+    elif selected_tab == "📜 Loglar":
             st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50"))
 
     st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>Ironwaves POS {VERSION}</div>", unsafe_allow_html=True)
