@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.49 (SMART STAFF LIMIT & BUG FIXES) ===
+# === EMALATKHANA POS - V6.50 (LOYALTY ANALYTICS) ===
 # ==========================================
 
-VERSION = "v6.49 (Staff Overdraft Logic, Anbar Input Fix, Callback Fix)"
+VERSION = "v6.50 (Added: Customer Star Stats in Analytics)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -1110,25 +1110,6 @@ else:
             lg = st.file_uploader("Logo"); 
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
 
-    elif selected_tab == "💾 Baza":
-            if st.button("FULL BACKUP", key="full_backup_btn"):
-                out = BytesIO()
-                with pd.ExcelWriter(out, engine='xlsxwriter') as w:
-                    for t in ["users","menu","sales","finance","ingredients","recipes","customers","notifications","settings","system_logs","tables","promo_codes","customer_coupons","expenses","admin_notes"]:
-                         try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
-                         except: pass
-                st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
-            rf = st.file_uploader("Restore (.xlsx)")
-            if rf and st.button("Bərpa Et", key="restore_btn"):
-                try:
-                    xls = pd.ExcelFile(rf)
-                    # SECURITY: Whitelist check
-                    for t in xls.sheet_names: 
-                        if t in ALLOWED_TABLES:
-                            run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
-                    st.success("Bərpa Olundu!"); st.rerun()
-                except: st.error("Xəta")
-
     elif selected_tab == "QR":
             st.subheader("QR")
             cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
@@ -1220,6 +1201,28 @@ else:
                 c_chart, c_data = st.columns([2, 1])
                 with c_chart: st.bar_chart(staff_perf, x="cashier", y="Cem_Mebleg", color="#2E7D32")
                 with c_data: st.dataframe(staff_perf, hide_index=True)
+
+                # --- LOYALTY STATS (NEW v6.50) ---
+                st.markdown("### 🌟 Aktiv Müştərilər (Bu dövr)")
+                loyalty_query = """
+                    SELECT
+                        s.customer_card_id as "Kart ID",
+                        COUNT(s.id) as "Ziyarət Sayı",
+                        MAX(c.stars) as "Hazırki Ulduz",
+                        MAX(c.type) as "Status"
+                    FROM sales s
+                    LEFT JOIN customers c ON s.customer_card_id = c.card_id
+                    WHERE s.created_at BETWEEN :s AND :e
+                    AND s.customer_card_id IS NOT NULL
+                    AND s.customer_card_id != ''
+                    GROUP BY s.customer_card_id
+                    ORDER BY "Ziyarət Sayı" DESC
+                """
+                loyalty_df = run_query(loyalty_query, {"s": ts_start, "e": ts_end})
+                if not loyalty_df.empty:
+                    st.dataframe(loyalty_df, hide_index=True, use_container_width=True)
+                else:
+                    st.info("Bu dövrdə QR oxudulmayıb.")
 
                 # Enable delete for manager/admin
                 sales.insert(0, "Seç", False)
