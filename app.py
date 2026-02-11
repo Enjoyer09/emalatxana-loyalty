@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.48 (CRITICAL FIX: CUSTOMER CLEAR) ===
+# === EMALATKHANA POS - V6.49 (SMART STAFF LIMIT & BUG FIXES) ===
 # ==========================================
 
-VERSION = "v6.48 (Fixed: QR/Customer Clear Button Logic)"
+VERSION = "v6.49 (Staff Overdraft Logic, Anbar Input Fix, Callback Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -286,11 +286,10 @@ def logout_user():
     if st.session_state.session_token: run_action("DELETE FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     st.session_state.logged_in = False; st.session_state.session_token = None; st.query_params.clear(); st.rerun()
 
-def clear_customer_data(): 
+# --- CALLBACKS (V6.49 FIX) ---
+def clear_customer_data_callback():
     st.session_state.current_customer_ta = None
-    # CRITICAL FIX: Explicitly clear the input field in session state to prevent re-fetch
-    if "search_input_ta" in st.session_state:
-        st.session_state["search_input_ta"] = ""
+    st.session_state["search_input_ta"] = "" # Clear widget state
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -473,12 +472,9 @@ else:
         tabs_list.extend(["📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
 
-    # --- PERSISTENT NAVIGATION (V6.46 FIX) ---
+    # --- PERSISTENT NAVIGATION ---
     selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio")
     
-    # Map the selected tab string to a 'virtual' tab index for compatibility, 
-    # but practically we just use if/else for content rendering.
-
     def add_to_cart(cart, item):
         for i in cart: 
             if i['item_name'] == item['item_name'] and i.get('status')=='new': i['qty']+=1; return
@@ -489,6 +485,11 @@ else:
         menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER_MAP).fillna(99)
         menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
         
+        # POS SEARCH
+        pos_search = st.text_input("🔍 Menyu Axtarış", key=f"pos_s_{key}")
+        if pos_search:
+            menu_df = menu_df[menu_df['item_name'].str.contains(pos_search, case=False, na=False)]
+
         cats = ["Hamısı"] + sorted(menu_df['category'].unique().tolist(), key=lambda x: CAT_ORDER_MAP.get(x, 99))
         sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
         prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
@@ -522,22 +523,22 @@ else:
             c1, c2 = st.columns([1.5, 3])
             with c1:
                 st.info("🧾 Al-Apar")
-                with st.form("scta", clear_on_submit=True):
+                with st.form("scta", clear_on_submit=False): # Changed to False to handle state manually
                     code = st.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
                     if st.form_submit_button("🔍") or code:
-                        # CLEAN QR INPUT
                         cid = clean_qr_code(code)
                         try: 
                             r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                             if not r.empty: st.session_state.current_customer_ta = r.iloc[0].to_dict(); st.toast(f"✅ Müştəri: {cid}"); st.rerun()
                             else: st.error("Tapılmadı")
                         except: pass
+                
                 cust = st.session_state.current_customer_ta
                 if cust: 
                     c_head, c_del = st.columns([4,1])
                     c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
-                    # FIX: Explicitly clear input state on delete
-                    c_del.button("❌", key="clear_cust", on_click=clear_customer_data)
+                    # CALLBACK FOR CLEARING
+                    c_del.button("❌", key="clear_cust", on_click=clear_customer_data_callback)
                 
                 man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel"); disc_note = ""
                 if man_disc_val > 0:
@@ -565,11 +566,31 @@ else:
                 
                 if st.button("✅ ÖDƏNİŞ", type="primary", use_container_width=True, disabled=btn_disabled, key="pay_btn"):
                     if not st.session_state.cart_takeaway: st.error("Boşdur"); st.stop()
+                    
+                    # --- STAFF LIMIT LOGIC (NEW V6.49) ---
+                    final_db_total = final
+                    final_note = disc_note
                     if pm == "Personal (Staff)":
-                        if final > 6.00: st.error("⛔ Limit (6.00 AZN) keçildi!"); st.stop()
-                        for item in st.session_state.cart_takeaway:
-                            cat = item.get('category', '')
-                            if "Şirniyyat" in cat or "Yemək" in cat or "Qablaşdırma" in cat or "Siroplar" in cat: st.error(f"⛔ {item['item_name']} personal limiti üçün keçərli deyil!"); st.stop()
+                        # Calculate Limits
+                        staff_drink_total = sum([x['price']*x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee') or 'İçki' in x.get('category','')])
+                        staff_food_total = sum([x['price']*x['qty'] for x in st.session_state.cart_takeaway if not (x.get('is_coffee') or 'İçki' in x.get('category',''))])
+                        
+                        limit_drink = 6.00
+                        limit_food = 2.00 # Placeholder for Cost Price logic, using safe low limit
+                        
+                        over_drink = max(0, staff_drink_total - limit_drink)
+                        over_food = max(0, staff_food_total - limit_food)
+                        total_overdraft = over_drink + over_food
+                        
+                        if total_overdraft > 0:
+                            st.warning(f"⚠️ Limit aşıldı! Ödəniləcək fərq: {total_overdraft:.2f} AZN")
+                            final_db_total = total_overdraft
+                            final_note = f"Staff Limit Aşımı ({total_overdraft:.2f} ödənildi)"
+                            # Allow proceeding but record the payment
+                        else:
+                            final_db_total = 0.00
+                            final_note = "Staff Limit (OK)"
+
                     try:
                         with conn.session as s:
                             for it in st.session_state.cart_takeaway:
@@ -581,19 +602,16 @@ else:
                                     if res.rowcount == 0: raise Exception(f"Stok yetmir: {ing_name}")
 
                             items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
-                            final_note = disc_note
-                            if pm == "Personal (Staff)": final_note = "Staff Limit (6AZN)"
                             if own_cup: final_note += " [Eko Mod]"
-                            final_db_total = final
-                            if pm == "Personal (Staff)": final_db_total = 0.00
+                            
                             s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note})
                             if cust and not is_ikram and pm != "Personal (Staff)":
                                 cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')])
                                 s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":(cust['stars'] + cf_cnt) - (free * 10), "id":cust['card_id']})
                             s.commit()
-                        log_system(st.session_state.user, f"Satış: {final:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
-                        st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final, 'email':cust['email'] if cust else None}
-                        st.session_state.cart_takeaway = []; clear_customer_data(); st.session_state.show_receipt_popup=True; st.rerun()
+                        log_system(st.session_state.user, f"Satış: {final_db_total:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
+                        st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
+                        st.session_state.cart_takeaway = []; clear_customer_data_callback(); st.session_state.show_receipt_popup=True; st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
             with c2: render_menu(st.session_state.cart_takeaway, "ta")
 
@@ -636,7 +654,13 @@ else:
                      with st.form("smart_add_item", clear_on_submit=True):
                         c1, c2, c3 = st.columns(3); mn_name = c1.text_input("Malın Adı"); sel_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."]); mn_unit = c3.selectbox("Vahid", ["L", "KQ", "ƏDƏD"])
                         mn_cat_final = st.text_input("Yeni Kateqoriya") if sel_cat == "➕ Yeni Yarat..." else sel_cat
-                        c4, c5, c6 = st.columns(3); pack_size = c4.number_input("Qab Həcmi", 0.001); pack_price = c5.number_input("Qab Qiyməti", 0.01); pack_count = c6.number_input("Say", 1.0)
+                        
+                        # FIX: INPUT DEFAULTS
+                        c4, c5, c6 = st.columns(3)
+                        pack_size = c4.number_input("Qab Həcmi", min_value=0.001, value=1.0, step=0.1)
+                        pack_price = c5.number_input("Qab Qiyməti", min_value=0.01, value=10.0, step=0.5)
+                        pack_count = c6.number_input("Say", min_value=1.0, value=1.0, step=1.0)
+                        
                         mn_type = st.selectbox("Növ", ["ingredient", "consumable"])
                         if st.form_submit_button("Əlavə Et") and mn_name and pack_size > 0:
                              run_action("INSERT INTO ingredients (name, stock_qty, unit, category, type, unit_cost, approx_count) VALUES (:n, :q, :u, :c, :t, :uc, 1) ON CONFLICT (name) DO UPDATE SET stock_qty = ingredients.stock_qty + :q, unit_cost = :uc", {"n":mn_name, "q":pack_size*pack_count, "u":mn_unit, "c":mn_cat_final, "t":mn_type, "uc":pack_price/pack_size}); st.success("✅ OK"); time.sleep(1); st.rerun()
@@ -680,7 +704,9 @@ else:
                     @st.dialog("➕ Mədaxil")
                     def show_restock(r):
                         with st.form("rs"):
-                            p = st.number_input("Say", 1); w = st.number_input(f"Çəki ({r['unit']})", 1.0); pr = st.number_input("Yekun Qiymət", 0.0)
+                            p = st.number_input("Say", min_value=1.0, value=1.0, step=1.0)
+                            w = st.number_input(f"Çəki ({r['unit']})", min_value=0.001, value=1.0, step=0.1)
+                            pr = st.number_input("Yekun Qiymət", min_value=0.0, value=0.0, step=0.5)
                             if st.form_submit_button("Təsdiq"):
                                 tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']
                                 run_action("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id", {"q":tq,"uc":float(uc),"id":int(r['id'])})
@@ -1083,6 +1109,25 @@ else:
                 if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
             lg = st.file_uploader("Logo"); 
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
+
+    elif selected_tab == "💾 Baza":
+            if st.button("FULL BACKUP", key="full_backup_btn"):
+                out = BytesIO()
+                with pd.ExcelWriter(out, engine='xlsxwriter') as w:
+                    for t in ["users","menu","sales","finance","ingredients","recipes","customers","notifications","settings","system_logs","tables","promo_codes","customer_coupons","expenses","admin_notes"]:
+                         try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
+                         except: pass
+                st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
+            rf = st.file_uploader("Restore (.xlsx)")
+            if rf and st.button("Bərpa Et", key="restore_btn"):
+                try:
+                    xls = pd.ExcelFile(rf)
+                    # SECURITY: Whitelist check
+                    for t in xls.sheet_names: 
+                        if t in ALLOWED_TABLES:
+                            run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
+                    st.success("Bərpa Olundu!"); st.rerun()
+                except: st.error("Xəta")
 
     elif selected_tab == "QR":
             st.subheader("QR")
