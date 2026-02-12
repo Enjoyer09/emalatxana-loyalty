@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.51 (CALCULATOR + TIPS + BACKUP FIX) ===
+# === EMALATKHANA POS - V6.52 (SMART CASH & AUTO-TIPS) ===
 # ==========================================
 
-VERSION = "v6.51 (POS Calculator, Tips Category, Backup Tab Fix)"
+VERSION = "v6.52 (Quick Cash Buttons, Auto-Tips Expense, Visual Calculator)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -73,6 +73,8 @@ if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
+# New states for calculator
+if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 
 # --- CSS ---
 st.markdown("""
@@ -286,10 +288,14 @@ def logout_user():
     if st.session_state.session_token: run_action("DELETE FROM active_sessions WHERE token=:t", {"t":st.session_state.session_token})
     st.session_state.logged_in = False; st.session_state.session_token = None; st.query_params.clear(); st.rerun()
 
-# --- CALLBACKS (V6.49 FIX) ---
+# --- CALLBACKS ---
 def clear_customer_data_callback():
     st.session_state.current_customer_ta = None
-    st.session_state["search_input_ta"] = "" # Clear widget state
+    st.session_state["search_input_ta"] = ""
+
+# --- CALCULATOR CALLBACK ---
+def set_received_amount(amount):
+    st.session_state.calc_received = float(amount)
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -558,19 +564,40 @@ else:
                 if is_ikram: st.success("🎁 İKRAM")
                 elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
                 
-                # --- CALCULATOR (NEW V6.51) ---
+                # --- SMART CALCULATOR (NEW V6.52) ---
                 if final > 0:
                     st.markdown("---")
+                    
+                    # Quick Buttons
+                    cb1, cb2, cb3, cb4, cb5 = st.columns(5)
+                    if cb1.button(f"{final:.2f}"): set_received_amount(final)
+                    if cb2.button("5 ₼"): set_received_amount(5)
+                    if cb3.button("10 ₼"): set_received_amount(10)
+                    if cb4.button("20 ₼"): set_received_amount(20)
+                    if cb5.button("50 ₼"): set_received_amount(50)
+
                     c_calc1, c_calc2 = st.columns([1,2])
-                    with c_calc1: given_money = st.number_input("Müştərinin Verdiyi:", min_value=0.0, step=0.5)
+                    with c_calc1: 
+                        given_money = st.number_input("Müştərinin Verdiyi:", min_value=0.0, step=0.5, value=st.session_state.calc_received, key="calc_inp_box")
+                        # Update session state if manually typed
+                        if given_money != st.session_state.calc_received:
+                             st.session_state.calc_received = given_money
+
                     with c_calc2:
                         if given_money > 0:
                             change = given_money - final
-                            if change >= 0: st.success(f"💱 Qaytar: {change:.2f} ₼")
+                            if change >= 0: st.markdown(f"<h3 style='color:#2E7D32'>💱 QAYTAR: {change:.2f} ₼</h3>", unsafe_allow_html=True)
                             else: st.error(f"⚠️ Əskik: {abs(change):.2f} ₼")
                 # ------------------------------
 
                 pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True)
+                
+                # --- AUTO TIPS INPUT (NEW V6.52) ---
+                card_tips = 0.0
+                if pm == "Kart":
+                    card_tips = st.number_input("Çayvoy (Tips) var? (AZN)", min_value=0.0, step=0.5, key="tips_inp")
+                # -----------------------------------
+
                 own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check")
                 
                 btn_disabled = False
@@ -608,14 +635,34 @@ else:
                             items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                             if own_cup: final_note += " [Eko Mod]"
                             
+                            # MAIN SALE
                             s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note})
+                            
+                            # --- AUTO TIPS TRANSACTION (NEW V6.52) ---
+                            if card_tips > 0:
+                                s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', :d, :u)"), 
+                                          {"a":card_tips, "d":f"Çek (Kart Tips) - {items_str[:20]}...", "u":st.session_state.user})
+                                s.execute(text("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, 'Tips / Çayvoy', :u, 'Kassa')"),
+                                          {"a":card_tips, "u":st.session_state.user})
+                            # -----------------------------------------
+
                             if cust and not is_ikram and pm != "Personal (Staff)":
                                 cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')])
                                 s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":(cust['stars'] + cf_cnt) - (free * 10), "id":cust['card_id']})
                             s.commit()
+                        
                         log_system(st.session_state.user, f"Satış: {final_db_total:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
                         st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
-                        st.session_state.cart_takeaway = []; clear_customer_data_callback(); st.session_state.show_receipt_popup=True; st.rerun()
+                        st.session_state.cart_takeaway = []
+                        st.session_state.calc_received = 0.0 # Reset Calculator
+                        clear_customer_data_callback()
+                        st.session_state.show_receipt_popup=True
+                        
+                        if card_tips > 0:
+                            st.toast(f"💵 {card_tips:.2f} AZN Çayvoyu KASSADAN GÖTÜRÜN!", icon="🤑")
+                            time.sleep(2)
+                        
+                        st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
             with c2: render_menu(st.session_state.cart_takeaway, "ta")
 
@@ -1273,7 +1320,6 @@ else:
             @st.dialog("💸 Xərc Çıxart")
             def z_exp_d():
                     with st.form("zexp"):
-                        # ADDED TIPS CATEGORY
                         c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
                         src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
                         if st.form_submit_button("Təsdiq"): 
