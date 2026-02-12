@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.54 (WORKING CALC + TIPS STATS) ===
+# === EMALATKHANA POS - V6.55 (TIPS IN SALES TABLE) ===
 # ==========================================
 
-VERSION = "v6.54 (Fixed: Calculator Buttons, Added: Tips Analytics)"
+VERSION = "v6.55 (Analytics: Tip Column Added to Sales Table)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -154,6 +154,10 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS note TEXT")); s.commit()
         except: pass
+        # --- NEW: TIP COLUMN IN SALES ---
+        try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tip_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
+        except: pass
+        
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP);"))
         try: s.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0")); s.commit()
         except: pass
@@ -653,7 +657,9 @@ else:
                             items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                             if own_cup: final_note += " [Eko Mod]"
                             
-                            s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note})
+                            # MAIN SALE (V6.55: Added tip_amount)
+                            s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), 
+                                      {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
                             
                             # --- AUTO TIPS TRANSACTION ---
                             if card_tips > 0:
@@ -1249,7 +1255,19 @@ else:
                 ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
                 ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
 
+            # V6.55 UPDATE: SELECT tip_amount
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end}); exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
+            
+            # REORDER COLUMNS (V6.55)
+            if not sales.empty:
+                # Ensure tip_amount exists (pandas might not see it if empty query before schema update, but schema update ensures it)
+                if 'tip_amount' not in sales.columns: sales['tip_amount'] = 0.0
+                
+                cols = ['id', 'created_at', 'total', 'payment_method', 'tip_amount', 'items', 'cashier', 'customer_card_id', 'discount_amount', 'note']
+                # Filter to only existing columns just in case
+                cols = [c for c in cols if c in sales.columns] 
+                sales = sales[cols]
+
             total_rev = sales['total'].sum() if not sales.empty else 0.0; rev_cash = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0; rev_card = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
             staff_expense_val = sales[sales['payment_method']=='Staff']['original_total'].sum() if not sales.empty else 0.0; total_exp = exps['amount'].sum() if not exps.empty else 0.0
             est_cogs = 0.0
