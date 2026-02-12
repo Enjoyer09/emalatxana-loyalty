@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.53 (STANDALONE TIP BUTTON) ===
+# === EMALATKHANA POS - V6.54 (WORKING CALC + TIPS STATS) ===
 # ==========================================
 
-VERSION = "v6.53 (Added: Standalone Card Tip Feature)"
+VERSION = "v6.54 (Fixed: Calculator Buttons, Added: Tips Analytics)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -582,17 +582,17 @@ else:
                 if is_ikram: st.success("🎁 İKRAM")
                 elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
                 
-                # --- SMART CALCULATOR (NEW V6.52) ---
+                # --- SMART CALCULATOR (NEW V6.52 + RERUN FIX) ---
                 if final > 0:
                     st.markdown("---")
                     
-                    # Quick Buttons
+                    # Quick Buttons with RERUN
                     cb1, cb2, cb3, cb4, cb5 = st.columns(5)
-                    if cb1.button(f"{final:.2f}"): set_received_amount(final)
-                    if cb2.button("5 ₼"): set_received_amount(5)
-                    if cb3.button("10 ₼"): set_received_amount(10)
-                    if cb4.button("20 ₼"): set_received_amount(20)
-                    if cb5.button("50 ₼"): set_received_amount(50)
+                    if cb1.button(f"{final:.2f}"): set_received_amount(final); st.rerun()
+                    if cb2.button("5 ₼"): set_received_amount(5); st.rerun()
+                    if cb3.button("10 ₼"): set_received_amount(10); st.rerun()
+                    if cb4.button("20 ₼"): set_received_amount(20); st.rerun()
+                    if cb5.button("50 ₼"): set_received_amount(50); st.rerun()
 
                     c_calc1, c_calc2 = st.columns([1,2])
                     with c_calc1: 
@@ -653,16 +653,15 @@ else:
                             items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                             if own_cup: final_note += " [Eko Mod]"
                             
-                            # MAIN SALE
                             s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note})
                             
-                            # --- AUTO TIPS TRANSACTION (NEW V6.52) ---
+                            # --- AUTO TIPS TRANSACTION ---
                             if card_tips > 0:
                                 s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', :d, :u)"), 
                                           {"a":card_tips, "d":f"Çek (Kart Tips) - {items_str[:20]}...", "u":st.session_state.user})
                                 s.execute(text("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, 'Tips / Çayvoy', :u, 'Kassa')"),
                                           {"a":card_tips, "u":st.session_state.user})
-                            # -----------------------------------------
+                            # -----------------------------
 
                             if cust and not is_ikram and pm != "Personal (Staff)":
                                 cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')])
@@ -1312,6 +1311,30 @@ else:
                     st.dataframe(loyalty_df, hide_index=True, use_container_width=True)
                 else:
                     st.info("Bu dövrdə QR oxudulmayıb.")
+
+                # --- TIPS ANALYTICS (NEW V6.54) ---
+                st.markdown("### 💸 Çayvoy (Tips) Statistikası")
+                
+                tips_query = """
+                    SELECT 
+                        created_by as "Kassir",
+                        SUM(amount) as "Toplam Tips (AZN)"
+                    FROM finance
+                    WHERE category = 'Tips / Çayvoy'
+                    AND type = 'out'
+                    AND created_at BETWEEN :s AND :e
+                    GROUP BY created_by
+                    ORDER BY SUM(amount) DESC
+                """
+                tips_df = run_query(tips_query, {"s": ts_start, "e": ts_end})
+                
+                if not tips_df.empty:
+                    total_tips_period = tips_df["Toplam Tips (AZN)"].sum()
+                    st.metric("Bu dövrdə Cəmi Tips", f"{total_tips_period:.2f} ₼")
+                    st.dataframe(tips_df, hide_index=True, use_container_width=True)
+                else:
+                    st.info("Bu dövrdə çayvoy qeydə alınmayıb.")
+                # ----------------------------------
 
                 # Enable delete for manager/admin
                 sales.insert(0, "Seç", False)
