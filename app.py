@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.56 (KEY ERROR FIX) ===
+# === EMALATKHANA POS - V6.57 (RECIPE FIX & NAV STABILITY) ===
 # ==========================================
 
-VERSION = "v6.56 (Fixed: Original Total Key Error in Analytics)"
+VERSION = "v6.57 (Fixed: Recipe Inputs Reset, Nav Persistence, Zero Cost Stock)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -74,6 +74,10 @@ if 'z_report_active' not in st.session_state: st.session_state.z_report_active =
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
 if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
+# New State for Tip Input Reset
+if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
+# New State for Recipe Reset
+if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
 
 # --- CSS ---
 st.markdown("""
@@ -295,9 +299,12 @@ def clear_customer_data_callback():
     st.session_state.current_customer_ta = None
     st.session_state["search_input_ta"] = ""
 
-# --- CALCULATOR CALLBACK ---
 def set_received_amount(amount):
     st.session_state.calc_received = float(amount)
+
+# --- V6.57: RESET RECIPE INPUTS ON PRODUCT CHANGE ---
+def reset_recipe_inputs():
+    st.session_state.rec_qty_val = 0.0
 
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -480,8 +487,16 @@ else:
         tabs_list.extend(["📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
 
-    # --- PERSISTENT NAVIGATION ---
-    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio")
+    # --- PERSISTENT NAVIGATION (V6.57 FIX) ---
+    # Store selected tab in session state if not present
+    if "current_tab" not in st.session_state: st.session_state.current_tab = tabs_list[0]
+    
+    # Radio button updates session state
+    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
+    
+    # Sync if changed
+    if selected_tab != st.session_state.current_tab:
+        st.session_state.current_tab = selected_tab
     
     def add_to_cart(cart, item):
         for i in cart: 
@@ -548,9 +563,9 @@ else:
                     # CALLBACK FOR CLEARING
                     c_del.button("❌", key="clear_cust", on_click=clear_customer_data_callback)
                 
-                # --- STANDALONE TIP FEATURE (NEW V6.53) ---
+                # --- STANDALONE TIP FEATURE (NEW V6.53 + CLEANUP) ---
                 with st.expander("💙 Yalnız Çayvoy (Satışsız)"):
-                    t_amt = st.number_input("Tip Məbləği (AZN)", min_value=0.0, step=1.0)
+                    t_amt = st.number_input("Tip Məbləği (AZN)", min_value=0.0, step=1.0, value=st.session_state.tip_input_val, key="tip_standalone_inp")
                     if st.button("💳 Karta Tip Vur", key="tip_only_btn"):
                         if t_amt > 0:
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u)", 
@@ -562,6 +577,9 @@ else:
                             
                             st.success(f"✅ {t_amt} AZN Tip qeyd olundu!")
                             st.toast(f"💵 {t_amt} AZN-i KASSADAN GÖTÜRÜN!", icon="🤑")
+                            
+                            # RESET INPUT
+                            st.session_state.tip_input_val = 0.0
                             time.sleep(2); st.rerun()
                         else:
                             st.error("Məbləğ yazın.")
@@ -728,10 +746,10 @@ else:
                         c1, c2, c3 = st.columns(3); mn_name = c1.text_input("Malın Adı"); sel_cat = c2.selectbox("Kateqoriya", PRESET_CATEGORIES + ["➕ Yeni Yarat..."]); mn_unit = c3.selectbox("Vahid", ["L", "KQ", "ƏDƏD"])
                         mn_cat_final = st.text_input("Yeni Kateqoriya") if sel_cat == "➕ Yeni Yarat..." else sel_cat
                         
-                        # FIX: INPUT DEFAULTS
+                        # FIX: INPUT DEFAULTS & ZERO COST
                         c4, c5, c6 = st.columns(3)
                         pack_size = c4.number_input("Qab Həcmi", min_value=0.001, value=1.0, step=0.1)
-                        pack_price = c5.number_input("Qab Qiyməti", min_value=0.01, value=10.0, step=0.5)
+                        pack_price = c5.number_input("Qab Qiyməti", min_value=0.00, value=10.0, step=0.5) # ZERO ALLOWED
                         pack_count = c6.number_input("Say", min_value=1.0, value=1.0, step=1.0)
                         
                         mn_type = st.selectbox("Növ", ["ingredient", "consumable"])
@@ -1071,15 +1089,23 @@ else:
 
     elif selected_tab == "📜 Resept":
             st.subheader("📜 Resept")
-            sel_p = st.selectbox("Məhsul", get_cached_menu()['item_name'].tolist())
+            # V6.57: RESET STATE ON CHANGE
+            sel_p = st.selectbox("Məhsul", get_cached_menu()['item_name'].tolist(), on_change=reset_recipe_inputs)
             if sel_p:
                 recs = run_query("SELECT id, ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:n", {"n":sel_p}); recs.insert(0,"Seç",False)
                 erd = st.data_editor(recs, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="rec_ed_safe")
                 srd = erd[erd["Seç"]]['id'].tolist()
                 if srd and st.button("Sil", key="rec_del_btn"): [run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)}) for i in srd]; st.rerun()
+                
                 with st.form("nrec"):
-                    ing = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); qty = st.number_input("Miqdar", format="%.3f")
-                    if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":qty}); st.rerun()
+                    # V6.57: Added step=0.001 and format for better precision
+                    ing = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist())
+                    qty = st.number_input("Miqdar", format="%.3f", step=0.001, value=st.session_state.rec_qty_val) 
+                    
+                    if st.form_submit_button("Əlavə Et"): 
+                        run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":qty})
+                        st.session_state.rec_qty_val = 0.0 # Reset
+                        st.rerun()
             
             if role == 'admin':
                 with st.expander("📤 Reseptləri İmport / Export (Excel)"):
