@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.52 (SMART CASH & AUTO-TIPS) ===
+# === EMALATKHANA POS - V6.53 (STANDALONE TIP BUTTON) ===
 # ==========================================
 
-VERSION = "v6.52 (Quick Cash Buttons, Auto-Tips Expense, Visual Calculator)"
+VERSION = "v6.53 (Added: Standalone Card Tip Feature)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -73,7 +73,6 @@ if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
-# New states for calculator
 if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 
 # --- CSS ---
@@ -546,6 +545,25 @@ else:
                     # CALLBACK FOR CLEARING
                     c_del.button("❌", key="clear_cust", on_click=clear_customer_data_callback)
                 
+                # --- STANDALONE TIP FEATURE (NEW V6.53) ---
+                with st.expander("💙 Yalnız Çayvoy (Satışsız)"):
+                    t_amt = st.number_input("Tip Məbləği (AZN)", min_value=0.0, step=1.0)
+                    if st.button("💳 Karta Tip Vur", key="tip_only_btn"):
+                        if t_amt > 0:
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u)", 
+                                      {"a":t_amt, "u":st.session_state.user})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u)", 
+                                      {"a":t_amt, "u":st.session_state.user})
+                            run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, 'Tips / Çayvoy', :u, 'Kassa')",
+                                      {"a":t_amt, "u":st.session_state.user})
+                            
+                            st.success(f"✅ {t_amt} AZN Tip qeyd olundu!")
+                            st.toast(f"💵 {t_amt} AZN-i KASSADAN GÖTÜRÜN!", icon="🤑")
+                            time.sleep(2); st.rerun()
+                        else:
+                            st.error("Məbləğ yazın.")
+                # ------------------------------------------
+
                 man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel"); disc_note = ""
                 if man_disc_val > 0:
                     disc_note = st.text_input("Səbəb (Məcburi!)", placeholder="Məs: Dost, Menecer jesti", key="disc_reason_inp")
