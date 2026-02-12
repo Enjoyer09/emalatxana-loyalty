@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.50 (LOYALTY ANALYTICS) ===
+# === EMALATKHANA POS - V6.51 (CALCULATOR + TIPS + BACKUP FIX) ===
 # ==========================================
 
-VERSION = "v6.50 (Added: Customer Star Stats in Analytics)"
+VERSION = "v6.51 (POS Calculator, Tips Category, Backup Tab Fix)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -558,6 +558,18 @@ else:
                 if is_ikram: st.success("🎁 İKRAM")
                 elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
                 
+                # --- CALCULATOR (NEW V6.51) ---
+                if final > 0:
+                    st.markdown("---")
+                    c_calc1, c_calc2 = st.columns([1,2])
+                    with c_calc1: given_money = st.number_input("Müştərinin Verdiyi:", min_value=0.0, step=0.5)
+                    with c_calc2:
+                        if given_money > 0:
+                            change = given_money - final
+                            if change >= 0: st.success(f"💱 Qaytar: {change:.2f} ₼")
+                            else: st.error(f"⚠️ Əskik: {abs(change):.2f} ₼")
+                # ------------------------------
+
                 pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True)
                 own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check")
                 
@@ -567,26 +579,18 @@ else:
                 if st.button("✅ ÖDƏNİŞ", type="primary", use_container_width=True, disabled=btn_disabled, key="pay_btn"):
                     if not st.session_state.cart_takeaway: st.error("Boşdur"); st.stop()
                     
-                    # --- STAFF LIMIT LOGIC (NEW V6.49) ---
+                    # --- STAFF LIMIT LOGIC ---
                     final_db_total = final
                     final_note = disc_note
                     if pm == "Personal (Staff)":
-                        # Calculate Limits
                         staff_drink_total = sum([x['price']*x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee') or 'İçki' in x.get('category','')])
                         staff_food_total = sum([x['price']*x['qty'] for x in st.session_state.cart_takeaway if not (x.get('is_coffee') or 'İçki' in x.get('category',''))])
-                        
-                        limit_drink = 6.00
-                        limit_food = 2.00 # Placeholder for Cost Price logic, using safe low limit
-                        
-                        over_drink = max(0, staff_drink_total - limit_drink)
-                        over_food = max(0, staff_food_total - limit_food)
-                        total_overdraft = over_drink + over_food
-                        
+                        limit_drink = 6.00; limit_food = 2.00
+                        over_drink = max(0, staff_drink_total - limit_drink); over_food = max(0, staff_food_total - limit_food); total_overdraft = over_drink + over_food
                         if total_overdraft > 0:
                             st.warning(f"⚠️ Limit aşıldı! Ödəniləcək fərq: {total_overdraft:.2f} AZN")
                             final_db_total = total_overdraft
                             final_note = f"Staff Limit Aşımı ({total_overdraft:.2f} ödənildi)"
-                            # Allow proceeding but record the payment
                         else:
                             final_db_total = 0.00
                             final_note = "Staff Limit (OK)"
@@ -1110,6 +1114,26 @@ else:
             lg = st.file_uploader("Logo"); 
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
 
+    elif selected_tab == "💾 Baza":
+        if role == 'admin': # Ensure visible for admin
+            if st.button("FULL BACKUP", key="full_backup_btn"):
+                out = BytesIO()
+                with pd.ExcelWriter(out, engine='xlsxwriter') as w:
+                    for t in ["users","menu","sales","finance","ingredients","recipes","customers","notifications","settings","system_logs","tables","promo_codes","customer_coupons","expenses","admin_notes"]:
+                         try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
+                         except: pass
+                st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
+            rf = st.file_uploader("Restore (.xlsx)")
+            if rf and st.button("Bərpa Et", key="restore_btn"):
+                try:
+                    xls = pd.ExcelFile(rf)
+                    # SECURITY: Whitelist check
+                    for t in xls.sheet_names: 
+                        if t in ALLOWED_TABLES:
+                            run_action(f"DELETE FROM {t}"); pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
+                    st.success("Bərpa Olundu!"); st.rerun()
+                except: st.error("Xəta")
+
     elif selected_tab == "QR":
             st.subheader("QR")
             cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
@@ -1249,7 +1273,8 @@ else:
             @st.dialog("💸 Xərc Çıxart")
             def z_exp_d():
                     with st.form("zexp"):
-                        c = st.selectbox("Kat", ["Xammal", "Kommunal", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
+                        # ADDED TIPS CATEGORY
+                        c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
                         src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
                         if st.form_submit_button("Təsdiq"): 
                             run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
