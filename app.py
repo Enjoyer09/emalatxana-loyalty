@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.55 (TIPS IN SALES TABLE) ===
+# === EMALATKHANA POS - V6.56 (KEY ERROR FIX) ===
 # ==========================================
 
-VERSION = "v6.55 (Analytics: Tip Column Added to Sales Table)"
+VERSION = "v6.56 (Fixed: Original Total Key Error in Analytics)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -154,7 +154,6 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS note TEXT")); s.commit()
         except: pass
-        # --- NEW: TIP COLUMN IN SALES ---
         try: s.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS tip_amount DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         
@@ -1263,13 +1262,21 @@ else:
                 # Ensure tip_amount exists (pandas might not see it if empty query before schema update, but schema update ensures it)
                 if 'tip_amount' not in sales.columns: sales['tip_amount'] = 0.0
                 
-                cols = ['id', 'created_at', 'total', 'payment_method', 'tip_amount', 'items', 'cashier', 'customer_card_id', 'discount_amount', 'note']
+                # V6.56 FIX: Added 'original_total' to cols list to prevent KeyError
+                cols = ['id', 'created_at', 'total', 'payment_method', 'tip_amount', 'items', 'cashier', 'customer_card_id', 'discount_amount', 'note', 'original_total']
                 # Filter to only existing columns just in case
                 cols = [c for c in cols if c in sales.columns] 
                 sales = sales[cols]
 
             total_rev = sales['total'].sum() if not sales.empty else 0.0; rev_cash = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0; rev_card = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
-            staff_expense_val = sales[sales['payment_method']=='Staff']['original_total'].sum() if not sales.empty else 0.0; total_exp = exps['amount'].sum() if not exps.empty else 0.0
+            
+            # V6.56 FIX: Safely access 'original_total'
+            if not sales.empty and 'original_total' in sales.columns:
+                staff_expense_val = sales[sales['payment_method']=='Staff']['original_total'].sum()
+            else:
+                staff_expense_val = 0.0
+                
+            total_exp = exps['amount'].sum() if not exps.empty else 0.0
             est_cogs = 0.0
             if not sales.empty:
                 all_recs = run_query("SELECT r.menu_item_name, r.quantity_required, i.unit_cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name"); item_costs = {}
