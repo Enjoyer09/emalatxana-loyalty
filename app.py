@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.58 (LIFETIME STATS & CARD INVENTORY) ===
+# === EMALATKHANA POS - V6.59 (FIXED TABS & COGS ANALYTICS) ===
 # ==========================================
 
-VERSION = "v6.58 (Lifetime Stats, CRM Counters, Physical Card Inventory)"
+VERSION = "v6.59 (Fixed: Empty Tabs, Added: Ingredient Cost Analysis)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -940,77 +940,50 @@ else:
 
     elif selected_tab == "QR":
             st.subheader("QR")
-            # --- V6.58: INVENTORY INTEGRATION FOR PHYSICAL CARDS ---
             with st.form("qr_gen_form"):
-                cnt = st.number_input("Say", 1, 50)
-                tp = st.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
-                
-                # Inventory Link
+                cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
                 use_inventory = st.checkbox("📦 Fiziki Kartı Anbardan Sil")
                 inv_items = run_query("SELECT id, name, stock_qty FROM ingredients WHERE category ILIKE '%Kart%' OR category ILIKE '%Mətbəə%' ORDER BY name")
                 selected_card_stock = None
                 if use_inventory:
                     if not inv_items.empty:
-                        item_map = {f"{row['name']} (Qalıq: {int(row['stock_qty'])})": row['id'] for _, row in inv_items.iterrows()}
-                        sel_label = st.selectbox("Hansı Kart?", list(item_map.keys()))
-                        selected_card_stock = item_map[sel_label]
-                    else:
-                        st.warning("⚠️ Anbarda 'Kart' kateqoriyalı mal tapılmadı.")
-
+                        item_map = {f"{row['name']} (Qalıq: {int(row['stock_qty'])})": row['id'] for _, row in inv_items.iterrows()}; sel_label = st.selectbox("Hansı Kart?", list(item_map.keys())); selected_card_stock = item_map[sel_label]
+                    else: st.warning("⚠️ Anbarda 'Kart' kateqoriyalı mal tapılmadı.")
                 if st.form_submit_button("Yarat"):
-                    # Check Stock First
                     can_proceed = True
                     if use_inventory and selected_card_stock:
                         curr_qty = run_query("SELECT stock_qty FROM ingredients WHERE id=:id", {"id":selected_card_stock}).iloc[0]['stock_qty']
-                        if curr_qty < cnt:
-                            st.error(f"⛔ Stok yetmir! Qalıq: {int(curr_qty)}, Lazım: {cnt}")
-                            can_proceed = False
-                    
+                        if curr_qty < cnt: st.error(f"⛔ Stok yetmir! Qalıq: {int(curr_qty)}, Lazım: {cnt}"); can_proceed = False
                     if can_proceed:
-                        type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
-                        generated_qrs = []
-                        
-                        # Generate
+                        type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}; generated_qrs = []
                         for _ in range(cnt):
                             cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
-                            run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok})
-                            url = f"{APP_URL}/?id={cid}&t={tok}"; img_bytes = generate_styled_qr(url); generated_qrs.append((cid, img_bytes))
-                        
-                        # Deduct Stock
-                        if use_inventory and selected_card_stock:
-                            run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE id=:id", {"q":cnt, "id":selected_card_stock})
-                            st.toast(f"📦 Anbardan {cnt} ədəd kart silindi.")
-
-                        zip_buf = BytesIO()
+                            run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok}); url = f"{APP_URL}/?id={cid}&t={tok}"; img_bytes = generate_styled_qr(url); generated_qrs.append((cid, img_bytes))
+                        if use_inventory and selected_card_stock: run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE id=:id", {"q":cnt, "id":selected_card_stock}); st.toast(f"📦 Anbardan {cnt} ədəd kart silindi.")
+                        zip_buf = BytesIO(); 
                         with zipfile.ZipFile(zip_buf, "w") as zf:
                             for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[tp]}.png", img)
-                        
                         st.success(f"{cnt} QR Kod yaradıldı!"); st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
 
     elif selected_tab == "👥 CRM":
             st.subheader("CRM")
-            # --- V6.58: CRM COUNTERS ---
             crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
             if not crm_stats.empty:
                 cols = st.columns(len(crm_stats))
                 for idx, row in crm_stats.iterrows():
-                    lbl = row['type'].upper()
+                    lbl = row['type'].upper(); icon="👤"
                     if lbl == 'GOLDEN': icon="🥇"
                     elif lbl == 'PLATINUM': icon="🥈"
                     elif lbl == 'ELITE': icon="💎"
                     elif lbl == 'IKRAM': icon="🎁"
-                    else: icon="👤"
                     with cols[idx % 4]: st.metric(f"{icon} {lbl}", row['cnt'])
             st.divider()
-            # ---------------------------
-
             if role in ['admin','manager']:
                  with st.expander("🎫 Yeni Kupon / Promo Kod Yarat", expanded=False):
                     with st.form("new_promo_code_form", clear_on_submit=True):
                         c1, c2, c3 = st.columns(3); pc_code = c1.text_input("Kod (Məs: YAY2026)"); pc_disc = c2.number_input("Endirim %", 1, 100); pc_days = c3.number_input("Gün", 1, 365)
                         if st.form_submit_button("Kodu Yarat"):
                             run_action("INSERT INTO promo_codes (code, discount_percent, valid_until, assigned_user_id, is_used) VALUES (:c, :d, :v, 'system', FALSE)", {"c":pc_code, "d":pc_disc, "v":get_baku_now() + datetime.timedelta(days=pc_days)}); st.success("Yaradıldı!"); st.rerun()
-            
             cust_df = run_query("SELECT card_id, type, stars, email FROM customers"); cust_df.insert(0, "Seç", False); ed_cust = st.data_editor(cust_df, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="crm_sel"); sel_cust_ids = ed_cust[ed_cust["Seç"]]['card_id'].tolist()
             st.divider(); c1, c2 = st.columns(2)
             with c1:
@@ -1023,18 +996,18 @@ else:
                         st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
 
     elif selected_tab == "📊 Analitika":
-        if role in ['admin', 'manager']: # Allow Manager
+        if role in ['admin', 'manager']:
             st.subheader("📊 Analitika")
             
-            # --- V6.58: ALL TIME STATS EXPANDER ---
-            with st.expander("♾️ Bütün Zamanlar (Satış və Sərfiyyat)", expanded=False):
+            # --- V6.59: ALL TIME STATS & COGS ---
+            with st.expander("♾️ Bütün Zamanlar (Satış və Xammal Maya Dəyəri)", expanded=False):
                 if st.button("Hesabla (Bütün Tarixçə)", key="calc_all_time"):
-                    with st.spinner("Hesablanır..."):
+                    with st.spinner("Böyük Data Hesablanır..."):
                         all_sales = run_query("SELECT items FROM sales")
                         all_recipes = run_query("SELECT * FROM recipes")
-                        all_ings = run_query("SELECT name, unit FROM ingredients")
+                        # Get Ingredients with COST
+                        all_ings = run_query("SELECT name, unit, unit_cost, category FROM ingredients")
                         
-                        # 1. Count Sold Items
                         item_counts = {}
                         for i_str in all_sales['items']:
                             if i_str:
@@ -1042,11 +1015,9 @@ else:
                                 for p in parts:
                                     match = re.match(r"(.+) x(\d+)", p)
                                     if match:
-                                        name = match.group(1).strip()
-                                        qty = int(match.group(2))
+                                        name = match.group(1).strip(); qty = int(match.group(2))
                                         item_counts[name] = item_counts.get(name, 0) + qty
                         
-                        # 2. Map to Ingredients
                         ing_usage = {}
                         for menu_item, sold_qty in item_counts.items():
                             menu_recipes = all_recipes[all_recipes['menu_item_name'] == menu_item]
@@ -1055,7 +1026,6 @@ else:
                                 i_qty = float(r['quantity_required']) * sold_qty
                                 ing_usage[i_name] = ing_usage.get(i_name, 0.0) + i_qty
                         
-                        # 3. Display
                         c_sales, c_usage = st.columns(2)
                         with c_sales:
                             st.markdown("#### ☕ Satılan Məhsullar")
@@ -1063,34 +1033,37 @@ else:
                             st.dataframe(df_sales_stats, hide_index=True)
                         
                         with c_usage:
-                            st.markdown("#### 📦 İşlənən Xammal")
-                            # Add Units
+                            st.markdown("#### 📦 İşlənən Xammal və Maya Dəyəri")
                             usage_data = []
+                            total_cogs = 0.0
                             for ing, qty in ing_usage.items():
-                                unit_row = all_ings[all_ings['name'] == ing]
-                                unit = unit_row.iloc[0]['unit'] if not unit_row.empty else ""
-                                usage_data.append({"Xammal": ing, "Miqdar": qty, "Vahid": unit})
+                                ing_row = all_ings[all_ings['name'] == ing]
+                                if not ing_row.empty:
+                                    r = ing_row.iloc[0]
+                                    cost = float(r['unit_cost']) * qty
+                                    usage_data.append({
+                                        "Xammal": ing, 
+                                        "Kateqoriya": r['category'],
+                                        "İşlənən Miqdar": qty, 
+                                        "Vahid": r['unit'],
+                                        "💰 Maya Dəyəri (AZN)": cost
+                                    })
+                                    total_cogs += cost
                             
-                            df_usage_stats = pd.DataFrame(usage_data).sort_values('Miqdar', ascending=False)
-                            st.dataframe(df_usage_stats, hide_index=True)
+                            if usage_data:
+                                df_usage_stats = pd.DataFrame(usage_data).sort_values('💰 Maya Dəyəri (AZN)', ascending=False)
+                                st.metric("Cəmi Xammal Xərci (COGS)", f"{total_cogs:.2f} ₼")
+                                st.dataframe(df_usage_stats, hide_index=True)
+                            else:
+                                st.warning("Resept və ya Xammal tapılmadı.")
             # -------------------------------------
 
-            # Shift Aware Dates
-            log_date = get_logical_date()
-            c1, c2 = st.columns(2)
-            d1 = c1.date_input("Start", log_date, key="ana_d1")
-            d2 = c2.date_input("End", log_date, key="ana_d2")
-            
-            # If default selected (today), allow 08:00 logic
-            if d1 == log_date and d2 == log_date:
-                ts_start, ts_end = get_shift_range(log_date)
-            else:
-                ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
-                ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
+            log_date = get_logical_date(); c1, c2 = st.columns(2); d1 = c1.date_input("Start", log_date, key="ana_d1"); d2 = c2.date_input("End", log_date, key="ana_d2")
+            if d1 == log_date and d2 == log_date: ts_start, ts_end = get_shift_range(log_date)
+            else: ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
 
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end}); exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             
-            # REORDER COLUMNS (V6.55)
             if not sales.empty:
                 if 'tip_amount' not in sales.columns: sales['tip_amount'] = 0.0
                 cols = ['id', 'created_at', 'total', 'payment_method', 'tip_amount', 'items', 'cashier', 'customer_card_id', 'discount_amount', 'note', 'original_total']
@@ -1098,114 +1071,59 @@ else:
                 sales = sales[cols]
 
             total_rev = sales['total'].sum() if not sales.empty else 0.0; rev_cash = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0; rev_card = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
-            
             if not sales.empty and 'original_total' in sales.columns: staff_expense_val = sales[sales['payment_method']=='Staff']['original_total'].sum()
             else: staff_expense_val = 0.0
-                
-            total_exp = exps['amount'].sum() if not exps.empty else 0.0
-            est_cogs = 0.0
+            total_exp = exps['amount'].sum() if not exps.empty else 0.0; est_cogs = 0.0
+            
+            # Period Specific COGS
             if not sales.empty:
-                all_recs = run_query("SELECT r.menu_item_name, r.quantity_required, i.unit_cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name"); item_costs = {}
-                for _, r in all_recs.iterrows(): item_costs[r['menu_item_name']] = item_costs.get(r['menu_item_name'], 0.0) + (float(r['quantity_required']) * float(r['unit_cost']))
+                all_recs = run_query("SELECT r.menu_item_name, r.quantity_required, i.unit_cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name")
+                # Pre-calculate costs
+                menu_costs = {}
+                for _, r in all_recs.iterrows():
+                    cost = float(r['quantity_required']) * float(r['unit_cost'])
+                    menu_costs[r['menu_item_name']] = menu_costs.get(r['menu_item_name'], 0.0) + cost
+                
                 for items_str in sales['items']:
                     if items_str:
                         for p in str(items_str).split(", "):
                              match = re.match(r"(.+) x(\d+)", p)
-                             if match and match.group(1).strip() in item_costs: est_cogs += (item_costs[match.group(1).strip()] * int(match.group(2)))
+                             if match and match.group(1).strip() in menu_costs: 
+                                 est_cogs += (menu_costs[match.group(1).strip()] * int(match.group(2)))
             
             m1, m2, m3 = st.columns(3); m1.metric("Toplam Satış", f"{total_rev:.2f}"); m2.metric("Kart", f"{rev_card:.2f}"); m3.metric("Nağd", f"{rev_cash:.2f}")
             st.markdown("---"); k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Kassa Xərci", f"{total_exp:.2f}"); k2.metric("Maya Dəyəri", f"{est_cogs:.2f}"); k3.metric("Mənfəət", f"{total_rev - est_cogs:.2f}"); k4.metric("Staff Xərci", f"{staff_expense_val:.2f}")
+            k1.metric("Kassa Xərci", f"{total_exp:.2f}"); k2.metric("Maya Dəyəri (Təxmini)", f"{est_cogs:.2f}"); k3.metric("Mənfəət", f"{total_rev - est_cogs:.2f}"); k4.metric("Staff Xərci", f"{staff_expense_val:.2f}")
             
             if not sales.empty:
-                cnt_total = len(sales)
-                cnt_disc = len(sales[sales['discount_amount'] > 0])
-                cnt_qr = len(sales[sales['customer_card_id'].notna() & (sales['customer_card_id'] != "")])
-                
+                cnt_total = len(sales); cnt_disc = len(sales[sales['discount_amount'] > 0]); cnt_qr = len(sales[sales['customer_card_id'].notna() & (sales['customer_card_id'] != "")])
                 st.markdown("### 📈 Satış Detalları")
-                s1, s2, s3, s4 = st.columns(4)
-                s1.metric("Cəmi Çek", cnt_total); s2.metric("Endirimli", f"{cnt_disc}"); s3.metric("QR (Müştəri)", f"{cnt_qr}"); s4.metric("Staff Yemək", len(sales[sales['payment_method']=='Staff']))
-                
+                s1, s2, s3, s4 = st.columns(4); s1.metric("Cəmi Çek", cnt_total); s2.metric("Endirimli", f"{cnt_disc}"); s3.metric("QR (Müştəri)", f"{cnt_qr}"); s4.metric("Staff Yemək", len(sales[sales['payment_method']=='Staff']))
                 st.markdown("### 🏆 İşçi Performansı")
                 staff_perf = sales.groupby("cashier").agg(Cek_Sayi=('id', 'count'), Cem_Mebleg=('total', 'sum')).reset_index().sort_values(by="Cem_Mebleg", ascending=False)
                 c_chart, c_data = st.columns([2, 1]); 
                 with c_chart: st.bar_chart(staff_perf, x="cashier", y="Cem_Mebleg", color="#2E7D32")
                 with c_data: st.dataframe(staff_perf, hide_index=True)
-
                 st.markdown("### 🌟 Aktiv Müştərilər (Bu dövr)")
                 loyalty_query = """SELECT s.customer_card_id as "Kart ID", COUNT(s.id) as "Ziyarət Sayı", MAX(c.stars) as "Hazırki Ulduz", MAX(c.type) as "Status" FROM sales s LEFT JOIN customers c ON s.customer_card_id = c.card_id WHERE s.created_at BETWEEN :s AND :e AND s.customer_card_id IS NOT NULL AND s.customer_card_id != '' GROUP BY s.customer_card_id ORDER BY "Ziyarət Sayı" DESC"""
                 loyalty_df = run_query(loyalty_query, {"s": ts_start, "e": ts_end})
                 if not loyalty_df.empty: st.dataframe(loyalty_df, hide_index=True, use_container_width=True)
                 else: st.info("Bu dövrdə QR oxudulmayıb.")
-
                 st.markdown("### 💸 Çayvoy (Tips) Statistikası")
                 tips_query = """SELECT created_by as "Kassir", SUM(amount) as "Toplam Tips (AZN)" FROM finance WHERE category = 'Tips / Çayvoy' AND type = 'out' AND created_at BETWEEN :s AND :e GROUP BY created_by ORDER BY SUM(amount) DESC"""
                 tips_df = run_query(tips_query, {"s": ts_start, "e": ts_end})
                 if not tips_df.empty:
                     total_tips_period = tips_df["Toplam Tips (AZN)"].sum(); st.metric("Bu dövrdə Cəmi Tips", f"{total_tips_period:.2f} ₼"); st.dataframe(tips_df, hide_index=True, use_container_width=True)
                 else: st.info("Bu dövrdə çayvoy qeydə alınmayıb.")
-
                 sales.insert(0, "Seç", False); edited_sales = st.data_editor(sales, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, use_container_width=True); sel_sales = edited_sales[edited_sales["Seç"]]
                 if not sel_sales.empty and st.button("🗑️ Seçilən Satışları Sil", key="del_sales_ana"): smart_bulk_delete_dialog(sel_sales)
             else: st.info("Bu tarixdə satış yoxdur.")
-
             st.write("---")
             c_mail, c_btn = st.columns([3,1]); inv_email = c_mail.text_input("İnvestor Email", "")
             if c_btn.button("📧 Göndər", key="ana_email_btn"):
                 if inv_email:
-                    report_html = f"<h3>Hesabat ({d1} - {d2})</h3><p>Satış: {total_rev}</p><p>Xərc: {total_exp}</p><p>Mənfəət: {total_rev - est_cogs}</p>"
-                    send_email(inv_email, f"Hesabat {d1}", report_html); st.success("Göndərildi!")
+                    report_html = f"<h3>Hesabat ({d1} - {d2})</h3><p>Satış: {total_rev}</p><p>Xərc: {total_exp}</p><p>Mənfəət: {total_rev - est_cogs}</p>"; send_email(inv_email, f"Hesabat {d1}", report_html); st.success("Göndərildi!")
                 else: st.error("Email yazın")
-
-    elif selected_tab == "📊 Z-Hesabat":
-            st.subheader("Z-Hesabat")
-            @st.dialog("💸 Xərc Çıxart")
-            def z_exp_d():
-                    with st.form("zexp"):
-                        c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
-                        src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
-                        if st.form_submit_button("Təsdiq"): 
-                            run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
-                            run_action("INSERT INTO expenses (amount,reason,spender,source) VALUES (:a,:r,:s,:src)", {"a":a,"r":f"{c}-{d}","s":st.session_state.user,"src":src})
-                            st.rerun()
-            if st.button("💸 Xərc Çıxart", type="primary", use_container_width=True, key="z_exp_btn_main"): z_exp_d()
-            c1, c2 = st.columns([3,1])
-            with c2:
-                if st.button("🔴 Günü Bitir (Z-Hesabat)", type="primary", use_container_width=True, key="end_day_btn"): st.session_state.z_report_active = True; st.rerun()
-            if st.session_state.z_report_active:
-                @st.dialog("Günlük Hesabat")
-                def z_final_d():
-                    st.write("---"); pay_st = st.checkbox("Staff (20 AZN)"); pay_mg = st.checkbox("Manager (25 AZN)")
-                    if st.button("Hesabla", key="calc_z_btn"): st.session_state.z_calculated = True
-                    if st.session_state.z_calculated:
-                         log_date_z = get_logical_date(); sh_start_z, _ = get_shift_range(log_date_z)
-                         scash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['s'] or 0.0
-                         ecash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['e'] or 0.0
-                         icash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['i'] or 0.0
-                         sal = (20 if pay_st else 0) + (25 if pay_mg else 0); start = float(get_setting("cash_limit", "100.0")); curr = start + float(scash) + float(icash) - float(ecash) - sal; diff = curr - start
-                         st.markdown(f"**Kassa:** {curr:.2f} ₼ (Start: {start})"); 
-                         if diff > 0: st.info(f"Seyfə: {diff:.2f}")
-                         if st.button("Təsdiq", key="confirm_z_btn"):
-                              if pay_st: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',20,'Kassa','Z:Staff',:u)",{"u":st.session_state.user})
-                              if pay_mg: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',25,'Kassa','Z:Manager',:u)",{"u":st.session_state.user})
-                              if diff > 0:
-                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','İnkassasiya',:a,'Kassa','Z:Seyf',:u)",{"a":diff,"u":st.session_state.user})
-                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('in','İnkassasiya',:a,'Seyf','Z:Kassa',:u)",{"a":diff,"u":st.session_state.user})
-                              set_setting("last_z_report_time", get_baku_now().isoformat()); st.session_state.z_report_active=False; st.session_state.z_calculated=False; st.success("Bitdi!"); time.sleep(1); st.rerun()
-                z_final_d()
-            
-            st.divider(); st.subheader("🔍 Mənim Şəxsi Satışlarım")
-            col_d1, col_d2 = st.columns(2); d_start_st = col_d1.date_input("Başlanğıc", get_logical_date(), key="staff_hist_d1"); d_end_st = col_d2.date_input("Bitmə", get_logical_date(), key="staff_hist_d2")
-            if d_start_st == d_end_st == get_logical_date(): ts_s_st, ts_e_st = get_shift_range(d_start_st)
-            else: ts_s_st = datetime.datetime.combine(d_start_st, datetime.time(0,0)); ts_e_st = datetime.datetime.combine(d_end_st, datetime.time(23,59))
-            q_staff = """SELECT created_at as "Tarix", items as "Məhsullar", total as "Ödənilən (AZN)", original_total as "Real Dəyər", discount_amount as "Endirim (AZN)", note as "Qeyd / Səbəb", customer_card_id as "QR / Müştəri", payment_method as "Növ" FROM sales WHERE cashier = :u AND created_at BETWEEN :s AND :e ORDER BY created_at DESC"""
-            try:
-                my_sales = run_query(q_staff, {"u": st.session_state.user, "s": ts_s_st, "e": ts_e_st})
-                if not my_sales.empty:
-                    total_sold = my_sales["Ödənilən (AZN)"].sum(); total_disc = my_sales["Endirim (AZN)"].sum()
-                    ms1, ms2 = st.columns(2); ms1.metric("Cəmi Satışım (Kassaya girən)", f"{total_sold:.2f} ₼"); ms2.metric("Etdiyim Endirimlər", f"{total_disc:.2f} ₼"); st.dataframe(my_sales, hide_index=True, use_container_width=True)
-                else: st.info("Bu tarixlər aralığında satışınız yoxdur.")
-            except Exception as e: st.error(f"Xəta: {e}")
 
     elif selected_tab == "📜 Loglar":
             st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50"))
