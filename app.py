@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.64 (VISUALS & INT64 FIX) ===
+# === EMALATKHANA POS - V6.65 (BUTTON RESIZE & EXPENSE SOURCE) ===
 # ==========================================
 
-VERSION = "v6.64 (Fixed: Z-Report Logic, POS Button Layout, Analytics Update Error)"
+VERSION = "v6.65 (POS Buttons Resized, Staff Expense Source Selection)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -77,7 +77,7 @@ if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
 if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
 
-# --- CSS (METALLIC UI FIX) ---
+# --- CSS (METALLIC UI UPDATED SIZE) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
@@ -116,7 +116,7 @@ st.markdown("""
         border-color: #2E7D32;
     }
 
-    /* --- METALLIC BIG BUTTONS (POS MENU FIX) --- */
+    /* --- METALLIC BUTTONS (POS MENU ADJUSTED SIZE) --- */
     div.stButton > button { 
         border-radius: 12px !important; 
         font-weight: bold !important; 
@@ -132,17 +132,24 @@ st.markdown("""
     /* Primary Action Buttons (Orange/Green) */
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     
-    /* METALLIC MENU BUTTONS */
+    /* METALLIC MENU BUTTONS (RESIZED TO ~90px) */
     div.stButton > button[kind="secondary"] { 
         background: linear-gradient(145deg, #f8f9fa, #cfd8dc) !important; /* Silver Metallic */
         color: #263238 !important; /* Dark Grey Text */
-        min-height: 120px !important; /* BIGGER HEIGHT */
+        min-height: 90px !important; /* REDUCED FROM 120px */
         white-space: pre-wrap !important; /* ALLOW MULTILINE */
-        font-size: 18px !important;
-        line-height: 1.4 !important;
-        padding: 10px !important;
+        font-size: 16px !important; /* REDUCED FONT SIZE */
+        line-height: 1.3 !important;
+        padding: 8px !important;
     }
     
+    /* HEADER BUTTONS (Small for Mobile) */
+    .header-btn button {
+        min-height: 40px !important;
+        font-size: 14px !important;
+        padding: 5px !important;
+    }
+
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
@@ -1285,7 +1292,8 @@ else:
             def z_exp_d():
                     with st.form("zexp"):
                         c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
-                        src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
+                        # V6.65: STAFF CAN CHOOSE SOURCE
+                        src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"])
                         if st.form_submit_button("Təsdiq"): 
                             run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
                             run_action("INSERT INTO expenses (amount,reason,spender,source) VALUES (:a,:r,:s,:src)", {"a":a,"r":f"{c}-{d}","s":st.session_state.user,"src":src})
