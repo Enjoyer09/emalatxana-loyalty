@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.60 (STABLE FINAL) ===
+# === EMALATKHANA POS - V6.61 (Z-REPORT RESTORED) ===
 # ==========================================
 
-VERSION = "v6.60 (Fixed: Settings/DB Tabs, Lifetime COGS Stats)"
+VERSION = "v6.61 (Fixed: Z-Report Visible for All, Lifetime Stats)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -197,24 +197,18 @@ ensure_schema()
 # --- HELPERS ---
 def get_baku_now(): return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=4))).replace(tzinfo=None)
 
-# --- NEW SHIFT LOGIC (08:00 - 08:00) ---
 def get_logical_date():
-    """Returns the 'Accounting Date'. If time < 08:00, belongs to previous day."""
     now = get_baku_now()
-    if now.hour < 8:
-        return (now - datetime.timedelta(days=1)).date()
+    if now.hour < 8: return (now - datetime.timedelta(days=1)).date()
     return now.date()
 
 def get_shift_range(date_obj=None):
-    """Returns Start and End datetime for the shift of a given date."""
     if date_obj is None: date_obj = get_logical_date()
     start = datetime.datetime.combine(date_obj, datetime.time(8, 0, 0))
     end = start + datetime.timedelta(hours=24)
     return start, end
 
-# --- QR CLEANER ---
 def clean_qr_code(raw_code):
-    """Clean nasty keyboard artifacts from AZ layout."""
     if not raw_code: return ""
     code = raw_code.strip()
     if "id=" in code:
