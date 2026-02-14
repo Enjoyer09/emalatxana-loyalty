@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.61 (Z-REPORT RESTORED) ===
+# === EMALATKHANA POS - V6.62 (STRUCTURE FIXED) ===
 # ==========================================
 
-VERSION = "v6.61 (Fixed: Z-Report Visible for All, Lifetime Stats)"
+VERSION = "v6.62 (Fixed: Empty Z-Report for Staff, Indentation Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -116,10 +116,24 @@ st.markdown("""
         border-color: #2E7D32;
     }
 
-    div.stButton > button { border-radius: 12px !important; min-height: 80px !important; font-weight: bold !important; font-size: 18px !important; border: 1px solid #ccc !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; }
+    /* General Button Style */
+    div.stButton > button { 
+        border-radius: 12px !important; 
+        font-weight: bold !important; 
+        border: 1px solid #ccc !important; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; 
+    }
     div.stButton > button:active { transform: scale(0.98); }
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
     div.stButton > button[kind="secondary"] { background: linear-gradient(135deg, #43A047, #2E7D32) !important; color: white !important; }
+    
+    /* HEADER BUTTONS (Small for Mobile) */
+    .header-btn button {
+        min-height: 40px !important;
+        font-size: 14px !important;
+        padding: 5px !important;
+    }
+
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
@@ -197,18 +211,24 @@ ensure_schema()
 # --- HELPERS ---
 def get_baku_now(): return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=4))).replace(tzinfo=None)
 
+# --- NEW SHIFT LOGIC (08:00 - 08:00) ---
 def get_logical_date():
+    """Returns the 'Accounting Date'. If time < 08:00, belongs to previous day."""
     now = get_baku_now()
-    if now.hour < 8: return (now - datetime.timedelta(days=1)).date()
+    if now.hour < 8:
+        return (now - datetime.timedelta(days=1)).date()
     return now.date()
 
 def get_shift_range(date_obj=None):
+    """Returns Start and End datetime for the shift of a given date."""
     if date_obj is None: date_obj = get_logical_date()
     start = datetime.datetime.combine(date_obj, datetime.time(8, 0, 0))
     end = start + datetime.timedelta(hours=24)
     return start, end
 
+# --- QR CLEANER ---
 def clean_qr_code(raw_code):
+    """Clean nasty keyboard artifacts from AZ layout."""
     if not raw_code: return ""
     code = raw_code.strip()
     if "id=" in code:
@@ -452,12 +472,13 @@ else:
     
     if st.session_state.show_receipt_popup and st.session_state.last_receipt_data: show_receipt_dialog(st.session_state.last_receipt_data['cart'], st.session_state.last_receipt_data['total'], st.session_state.last_receipt_data['email'])
 
+    # --- HEADER ---
     h1, h2, h3 = st.columns([4,1,1])
     with h1: st.markdown(f"**👤 {st.session_state.user}** | {st.session_state.role.upper()}")
     with h2: 
-        if st.button("🔄"): st.rerun()
+        if st.button("🔄", key="refresh_top", use_container_width=True): st.rerun()
     with h3: 
-        if st.button("🚪", type="primary"): logout_user()
+        if st.button("🚪", type="primary", key="logout_top", use_container_width=True): logout_user()
     st.divider()
 
     role = st.session_state.role
@@ -478,9 +499,7 @@ else:
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
 
     # --- PERSISTENT NAVIGATION ---
-    if "current_tab" not in st.session_state: st.session_state.current_tab = tabs_list[0]
-    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
-    if selected_tab != st.session_state.current_tab: st.session_state.current_tab = selected_tab
+    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio")
     
     def add_to_cart(cart, item):
         for i in cart: 
@@ -1223,6 +1242,57 @@ else:
                 if inv_email:
                     report_html = f"<h3>Hesabat ({d1} - {d2})</h3><p>Satış: {total_rev}</p><p>Xərc: {total_exp}</p><p>Mənfəət: {total_rev - est_cogs}</p>"; send_email(inv_email, f"Hesabat {d1}", report_html); st.success("Göndərildi!")
                 else: st.error("Email yazın")
+
+    # --- CRITICAL FIX: Z-REPORT IS NOW AT ROOT LEVEL ---
+    elif selected_tab == "📊 Z-Hesabat":
+            st.subheader("Z-Hesabat")
+            @st.dialog("💸 Xərc Çıxart")
+            def z_exp_d():
+                    with st.form("zexp"):
+                        c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
+                        src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"]) if role=='admin' else 'Kassa'
+                        if st.form_submit_button("Təsdiq"): 
+                            run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
+                            run_action("INSERT INTO expenses (amount,reason,spender,source) VALUES (:a,:r,:s,:src)", {"a":a,"r":f"{c}-{d}","s":st.session_state.user,"src":src})
+                            st.rerun()
+            if st.button("💸 Xərc Çıxart", type="primary", use_container_width=True, key="z_exp_btn_main"): z_exp_d()
+            c1, c2 = st.columns([3,1])
+            with c2:
+                if st.button("🔴 Günü Bitir (Z-Hesabat)", type="primary", use_container_width=True, key="end_day_btn"): st.session_state.z_report_active = True; st.rerun()
+            if st.session_state.z_report_active:
+                @st.dialog("Günlük Hesabat")
+                def z_final_d():
+                    st.write("---"); pay_st = st.checkbox("Staff (20 AZN)"); pay_mg = st.checkbox("Manager (25 AZN)")
+                    if st.button("Hesabla", key="calc_z_btn"): st.session_state.z_calculated = True
+                    if st.session_state.z_calculated:
+                         log_date_z = get_logical_date(); sh_start_z, _ = get_shift_range(log_date_z)
+                         scash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['s'] or 0.0
+                         ecash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['e'] or 0.0
+                         icash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['i'] or 0.0
+                         sal = (20 if pay_st else 0) + (25 if pay_mg else 0); start = float(get_setting("cash_limit", "100.0")); curr = start + float(scash) + float(icash) - float(ecash) - sal; diff = curr - start
+                         st.markdown(f"**Kassa:** {curr:.2f} ₼ (Start: {start})"); 
+                         if diff > 0: st.info(f"Seyfə: {diff:.2f}")
+                         if st.button("Təsdiq", key="confirm_z_btn"):
+                              if pay_st: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',20,'Kassa','Z:Staff',:u)",{"u":st.session_state.user})
+                              if pay_mg: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',25,'Kassa','Z:Manager',:u)",{"u":st.session_state.user})
+                              if diff > 0:
+                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','İnkassasiya',:a,'Kassa','Z:Seyf',:u)",{"a":diff,"u":st.session_state.user})
+                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('in','İnkassasiya',:a,'Seyf','Z:Kassa',:u)",{"a":diff,"u":st.session_state.user})
+                              set_setting("last_z_report_time", get_baku_now().isoformat()); st.session_state.z_report_active=False; st.session_state.z_calculated=False; st.success("Bitdi!"); time.sleep(1); st.rerun()
+                z_final_d()
+            
+            st.divider(); st.subheader("🔍 Mənim Şəxsi Satışlarım")
+            col_d1, col_d2 = st.columns(2); d_start_st = col_d1.date_input("Başlanğıc", get_logical_date(), key="staff_hist_d1"); d_end_st = col_d2.date_input("Bitmə", get_logical_date(), key="staff_hist_d2")
+            if d_start_st == d_end_st == get_logical_date(): ts_s_st, ts_e_st = get_shift_range(d_start_st)
+            else: ts_s_st = datetime.datetime.combine(d_start_st, datetime.time(0,0)); ts_e_st = datetime.datetime.combine(d_end_st, datetime.time(23,59))
+            q_staff = """SELECT created_at as "Tarix", items as "Məhsullar", total as "Ödənilən (AZN)", original_total as "Real Dəyər", discount_amount as "Endirim (AZN)", note as "Qeyd / Səbəb", customer_card_id as "QR / Müştəri", payment_method as "Növ" FROM sales WHERE cashier = :u AND created_at BETWEEN :s AND :e ORDER BY created_at DESC"""
+            try:
+                my_sales = run_query(q_staff, {"u": st.session_state.user, "s": ts_s_st, "e": ts_e_st})
+                if not my_sales.empty:
+                    total_sold = my_sales["Ödənilən (AZN)"].sum(); total_disc = my_sales["Endirim (AZN)"].sum()
+                    ms1, ms2 = st.columns(2); ms1.metric("Cəmi Satışım (Kassaya girən)", f"{total_sold:.2f} ₼"); ms2.metric("Etdiyim Endirimlər", f"{total_disc:.2f} ₼"); st.dataframe(my_sales, hide_index=True, use_container_width=True)
+                else: st.info("Bu tarixlər aralığında satışınız yoxdur.")
+            except Exception as e: st.error(f"Xəta: {e}")
 
     elif selected_tab == "📜 Loglar":
             st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50"))
