@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.65 (BUTTON RESIZE & EXPENSE SOURCE) ===
+# === EMALATKHANA POS - V6.66 (FULL METAL UI) ===
 # ==========================================
 
-VERSION = "v6.65 (POS Buttons Resized, Staff Expense Source Selection)"
+VERSION = "v6.66 (Metallic 3D Buttons, Calculator Restored, Fixed Staff Logic)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -77,7 +77,7 @@ if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
 if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
 
-# --- CSS (METALLIC UI UPDATED SIZE) ---
+# --- CSS (FULL METAL 3D UI) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
@@ -116,38 +116,55 @@ st.markdown("""
         border-color: #2E7D32;
     }
 
-    /* --- METALLIC BUTTONS (POS MENU ADJUSTED SIZE) --- */
+    /* --- GLOBAL BUTTON RESET --- */
     div.stButton > button { 
-        border-radius: 12px !important; 
-        font-weight: bold !important; 
+        border-radius: 10px !important; 
+        font-weight: 900 !important; 
         border: 1px solid #999 !important; 
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2) !important; 
         transition: all 0.1s;
+        text-transform: uppercase;
     }
-    div.stButton > button:active { 
-        transform: scale(0.98); 
-        box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3) !important;
+
+    /* --- 1. ORANGE 3D METAL BUTTONS (Primary / Exit / Pay) --- */
+    div.stButton > button[kind="primary"] { 
+        background: linear-gradient(180deg, #FF9E60 0%, #F57C00 50%, #E65100 100%) !important;
+        color: white !important; 
+        border: 1px solid #B33F00 !important;
+        box-shadow: 0px 5px 0px #B33F00, 0px 6px 6px rgba(0,0,0,0.3) !important;
+        transform: translateY(0px);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+    }
+    div.stButton > button[kind="primary"]:active { 
+        transform: translateY(4px) !important; 
+        box-shadow: 0px 1px 0px #B33F00, inset 0px 2px 5px rgba(0,0,0,0.3) !important;
     }
     
-    /* Primary Action Buttons (Orange/Green) */
-    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
-    
-    /* METALLIC MENU BUTTONS (RESIZED TO ~90px) */
+    /* --- 2. SILVER 3D METAL BUTTONS (Menu / Refresh / Calc) --- */
     div.stButton > button[kind="secondary"] { 
-        background: linear-gradient(145deg, #f8f9fa, #cfd8dc) !important; /* Silver Metallic */
-        color: #263238 !important; /* Dark Grey Text */
-        min-height: 90px !important; /* REDUCED FROM 120px */
-        white-space: pre-wrap !important; /* ALLOW MULTILINE */
-        font-size: 16px !important; /* REDUCED FONT SIZE */
-        line-height: 1.3 !important;
-        padding: 8px !important;
+        background: linear-gradient(180deg, #FFFFFF 0%, #E0E0E0 50%, #BDBDBD 100%) !important;
+        color: #37474F !important; 
+        border: 1px solid #757575 !important;
+        box-shadow: 0px 5px 0px #757575, 0px 6px 6px rgba(0,0,0,0.2) !important;
+        transform: translateY(0px);
+    }
+    div.stButton > button[kind="secondary"]:active { 
+        transform: translateY(4px) !important; 
+        box-shadow: 0px 1px 0px #757575, inset 0px 2px 5px rgba(0,0,0,0.2) !important;
     }
     
-    /* HEADER BUTTONS (Small for Mobile) */
-    .header-btn button {
-        min-height: 40px !important;
-        font-size: 14px !important;
+    /* --- POS MENU SPECIFIC (Height & Layout) --- */
+    /* We identify these by the fact they are secondary and likely in columns */
+    div.stButton > button[kind="secondary"] {
+        min-height: 90px !important; /* Adjusted to 30% less than 120px */
+        white-space: pre-wrap !important;
+        font-size: 16px !important;
+        line-height: 1.3 !important;
         padding: 5px !important;
+    }
+
+    /* --- HEADER BUTTONS OVERRIDE (Make them normal height) --- */
+    div[data-testid="stVerticalBlock"] > div:has(div.stMarkdown) + div div.stButton > button {
+        min-height: 50px !important;
     }
 
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
@@ -486,9 +503,9 @@ else:
     h1, h2, h3 = st.columns([4,1,1])
     with h1: st.markdown(f"**👤 {st.session_state.user}** | {st.session_state.role.upper()}")
     with h2: 
-        if st.button("🔄", key="refresh_top", use_container_width=True): st.rerun()
+        if st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary"): st.rerun()
     with h3: 
-        if st.button("🚪", type="primary", key="logout_top", use_container_width=True): logout_user()
+        if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True): logout_user()
     st.divider()
 
     role = st.session_state.role
@@ -607,14 +624,15 @@ else:
                 if is_ikram: st.success("🎁 İKRAM")
                 elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
                 
+                # --- CALCULATOR ---
                 if final > 0:
                     st.markdown("---")
                     cb1, cb2, cb3, cb4, cb5 = st.columns(5)
-                    if cb1.button(f"{final:.2f}"): set_received_amount(final); st.rerun()
-                    if cb2.button("5 ₼"): set_received_amount(5); st.rerun()
-                    if cb3.button("10 ₼"): set_received_amount(10); st.rerun()
-                    if cb4.button("20 ₼"): set_received_amount(20); st.rerun()
-                    if cb5.button("50 ₼"): set_received_amount(50); st.rerun()
+                    if cb1.button(f"{final:.2f}", type="secondary"): set_received_amount(final); st.rerun()
+                    if cb2.button("5 ₼", type="secondary"): set_received_amount(5); st.rerun()
+                    if cb3.button("10 ₼", type="secondary"): set_received_amount(10); st.rerun()
+                    if cb4.button("20 ₼", type="secondary"): set_received_amount(20); st.rerun()
+                    if cb5.button("50 ₼", type="secondary"): set_received_amount(50); st.rerun()
                     c_calc1, c_calc2 = st.columns([1,2])
                     with c_calc1: 
                         given_money = st.number_input("Müştərinin Verdiyi:", min_value=0.0, step=0.5, value=st.session_state.calc_received, key="calc_inp_box")
@@ -1284,58 +1302,6 @@ else:
                 if inv_email:
                     report_html = f"<h3>Hesabat ({d1} - {d2})</h3><p>Satış: {total_rev}</p><p>Xərc: {total_exp}</p><p>Mənfəət: {total_rev - est_cogs}</p>"; send_email(inv_email, f"Hesabat {d1}", report_html); st.success("Göndərildi!")
                 else: st.error("Email yazın")
-
-    # --- CRITICAL FIX: Z-REPORT IS NOW AT ROOT LEVEL ---
-    elif selected_tab == "📊 Z-Hesabat":
-            st.subheader("Z-Hesabat")
-            @st.dialog("💸 Xərc Çıxart")
-            def z_exp_d():
-                    with st.form("zexp"):
-                        c = st.selectbox("Kat", ["Xammal", "Kommunal", "Tips / Çayvoy", "Digər"]); a = st.number_input("Məb"); d = st.text_input("Qeyd")
-                        # V6.65: STAFF CAN CHOOSE SOURCE
-                        src = st.selectbox("Mənbə", ["Kassa","Bank Kartı"])
-                        if st.form_submit_button("Təsdiq"): 
-                            run_action("INSERT INTO finance (type,category,amount,source,description,created_by,subject) VALUES ('out',:c,:a,:s,:d,:u,:sub)", {"c":c,"a":a,"s":src,"d":d,"u":st.session_state.user,"sub":st.session_state.user})
-                            run_action("INSERT INTO expenses (amount,reason,spender,source) VALUES (:a,:r,:s,:src)", {"a":a,"r":f"{c}-{d}","s":st.session_state.user,"src":src})
-                            st.rerun()
-            if st.button("💸 Xərc Çıxart", type="primary", use_container_width=True, key="z_exp_btn_main"): z_exp_d()
-            c1, c2 = st.columns([3,1])
-            with c2:
-                if st.button("🔴 Günü Bitir (Z-Hesabat)", type="primary", use_container_width=True, key="end_day_btn"): st.session_state.z_report_active = True; st.rerun()
-            if st.session_state.z_report_active:
-                @st.dialog("Günlük Hesabat")
-                def z_final_d():
-                    st.write("---"); pay_st = st.checkbox("Staff (20 AZN)"); pay_mg = st.checkbox("Manager (25 AZN)")
-                    if st.button("Hesabla", key="calc_z_btn"): st.session_state.z_calculated = True
-                    if st.session_state.z_calculated:
-                         log_date_z = get_logical_date(); sh_start_z, _ = get_shift_range(log_date_z)
-                         scash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['s'] or 0.0
-                         ecash = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['e'] or 0.0
-                         icash = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d",{"d":sh_start_z}).iloc[0]['i'] or 0.0
-                         sal = (20 if pay_st else 0) + (25 if pay_mg else 0); start = float(get_setting("cash_limit", "100.0")); curr = start + float(scash) + float(icash) - float(ecash) - sal; diff = curr - start
-                         st.markdown(f"**Kassa:** {curr:.2f} ₼ (Start: {start})"); 
-                         if diff > 0: st.info(f"Seyfə: {diff:.2f}")
-                         if st.button("Təsdiq", key="confirm_z_btn"):
-                              if pay_st: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',20,'Kassa','Z:Staff',:u)",{"u":st.session_state.user})
-                              if pay_mg: run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','Maaş',25,'Kassa','Z:Manager',:u)",{"u":st.session_state.user})
-                              if diff > 0:
-                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('out','İnkassasiya',:a,'Kassa','Z:Seyf',:u)",{"a":diff,"u":st.session_state.user})
-                                   run_action("INSERT INTO finance (type,category,amount,source,description,created_by) VALUES ('in','İnkassasiya',:a,'Seyf','Z:Kassa',:u)",{"a":diff,"u":st.session_state.user})
-                              set_setting("last_z_report_time", get_baku_now().isoformat()); st.session_state.z_report_active=False; st.session_state.z_calculated=False; st.success("Bitdi!"); time.sleep(1); st.rerun()
-                z_final_d()
-            
-            st.divider(); st.subheader("🔍 Mənim Şəxsi Satışlarım")
-            col_d1, col_d2 = st.columns(2); d_start_st = col_d1.date_input("Başlanğıc", get_logical_date(), key="staff_hist_d1"); d_end_st = col_d2.date_input("Bitmə", get_logical_date(), key="staff_hist_d2")
-            if d_start_st == d_end_st == get_logical_date(): ts_s_st, ts_e_st = get_shift_range(d_start_st)
-            else: ts_s_st = datetime.datetime.combine(d_start_st, datetime.time(0,0)); ts_e_st = datetime.datetime.combine(d_end_st, datetime.time(23,59))
-            q_staff = """SELECT created_at as "Tarix", items as "Məhsullar", total as "Ödənilən (AZN)", original_total as "Real Dəyər", discount_amount as "Endirim (AZN)", note as "Qeyd / Səbəb", customer_card_id as "QR / Müştəri", payment_method as "Növ" FROM sales WHERE cashier = :u AND created_at BETWEEN :s AND :e ORDER BY created_at DESC"""
-            try:
-                my_sales = run_query(q_staff, {"u": st.session_state.user, "s": ts_s_st, "e": ts_e_st})
-                if not my_sales.empty:
-                    total_sold = my_sales["Ödənilən (AZN)"].sum(); total_disc = my_sales["Endirim (AZN)"].sum()
-                    ms1, ms2 = st.columns(2); ms1.metric("Cəmi Satışım (Kassaya girən)", f"{total_sold:.2f} ₼"); ms2.metric("Etdiyim Endirimlər", f"{total_disc:.2f} ₼"); st.dataframe(my_sales, hide_index=True, use_container_width=True)
-                else: st.info("Bu tarixlər aralığında satışınız yoxdur.")
-            except Exception as e: st.error(f"Xəta: {e}")
 
     elif selected_tab == "📜 Loglar":
             st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50"))
