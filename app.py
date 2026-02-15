@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.68 (SETTINGS RESTORED) ===
+# === EMALATKHANA POS - V6.69 (MULTI-CART SYSTEM) ===
 # ==========================================
 
-VERSION = "v6.68 (Restored: User Mgmt, Pass Change, System Settings)"
+VERSION = "v6.69 (Multi-Cart System: 3 Concurrent Orders)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -76,6 +76,16 @@ if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = N
 if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
 if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
+
+# --- MULTI CART STATE ---
+if 'multi_carts' not in st.session_state:
+    st.session_state.multi_carts = {
+        1: {'cart': [], 'customer': None},
+        2: {'cart': [], 'customer': None},
+        3: {'cart': [], 'customer': None}
+    }
+if 'active_cart_id' not in st.session_state:
+    st.session_state.active_cart_id = 1
 
 # --- CSS (METALLIC UI) ---
 st.markdown("""
@@ -323,6 +333,17 @@ def set_received_amount(amount):
 def reset_recipe_inputs():
     st.session_state.rec_qty_val = 0.0
 
+# --- V6.69: MULTI-CART SWITCHER ---
+def switch_cart(new_id):
+    # Save current cart to storage
+    st.session_state.multi_carts[st.session_state.active_cart_id]['cart'] = st.session_state.cart_takeaway
+    st.session_state.multi_carts[st.session_state.active_cart_id]['customer'] = st.session_state.current_customer_ta
+    
+    # Load new cart from storage
+    st.session_state.active_cart_id = new_id
+    st.session_state.cart_takeaway = st.session_state.multi_carts[new_id]['cart']
+    st.session_state.current_customer_ta = st.session_state.multi_carts[new_id]['customer']
+
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
     st.warning(f"⚠️ {action_name}")
@@ -535,7 +556,7 @@ else:
                     if n.endswith(s): base = n[:-len(s)]; break
                 if base not in groups: groups[base] = []
                 groups[base].append(r)
-            # --- METALLIC BIG BUTTONS (3 COLUMNS) ---
+            # --- V6.64: METALLIC BIG BUTTONS (3 COLUMNS) ---
             cols = st.columns(3)
             i = 0
             for base, items in groups.items():
@@ -555,9 +576,25 @@ else:
 
     # --- TAB CONTENT ---
     if selected_tab == "🏃‍♂️ AL-APAR":
+            # --- V6.69: MULTI-CART HEADER ---
+            c_carts = st.columns(3)
+            for cid in [1, 2, 3]:
+                count = len(st.session_state.multi_carts[cid]['cart'])
+                # If this is the active cart, check current session state instead
+                if cid == st.session_state.active_cart_id:
+                     count = len(st.session_state.cart_takeaway)
+                
+                btn_type = "primary" if cid == st.session_state.active_cart_id else "secondary"
+                label = f"🛒 Səbət {cid} ({count})"
+                if c_carts[cid-1].button(label, key=f"cart_sw_{cid}", type=btn_type, use_container_width=True):
+                    switch_cart(cid)
+                    st.rerun()
+            st.divider()
+            # --------------------------------
+
             c1, c2 = st.columns([1.5, 3])
             with c1:
-                st.info("🧾 Al-Apar")
+                st.info(f"🧾 Al-Apar (Səbət {st.session_state.active_cart_id})")
                 with st.form("scta", clear_on_submit=False): 
                     code = st.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
                     if st.form_submit_button("🔍") or code:
@@ -677,7 +714,13 @@ else:
                         
                         log_system(st.session_state.user, f"Satış: {final_db_total:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
                         st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
-                        st.session_state.cart_takeaway = []; st.session_state.calc_received = 0.0; clear_customer_data_callback(); st.session_state.show_receipt_popup=True
+                        
+                        # --- V6.69: CLEAR ACTIVE CART ---
+                        st.session_state.cart_takeaway = []
+                        st.session_state.current_customer_ta = None
+                        st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
+                        
+                        st.session_state.calc_received = 0.0; clear_customer_data_callback(); st.session_state.show_receipt_popup=True
                         if card_tips > 0: st.toast(f"💵 {card_tips:.2f} AZN Çayvoyu KASSADAN GÖTÜRÜN!", icon="🤑"); time.sleep(2)
                         st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
@@ -968,7 +1011,7 @@ else:
                                 except Exception as e: st.error(f"Xəta: {e}")
                     if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-    # --- SETTINGS & DB ---
+    # --- RE-POSITIONED: SETTINGS & DB ---
     elif selected_tab == "⚙️ Ayarlar":
         if role == 'admin':
             st.subheader("⚙️ Ayarlar")
@@ -994,6 +1037,7 @@ else:
                         st.success(f"{target_user} artıq {new_role} oldu!")
                         time.sleep(1); st.rerun()
 
+            # --- RESTORED BLOCKS ---
             with st.expander("🔑 Şifrə Dəyişmə"):
                 users = run_query("SELECT username FROM users"); sel_u_pass = st.selectbox("İşçi Seç", users['username'].tolist(), key="pass_change_sel"); new_pass = st.text_input("Yeni Şifrə", type="password")
                 if st.button("Şifrəni Yenilə", key="pass_btn"): run_action("UPDATE users SET password=:p WHERE username=:u", {"p":hash_password(new_pass), "u":sel_u_pass}); st.success("Yeniləndi!")
@@ -1005,12 +1049,6 @@ else:
                 du = st.selectbox("Silinəcək", users['username'].tolist(), key="del_user_sel")
                 if st.button("İşçini Sil", key="del_u_btn"): admin_confirm_dialog(f"Sil: {du}?", lambda: run_action("DELETE FROM users WHERE username=:u", {"u":du}))
 
-            with st.expander("⚡ Tarixçə Bərpası (01.02.2026)"):
-                st.info("Bu düymə dünənki 11 satışı bazaya yazacaq.")
-                if st.button("📅 Dünənki Satışları Yüklə", key="hist_fix_btn"):
-                    # ... (History logic kept short for brevity, assumed unchanged) ...
-                    st.success("Tarixçə bərpa olundu!")
-
             with st.expander("🔧 Sistem"):
                 st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
                 if st.button("Yadda Saxla (Tables)", key="save_staff_tables"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
@@ -1020,8 +1058,43 @@ else:
                 if st.button("Limiti Yenilə", key="save_limit"): set_setting("cash_limit", str(c_lim)); st.success("Yeniləndi!")
                 rules = st.text_area("Qaydalar", value=get_setting("customer_rules", DEFAULT_TERMS))
                 if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
+            
             lg = st.file_uploader("Logo"); 
             if lg: set_setting("receipt_logo_base64", image_to_base64(lg)); st.success("Yükləndi")
+            # -----------------------
+
+            with st.expander("⚡ Tarixçə Bərpası (01.02.2026)"):
+                st.info("Bu düymə dünənki 11 satışı bazaya yazacaq.")
+                if st.button("📅 Dünənki Satışları Yüklə", key="hist_fix_btn"):
+                    history_data = [
+                        {"time": "2026-02-01 10:36:05", "cashier": "Sabina", "method": "Cash", "total": 13.4, "items": "Şokoladlı Cookie x2, Cappuccino M x1, Americano M x1"},
+                        {"time": "2026-02-01 11:17:54", "cashier": "Sabina", "method": "Card", "total": 1.5, "items": "Şokoladlı Cookie x1"},
+                        {"time": "2026-02-01 11:43:41", "cashier": "Sabina", "method": "Card", "total": 5.9, "items": "Americano L x1"},
+                        {"time": "2026-02-01 13:27:16", "cashier": "Sabina", "method": "Card", "total": 9.0, "items": "Cappuccino S x2"},
+                        {"time": "2026-02-01 13:34:30", "cashier": "Sabina", "method": "Cash", "total": 4.7, "items": "Mocha S x1"},
+                        {"time": "2026-02-01 14:18:10", "cashier": "Sabina", "method": "Card", "total": 3.9, "items": "Americano S x1"},
+                        {"time": "2026-02-01 14:27:33", "cashier": "Sabina", "method": "Cash", "total": 6.7, "items": "Su (500ml) x1, Raf S x1"},
+                        {"time": "2026-02-01 15:44:27", "cashier": "Sabina", "method": "Cash", "total": 13.0, "items": "Cappuccino L x2"},
+                        {"time": "2026-02-01 17:02:10", "cashier": "Samir", "method": "Cash", "total": 15.0, "items": "Cappuccino M x1, Cappuccino L x1, Ekler x2"},
+                        {"time": "2026-02-01 18:25:44", "cashier": "Samir", "method": "Card", "total": 6.5, "items": "Cappuccino L x1"},
+                        {"time": "2026-02-01 19:15:50", "cashier": "Samir", "method": "Cash", "total": 2.0, "items": "Çay L x1"}
+                    ]
+                    try:
+                        with conn.session as s:
+                            count = 0
+                            for h in history_data:
+                                exist = s.execute(text("SELECT id FROM sales WHERE created_at=:t AND total=:tot"), {"t":h['time'], "tot":h['total']}).fetchone()
+                                if not exist:
+                                    s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i, :t, :p, :c, :tm, :t, 0)"), 
+                                            {"i":h['items'], "t":h['total'], "p":h['method'], "c":h['cashier'], "tm":h['time']})
+                                    count += 1
+                            s.commit()
+                        st.success(f"✅ {count} ədəd satış tarixçəyə yazıldı!")
+                        
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Maaş/Xərc', 58.80, 'Kassa', 'Dünənki balans fərqi (Maaşlar+)', 'Admin', '2026-02-01 23:59:00')")
+                        run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (58.80, 'Dünənki balans fərqi', 'Admin', 'Kassa', '2026-02-01 23:59:00')")
+                        st.success("✅ Kassa balansı 99 AZN-ə bərabərləşdirildi (58.80 Xərc silindi).")
+                    except Exception as e: st.error(f"Xəta: {e}")
         else:
             st.error("⛔ İcazə Yoxdur")
 
@@ -1169,7 +1242,7 @@ else:
 
             log_date = get_logical_date(); c1, c2 = st.columns(2); d1 = c1.date_input("Start", log_date, key="ana_d1"); d2 = c2.date_input("End", log_date, key="ana_d2")
             if d1 == log_date and d2 == log_date: ts_start, ts_end = get_shift_range(log_date)
-            else: ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d_end_st, datetime.time(23,59))
+            else: ts_start = datetime.datetime.combine(d1, datetime.time(0,0)); ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
 
             sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end}); exps = run_query("SELECT * FROM expenses WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
             
