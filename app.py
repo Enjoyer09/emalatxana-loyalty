@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.80 (HOTFIX: STATE INIT) ===
+# === EMALATKHANA POS - V6.81 (FUZULI: RECIPE EDIT) ===
 # ==========================================
 
-VERSION = "v6.80 (Fixed: Session State Attribute Error)"
+VERSION = "v6.81 (Fuzuli: Added Recipe Edit Feature)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -56,7 +56,7 @@ DEFAULT_SENDER_EMAIL = "info@ironwaves.store"
 APP_URL = "https://emalatxana.ironwaves.store"
 ALLOWED_TABLES = ["users", "menu", "sales", "ingredients", "recipes", "customers", "notifications", "settings", "system_logs", "tables", "promo_codes", "customer_coupons", "expenses", "finance", "admin_notes", "bonuses"]
 
-# --- STATE MANAGEMENT (CRITICAL INITIALIZATION) ---
+# --- STATE MANAGEMENT ---
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
 if 'cart_takeaway' not in st.session_state: st.session_state.cart_takeaway = []
@@ -71,14 +71,13 @@ if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'edit_finance_id' not in st.session_state: st.session_state.edit_finance_id = None
 if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
+if 'edit_recipe_id' not in st.session_state: st.session_state.edit_recipe_id = None # NEW FOR RECIPE EDIT
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
 if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
 if 'sale_to_delete' not in st.session_state: st.session_state.sale_to_delete = None
 if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
 if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
-
-# --- FIX: THIS VARIABLE MUST BE INITIALIZED HERE ---
 if 'search_key_counter' not in st.session_state: st.session_state.search_key_counter = 0
 
 # --- MULTI CART STATE ---
@@ -105,29 +104,60 @@ st.markdown("""
     footer { visibility: hidden; }
     
     div.stRadio > div[role="radiogroup"] {
-        display: flex; flex-direction: row; justify-content: center; overflow-x: auto;
-        background: white; padding: 10px; border-radius: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        overflow-x: auto;
+        background: white;
+        padding: 10px;
+        border-radius: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
     div.stRadio > div[role="radiogroup"] > label {
-        background: transparent; border: 1px solid #ddd; border-radius: 8px;
-        margin: 0 5px; padding: 5px 15px; cursor: pointer; transition: all 0.2s;
+        background: transparent;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin: 0 5px;
+        padding: 5px 15px;
+        cursor: pointer;
+        transition: all 0.2s;
     }
     div.stRadio > div[role="radiogroup"] > label[data-checked="true"] {
-        background: #2E7D32 !important; color: white !important; border-color: #2E7D32;
+        background: #2E7D32 !important;
+        color: white !important;
+        border-color: #2E7D32;
     }
 
     div.stButton > button { 
-        border-radius: 12px !important; font-weight: bold !important; border: 1px solid #999 !important; 
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2) !important; transition: all 0.1s;
+        border-radius: 12px !important; 
+        font-weight: bold !important; 
+        border: 1px solid #999 !important; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2) !important; 
+        transition: all 0.1s;
     }
-    div.stButton > button:active { transform: scale(0.98); box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3) !important; }
+    div.stButton > button:active { 
+        transform: scale(0.98); 
+        box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3) !important;
+    }
     
     div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
+    
     div.stButton > button[kind="secondary"] { 
-        background: linear-gradient(145deg, #f8f9fa, #cfd8dc) !important; color: #263238 !important; 
-        min-height: 90px !important; white-space: pre-wrap !important; font-size: 16px !important; line-height: 1.3 !important; padding: 8px !important;
+        background: linear-gradient(145deg, #f8f9fa, #cfd8dc) !important; 
+        color: #263238 !important; 
+        min-height: 90px !important; 
+        white-space: pre-wrap !important;
+        font-size: 16px !important;
+        line-height: 1.3 !important;
+        padding: 8px !important;
     }
     
+    .header-btn button {
+        min-height: 40px !important;
+        font-size: 14px !important;
+        padding: 5px !important;
+    }
+
     .cartoon-quote { font-family: 'Comfortaa', cursive; color: #E65100; font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 20px; animation: float 3s infinite; }
     .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
     .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
@@ -195,7 +225,6 @@ def ensure_schema():
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS amount DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
         s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
         try:
             p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
@@ -565,7 +594,6 @@ else:
                 st.info(f"🧾 Al-Apar (Səbət {st.session_state.active_cart_id})")
                 
                 # --- V6.80 FIX: SAFEGUARDED KEY ---
-                # Ensure key exists before usage (double check)
                 if 'search_key_counter' not in st.session_state: st.session_state.search_key_counter = 0
                 
                 c_src, c_btn = st.columns([5,1])
@@ -690,7 +718,7 @@ else:
                         log_system(st.session_state.user, f"Satış: {final_db_total:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
                         st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
                         
-                        # --- V6.69 & 6.75 FIX: CLEAR & RESET INPUT ---
+                        # --- V6.79 CRASH FIX: RESET ---
                         st.session_state.cart_takeaway = []
                         st.session_state.current_customer_ta = None
                         st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
@@ -1035,6 +1063,7 @@ else:
                                   except: st.error("Xəta")
                     if st.button("📤 Excel Endir"): out = BytesIO(); run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False); st.download_button("⬇️ Endir (menu.xlsx)", out.getvalue(), "menu.xlsx")
 
+    # --- MODIFIED RECIPE SECTION (V6.81) ---
     elif selected_tab == "📜 Resept":
             st.subheader("📜 Resept")
             sel_p = st.selectbox("Məhsul", get_cached_menu()['item_name'].tolist(), on_change=reset_recipe_inputs)
@@ -1042,10 +1071,48 @@ else:
                 recs = run_query("SELECT id, ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:n", {"n":sel_p}); recs.insert(0,"Seç",False)
                 erd = st.data_editor(recs, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="rec_ed_safe")
                 srd = erd[erd["Seç"]]['id'].tolist()
-                if srd and st.button("Sil", key="rec_del_btn"): [run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)}) for i in srd]; st.rerun()
+                
+                # --- NEW BUTTON LAYOUT ---
+                col_r1, col_r2 = st.columns(2)
+                
+                # Edit Button (One Item)
+                if len(srd) == 1 and col_r1.button("✏️ Düzəliş", key="rec_edit_btn"):
+                    st.session_state.edit_recipe_id = int(srd[0])
+                    st.rerun()
+                
+                # Delete Button
+                if srd and col_r2.button("🗑️ Sil", key="rec_del_btn"): 
+                    [run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)}) for i in srd]
+                    st.rerun()
+                
+                # Add New Recipe Line
                 with st.form("nrec"):
                     ing = st.selectbox("Xammal", run_query("SELECT name FROM ingredients")['name'].tolist()); qty = st.number_input("Miqdar", format="%.3f", step=0.001, value=st.session_state.rec_qty_val)
                     if st.form_submit_button("Əlavə Et"): run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":qty}); st.session_state.rec_qty_val=0.0; st.rerun()
+            
+            # --- RECIPE EDIT DIALOG ---
+            if st.session_state.get('edit_recipe_id'):
+                r_res = run_query("SELECT * FROM recipes WHERE id=:id", {"id":st.session_state.edit_recipe_id})
+                if not r_res.empty:
+                    rec_item = r_res.iloc[0]
+                    @st.dialog("✏️ Resept Düzəliş")
+                    def edit_recipe_dialog(r):
+                        with st.form("edit_rec_form"):
+                            all_ings = run_query("SELECT name FROM ingredients")['name'].tolist()
+                            curr_ing_idx = all_ings.index(r['ingredient_name']) if r['ingredient_name'] in all_ings else 0
+                            
+                            new_ing = st.selectbox("Xammal", all_ings, index=curr_ing_idx)
+                            new_qty = st.number_input("Miqdar", format="%.3f", step=0.001, value=float(r['quantity_required']))
+                            
+                            if st.form_submit_button("Yadda Saxla"):
+                                run_action("UPDATE recipes SET ingredient_name=:i, quantity_required=:q WHERE id=:id", 
+                                           {"i":new_ing, "q":new_qty, "id":int(r['id'])})
+                                st.session_state.edit_recipe_id = None
+                                st.success("Yeniləndi!")
+                                time.sleep(0.5)
+                                st.rerun()
+                    edit_recipe_dialog(rec_item)
+
             if role == 'admin':
                 with st.expander("📤 Reseptləri İmport / Export (Excel)"):
                     if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"): admin_confirm_dialog("Bütün reseptlər silinsin? Geri qaytarmaq olmayacaq!", lambda: run_action("DELETE FROM recipes"))
@@ -1093,7 +1160,6 @@ else:
                         st.success(f"{target_user} artıq {new_role} oldu!")
                         time.sleep(1); st.rerun()
 
-            # --- MANUALLY ADD BONUS ---
             with st.expander("💰 Maliyyə Alətləri (Bonus Əlavə Et)"):
                 st.info("Əgər sistem avtomatik bonus yazmayıbsa, burdan əlavə edin.")
                 b_emp = st.selectbox("İşçi", BONUS_RECIPIENTS)
@@ -1156,7 +1222,7 @@ else:
             c_src, c_btn = st.columns([5,1])
             cnt = c_src.number_input("Say", 1, 50)
             if c_btn.button("Yarat", type="primary", use_container_width=True):
-                pass # Just forces refresh to show options below
+                pass
 
             c1, c2 = st.columns(2)
             cnt = c1.number_input("Say", 1, 50, key="qr_cnt")
@@ -1360,6 +1426,7 @@ else:
                                 new_method = st.selectbox("Ödəniş", ["Cash", "Card", "Staff"], index=["Cash", "Card", "Staff"].index(row['payment_method']) if row['payment_method'] in ["Cash", "Card", "Staff"] else 0)
                                 new_total = st.number_input("Məbləğ", value=float(row['total']))
                                 if st.form_submit_button("Yadda Saxla"):
+                                    # V6.64 FIX: Convert ID to int()
                                     run_action("UPDATE sales SET cashier=:c, payment_method=:p, total=:t WHERE id=:id", {"c":new_cashier, "p":new_method, "t":new_total, "id":int(row['id'])})
                                     log_system(st.session_state.user, f"EDIT SALE #{row['id']}: {row['total']}->{new_total}, {row['cashier']}->{new_cashier}")
                                     st.success("Düzəldildi!"); time.sleep(1); st.rerun()
