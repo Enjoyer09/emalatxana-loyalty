@@ -22,10 +22,10 @@ import re
 import numpy as np
 
 # ==========================================
-# === EMALATKHANA POS - V6.74 (FORM FIX) ===
+# === EMALATKHANA POS - V6.75 (CRITICAL FIXES) ===
 # ==========================================
 
-VERSION = "v6.74 (Fixed: Search Input State Error, Form Removed)"
+VERSION = "v6.75 (Fixed: Search State Error, Z-Report Visibility)"
 BRAND_NAME = "Emalatkhana Daily Drinks and Coffee"
 
 # --- CONFIG ---
@@ -78,6 +78,9 @@ if 'calc_received' not in st.session_state: st.session_state.calc_received = 0.0
 if 'tip_input_val' not in st.session_state: st.session_state.tip_input_val = 0.0
 if 'rec_qty_val' not in st.session_state: st.session_state.rec_qty_val = 0.0
 
+# --- FIX FOR SEARCH INPUT STATE ERROR ---
+if 'search_key_counter' not in st.session_state: st.session_state.search_key_counter = 0
+
 # --- MULTI CART STATE ---
 if 'multi_carts' not in st.session_state:
     st.session_state.multi_carts = {
@@ -101,6 +104,7 @@ st.markdown("""
     header { visibility: hidden; }
     footer { visibility: hidden; }
     
+    /* NAV BAR STYLE */
     div.stRadio > div[role="radiogroup"] {
         display: flex;
         flex-direction: row;
@@ -223,7 +227,6 @@ def ensure_schema():
         except: pass
         try: s.execute(text("ALTER TABLE admin_notes ADD COLUMN IF NOT EXISTS amount DECIMAL(10,2) DEFAULT 0")); s.commit()
         except: pass
-        # --- NEW BONUS TABLE ---
         s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         
         try:
@@ -328,7 +331,7 @@ def logout_user():
 # --- CALLBACKS ---
 def clear_customer_data_callback():
     st.session_state.current_customer_ta = None
-    st.session_state["search_input_ta"] = ""
+    # No need to clear input state here as we use dynamic key
 
 def set_received_amount(amount):
     st.session_state.calc_received = float(amount)
@@ -614,22 +617,20 @@ else:
             c1, c2 = st.columns([1.5, 3])
             with c1:
                 st.info(f"🧾 Al-Apar (Səbət {st.session_state.active_cart_id})")
-                # --- V6.74: FORM REMOVED ---
+                # --- V6.74 FIX: FORM REMOVED & DYNAMIC KEY ---
                 c_src, c_btn = st.columns([5,1])
-                code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan...", key="search_input_ta")
-                # Search Trigger logic
+                code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan...", key=f"search_input_ta_{st.session_state.search_key_counter}")
                 if c_btn.button("🔍", key="search_btn_ta") or code:
                     cid = clean_qr_code(code)
                     try: 
                         r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                         if not r.empty: 
-                            st.session_state.current_customer_ta = r.iloc[0].to_dict()
-                            st.toast(f"✅ Müştəri: {cid}")
-                            # Force empty input on next run isn't easy without callbacks but form removal helps
-                            # We rely on session state clear in callback
+                             st.session_state.current_customer_ta = r.iloc[0].to_dict()
+                             st.toast(f"✅ Müştəri: {cid}")
+                             st.rerun()
                         else: st.error("Tapılmadı")
                     except: pass
-                # ---------------------------
+                # ---------------------------------------------
                 
                 cust = st.session_state.current_customer_ta
                 if cust: 
@@ -701,14 +702,10 @@ else:
                     # --- SMART STAFF LIMIT V6.63 ---
                     if pm == "Personal (Staff)":
                         start_sh, _ = get_shift_range()
-                        # Get usage for TODAY/SHIFT
                         used = run_query("SELECT SUM(original_total) as s FROM sales WHERE cashier=:u AND payment_method='Staff' AND created_at >= :d", {"u":st.session_state.user, "d":start_sh}).iloc[0]['s'] or 0.0
-                        
-                        staff_limit = 6.00 # Hardcoded as per prompt
+                        staff_limit = 6.00
                         current_cart_raw_val = sum([i['price']*i['qty'] for i in st.session_state.cart_takeaway])
-                        
                         remaining_limit = max(0, staff_limit - float(used))
-                        
                         if current_cart_raw_val > remaining_limit:
                             overdraft = current_cart_raw_val - remaining_limit
                             final_db_total = overdraft
@@ -717,7 +714,6 @@ else:
                         else:
                             final_db_total = 0.00
                             final_note = f"Staff Limit ({used + current_cart_raw_val:.2f}/{staff_limit})"
-                    # -------------------------------
 
                     try:
                         with conn.session as s:
@@ -746,12 +742,14 @@ else:
                         log_system(st.session_state.user, f"Satış: {final_db_total:.2f} AZN ({items_str})", cust['card_id'] if cust else None)
                         st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
                         
-                        # --- V6.69: CLEAR ACTIVE CART ---
+                        # --- V6.74: RESET & INCREMENT SEARCH KEY ---
                         st.session_state.cart_takeaway = []
                         st.session_state.current_customer_ta = None
                         st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
+                        st.session_state.calc_received = 0.0
+                        st.session_state.search_key_counter += 1 # Forces new input widget
                         
-                        st.session_state.calc_received = 0.0; clear_customer_data_callback(); st.session_state.show_receipt_popup=True
+                        st.session_state.show_receipt_popup=True
                         if card_tips > 0: st.toast(f"💵 {card_tips:.2f} AZN Çayvoyu KASSADAN GÖTÜRÜN!", icon="🤑"); time.sleep(2)
                         st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
@@ -1069,7 +1067,7 @@ else:
                         st.success(f"{target_user} artıq {new_role} oldu!")
                         time.sleep(1); st.rerun()
 
-            # --- MANUALLY ADD BONUS (FIX FOR MISSED DAYS) ---
+            # --- MANUALLY ADD BONUS ---
             with st.expander("💰 Maliyyə Alətləri (Bonus Əlavə Et)"):
                 st.info("Əgər sistem avtomatik bonus yazmayıbsa (məs: köhnə versiyada işləyib), burdan əlavə edin.")
                 b_emp = st.selectbox("İşçi", BONUS_RECIPIENTS)
@@ -1134,58 +1132,30 @@ else:
 
     elif selected_tab == "QR":
             st.subheader("QR")
-            # --- V6.74: NO FORM, DIRECT INPUT ---
-            c_src, c_btn = st.columns([5,1])
-            cnt = c_src.number_input("Say", 1, 50)
-            if c_btn.button("Yarat", type="primary", use_container_width=True):
-                # Trigger generation logic
-                tp = "Golden (5%)" # Defaulting for simplicity in no-form mode or add selectbox above
-                # Actually lets put controls back but without form
-                pass
-
-            # Better Layout without Form
-            c1, c2 = st.columns(2)
-            cnt = c1.number_input("Say", 1, 50, key="qr_cnt")
-            tp = c2.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"], key="qr_type")
-            use_inventory = st.checkbox("📦 Fiziki Kartı Anbardan Sil", key="qr_inv")
-            
-            selected_card_stock = None
-            if use_inventory:
+            with st.form("qr_gen_form"):
+                cnt = st.number_input("Say", 1, 50); tp = st.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"])
+                use_inventory = st.checkbox("📦 Fiziki Kartı Anbardan Sil")
                 inv_items = run_query("SELECT id, name, stock_qty FROM ingredients WHERE category ILIKE '%Kart%' OR category ILIKE '%Mətbəə%' ORDER BY name")
-                if not inv_items.empty:
-                    item_map = {f"{row['name']} (Qalıq: {int(row['stock_qty'])})": row['id'] for _, row in inv_items.iterrows()}
-                    sel_label = st.selectbox("Hansı Kart?", list(item_map.keys()), key="qr_stock_sel")
-                    selected_card_stock = item_map[sel_label]
-                else:
-                    st.warning("⚠️ Anbarda 'Kart' kateqoriyalı mal tapılmadı.")
-
-            if st.button("QR Kodları Yarat 🚀", type="primary"):
-                can_proceed = True
-                if use_inventory and selected_card_stock:
-                    curr_qty = run_query("SELECT stock_qty FROM ingredients WHERE id=:id", {"id":selected_card_stock}).iloc[0]['stock_qty']
-                    if curr_qty < cnt:
-                        st.error(f"⛔ Stok yetmir! Qalıq: {int(curr_qty)}, Lazım: {cnt}")
-                        can_proceed = False
-                
-                if can_proceed:
-                    type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
-                    generated_qrs = []
-                    
-                    for _ in range(cnt):
-                        cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
-                        run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok})
-                        url = f"{APP_URL}/?id={cid}&t={tok}"; img_bytes = generate_styled_qr(url); generated_qrs.append((cid, img_bytes))
-                    
+                selected_card_stock = None
+                if use_inventory:
+                    if not inv_items.empty:
+                        item_map = {f"{row['name']} (Qalıq: {int(row['stock_qty'])})": row['id'] for _, row in inv_items.iterrows()}; sel_label = st.selectbox("Hansı Kart?", list(item_map.keys())); selected_card_stock = item_map[sel_label]
+                    else: st.warning("⚠️ Anbarda 'Kart' kateqoriyalı mal tapılmadı.")
+                if st.form_submit_button("Yarat"):
+                    can_proceed = True
                     if use_inventory and selected_card_stock:
-                        run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE id=:id", {"q":cnt, "id":selected_card_stock})
-                        st.toast(f"📦 Anbardan {cnt} ədəd kart silindi.")
-
-                    zip_buf = BytesIO()
-                    with zipfile.ZipFile(zip_buf, "w") as zf:
-                        for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[tp]}.png", img)
-                    
-                    st.success(f"{cnt} QR Kod yaradıldı!")
-                    st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
+                        curr_qty = run_query("SELECT stock_qty FROM ingredients WHERE id=:id", {"id":selected_card_stock}).iloc[0]['stock_qty']
+                        if curr_qty < cnt: st.error(f"⛔ Stok yetmir! Qalıq: {int(curr_qty)}, Lazım: {cnt}"); can_proceed = False
+                    if can_proceed:
+                        type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}; generated_qrs = []
+                        for _ in range(cnt):
+                            cid = str(random.randint(10000000,99999999)); tok = secrets.token_hex(8)
+                            run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok}); url = f"{APP_URL}/?id={cid}&t={tok}"; img_bytes = generate_styled_qr(url); generated_qrs.append((cid, img_bytes))
+                        if use_inventory and selected_card_stock: run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE id=:id", {"q":cnt, "id":selected_card_stock}); st.toast(f"📦 Anbardan {cnt} ədəd kart silindi.")
+                        zip_buf = BytesIO(); 
+                        with zipfile.ZipFile(zip_buf, "w") as zf:
+                            for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[tp]}.png", img)
+                        st.success(f"{cnt} QR Kod yaradıldı!"); st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
 
     # --- CRITICAL FIX: MOVED TO ROOT LEVEL ---
     elif selected_tab == "👥 CRM":
