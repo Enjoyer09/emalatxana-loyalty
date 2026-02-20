@@ -3,6 +3,7 @@ from sqlalchemy import text
 from database import run_query, run_action, conn
 from utils import clean_qr_code, get_baku_now, get_shift_range
 import json
+import time
 
 def add_to_cart(cart, item):
     for i in cart: 
@@ -41,15 +42,13 @@ def clear_customer_data_callback(): st.session_state.current_customer_ta = None;
 def set_received_amount(amount): st.session_state.calc_received = float(amount)
 
 def render_menu(cart, key):
-    menu_df = get_cached_menu()
-    CAT_ORDER_MAP = {cat: i for i, cat in enumerate(["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"])}
+    menu_df = get_cached_menu(); CAT_ORDER_MAP = {cat: i for i, cat in enumerate(["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"])}
     menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER_MAP).fillna(99); menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
     pos_search = st.text_input("🔍 Menyu Axtarış", key=f"pos_s_{key}")
     if pos_search: menu_df = menu_df[menu_df['item_name'].str.contains(pos_search, case=False, na=False)]
     existing_cats = sorted(menu_df['category'].unique().tolist(), key=lambda x: CAT_ORDER_MAP.get(x, 99))
     cats = ["Hamısı"] + existing_cats
-    sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
-    prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
+    sc = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}"); prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
     if not prods.empty:
         groups = {}
         for _, r in prods.iterrows():
@@ -65,24 +64,20 @@ def render_menu(cart, key):
                     @st.dialog(f"{base}")
                     def show_variants(its, grp_key):
                         for it in its:
-                            if st.button(f"{it['item_name']}\n{it['price']}₼", key=f"v_{it['id']}_{grp_key}", use_container_width=True, type="secondary"):
-                                add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'category':it['category'], 'status':'new'}); st.rerun()
+                            if st.button(f"{it['item_name']}\n{it['price']}₼", key=f"v_{it['id']}_{grp_key}", use_container_width=True, type="secondary"): add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'category':it['category'], 'status':'new'}); st.rerun()
                     if st.button(f"{base}\n▾", key=f"grp_{base}_{key}_{sc}", use_container_width=True, type="secondary"): show_variants(items, f"{key}_{sc}")
                 else:
                     r = items[0]
-                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_{sc}", use_container_width=True, type="secondary"):
-                        add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'}); st.rerun()
+                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_{sc}", use_container_width=True, type="secondary"): add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'}); st.rerun()
             i+=1
 
 def render_pos_page():
     c_carts = st.columns(3)
     for cid in [1, 2, 3]:
-        count = len(st.session_state.multi_carts[cid]['cart'])
-        if cid == st.session_state.active_cart_id: count = len(st.session_state.cart_takeaway)
+        count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
         btn_type = "primary" if cid == st.session_state.active_cart_id else "secondary"
         if c_carts[cid-1].button(f"🛒 Səbət {cid} ({count})", key=f"cart_sw_{cid}", type=btn_type, use_container_width=True): switch_cart(cid); st.rerun()
-    st.divider()
-    c1, c2 = st.columns([1.5, 3])
+    st.divider(); c1, c2 = st.columns([1.5, 3])
     with c1:
         st.info(f"🧾 Al-Apar (Səbət {st.session_state.active_cart_id})")
         if 'search_key_counter' not in st.session_state: st.session_state.search_key_counter = 0
@@ -105,7 +100,7 @@ def render_pos_page():
                     run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, 'Tips / Çayvoy', :u, 'Kassa')", {"a":t_amt, "u":st.session_state.user})
                     st.success(f"✅ {t_amt} AZN Tip qeyd olundu!"); st.session_state.tip_input_val = 0.0; time.sleep(2); st.rerun()
         man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel"); disc_note = ""
-        if man_disc_val > 0: disc_note = st.text_input("Səbəb (Məcburi!)", placeholder="Məs: Dost, Menecer jesti", key="disc_reason_inp"); 
+        if man_disc_val > 0: disc_note = st.text_input("Səbəb (Məcburi!)", placeholder="Məs: Dost", key="disc_reason_inp"); 
         if man_disc_val>0 and not disc_note: st.warning("Səbəb yaz!")
         raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, manual_discount_percent=man_disc_val)
         if st.session_state.cart_takeaway:
@@ -131,20 +126,42 @@ def render_pos_page():
             if gm!=st.session_state.calc_received: st.session_state.calc_received=gm
             with c_calc2: 
                 if gm > 0: ch = gm - final; st.markdown(f"<h3 style='color:#2E7D32'>💱 QAYTAR: {ch:.2f} ₼</h3>", unsafe_allow_html=True) if ch>=0 else st.error(f"Əskik: {abs(ch):.2f}")
-        pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True)
-        card_tips = 0.0
+        pm = st.radio("Metod", ["Nəğd", "Kart", "Personal (Staff)"], horizontal=True); card_tips = 0.0
         if pm == "Kart": card_tips = st.number_input("Çayvoy (Tips)?", min_value=0.0, step=0.5, key="tips_inp")
         own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check")
         btn_disabled = True if (man_disc_val > 0 and not disc_note) else False
         if st.button("✅ ÖDƏNİŞ", type="primary", use_container_width=True, disabled=btn_disabled, key="pay_btn"):
             if not st.session_state.cart_takeaway: st.error("Boşdur"); st.stop()
-            # ... (Transaction Logic - Qalanı eynidir, yalnız receipt logic silinib) ...
-            # ... (Burada köhnə transaction kodu olmalıdır) ...
-            # Transaction bitəndən sonra:
-            st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final, 'email':cust['email'] if cust else None}
-            st.session_state.show_receipt_popup = True
-            st.session_state.cart_takeaway = []; st.session_state.current_customer_ta = None
-            st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
-            st.session_state.calc_received = 0.0; st.session_state.search_key_counter += 1
-            st.rerun()
+            final_db_total = final; final_note = disc_note
+            if pm == "Personal (Staff)":
+                start_sh, _ = get_shift_range(); used = run_query("SELECT SUM(original_total) as s FROM sales WHERE cashier=:u AND payment_method='Staff' AND created_at >= :d", {"u":st.session_state.user, "d":start_sh}).iloc[0]['s'] or 0.0
+                staff_limit = 6.00; current_cart_raw_val = sum([i['price']*i['qty'] for i in st.session_state.cart_takeaway]); remaining_limit = max(0, staff_limit - float(used))
+                if current_cart_raw_val > remaining_limit: overdraft = current_cart_raw_val - remaining_limit; final_db_total = overdraft; final_note = f"Limit: {staff_limit} | Borc: {overdraft:.2f}"; st.warning(f"⚠️ Limit Doldu! Bu çekdən {overdraft:.2f} AZN ödəməlisiniz.")
+                else: final_db_total = 0.00; final_note = f"Staff Limit ({used + current_cart_raw_val:.2f}/{staff_limit})"
+            try:
+                with conn.session as s:
+                    for it in st.session_state.cart_takeaway:
+                        recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
+                        for r in recs:
+                            ing_name = r[0]; ing_info = s.execute(text("SELECT category FROM ingredients WHERE name=:n"), {"n":ing_name}).fetchone(); ing_cat = ing_info[0] if ing_info else ""
+                            if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name): continue 
+                            res = s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":ing_name})
+                            if res.rowcount == 0: raise Exception(f"Stok yetmir: {ing_name}")
+                    items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
+                    if own_cup: final_note += " [Eko Mod]"
+                    s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
+                    if card_tips > 0:
+                        s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', :d, :u)"), {"a":card_tips, "d":f"Çek (Kart Tips)", "u":st.session_state.user})
+                        s.execute(text("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, 'Tips / Çayvoy', :u, 'Kassa')"), {"a":card_tips, "u":st.session_state.user})
+                    if cust and not is_ikram and pm != "Personal (Staff)":
+                        cf_cnt = sum([x['qty'] for x in st.session_state.cart_takeaway if x.get('is_coffee')]); s.execute(text("UPDATE customers SET stars=:s WHERE card_id=:id"), {"s":(cust['stars'] + cf_cnt) - (free * 10), "id":cust['card_id']})
+                    s.commit()
+                st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
+                st.session_state.show_receipt_popup = True
+                st.session_state.cart_takeaway = []; st.session_state.current_customer_ta = None
+                st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
+                st.session_state.calc_received = 0.0; st.session_state.search_key_counter += 1
+                if card_tips > 0: st.toast(f"💵 {card_tips:.2f} AZN Çayvoyu KASSADAN GÖTÜRÜN!", icon="🤑"); time.sleep(2)
+                st.rerun()
+            except Exception as e: st.error(f"Xəta: {e}")
     with c2: render_menu(st.session_state.cart_takeaway, "ta")
