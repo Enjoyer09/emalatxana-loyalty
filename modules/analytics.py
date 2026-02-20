@@ -3,7 +3,7 @@ import pandas as pd
 import datetime
 import time
 from database import run_query, run_action, get_setting, set_setting
-from utils import get_logical_date, get_shift_range, get_baku_now
+from utils import get_logical_date, get_shift_range, get_baku_now, log_system
 from auth import admin_confirm_dialog
 
 def render_analytics_page():
@@ -39,14 +39,40 @@ def render_analytics_page():
             sales_disp = sales.copy()
             sales_disp.insert(0, "Seç", False)
             
-            # Data Editor for Deletion
             ed_sales = st.data_editor(sales_disp, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id", "items", "total", "payment_method", "created_at", "cashier"], use_container_width=True, key="sales_admin_ed")
             sel_sales = ed_sales[ed_sales["Seç"]]; sel_s_ids = sel_sales['id'].tolist()
             
             if len(sel_s_ids) > 0 and st.session_state.role == 'admin':
                 if st.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
-                    for i in sel_s_ids: run_action("DELETE FROM sales WHERE id=:id", {"id":int(i)})
-                    st.success("Satış(lar) silindi! 🗑️"); time.sleep(1); st.rerun()
+                    st.session_state.sales_to_delete = sel_s_ids
+                    st.rerun()
+
+            # --- SİLMƏ SƏBƏBİ PƏNCƏRƏSİ (LOG ÜÇÜN) ---
+            if st.session_state.get('sales_to_delete'):
+                @st.dialog("⚠️ Satışı Silmə Səbəbi")
+                def del_sale_dialog():
+                    st.warning(f"Diqqət: {len(st.session_state.sales_to_delete)} ədəd satışı silirsiniz.")
+                    reason = st.selectbox("Silinmə Səbəbi:", ["Səhv Vurulub (Ləğv)", "Test / Sınaq (Yoxlama)", "Zay Məhsul / Geri Qaytarma"])
+                    note = st.text_input("Əlavə Qeyd (İstəyə bağlı)")
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    if c_btn1.button("Təsdiqlə və Sil", type="primary"):
+                        for i in st.session_state.sales_to_delete:
+                            s_info = run_query("SELECT items, total FROM sales WHERE id=:id", {"id": int(i)})
+                            if not s_info.empty:
+                                i_str = s_info.iloc[0]['items']
+                                t_val = s_info.iloc[0]['total']
+                                # LOGLARA YAZIRIQ
+                                log_system(st.session_state.user, f"SİLİNDİ | Səbəb: {reason} | Məbləğ: {t_val} AZN | Məhsullar: {i_str} | Qeyd: {note}")
+                            run_action("DELETE FROM sales WHERE id=:id", {"id":int(i)})
+                        st.session_state.sales_to_delete = None
+                        st.success("Satış silindi və loglara yazıldı!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    if c_btn2.button("Ləğv Et"):
+                        st.session_state.sales_to_delete = None
+                        st.rerun()
+                del_sale_dialog()
 
         with tab2:
             st.write("Bu aralıqda nədən neçə ədəd satılıb:")
@@ -58,7 +84,7 @@ def render_analytics_page():
                     if " x" in p:
                         try:
                             name_part, qty_part = p.rsplit(" x", 1)
-                            qty = int(qty_part.split()[0]) # [Eko Mod] kimi yazıları atmaq üçün
+                            qty = int(qty_part.split()[0])
                             item_counts[name_part] = item_counts.get(name_part, 0) + qty
                         except: pass
             
@@ -78,26 +104,29 @@ def render_z_report_page():
     
     st.info(f"Növbə: {sh_start_z.strftime('%d %b %H:%M')} - {sh_end_z.strftime('%d %b %H:%M')}")
     
-    # 1. Satış Məlumatları
+    # Satış Məlumatları
     s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     total_sales = float(s_cash) + float(s_card) + float(s_staff)
     
-    # 2. Xərc və Mədaxil
+    # İŞÇİNİN ŞƏXSİ SATIŞI (YENİ ƏLAVƏ)
+    my_sales = run_query("SELECT SUM(total) as s FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
+    
+    # Xərc və Mədaxil
     f_out = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     f_in = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     
-    # 3. Kassa Vəziyyəti
     opening_limit = float(get_setting("cash_limit", "0.0"))
     expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
     
-    # Ekrana Yazdırmaq
     c1, c2 = st.columns(2)
     c1.metric("CƏMİ SATIŞ", f"{total_sales:.2f} ₼")
     c1.write(f"💳 Kartla: {float(s_card):.2f} ₼")
     c1.write(f"💵 Nağd: {float(s_cash):.2f} ₼")
     c1.write(f"👥 Personal: {float(s_staff):.2f} ₼")
+    # İŞÇİ GÖSTƏRİCİSİ VURĞULANIR
+    c1.markdown(f"<div style='background:#E8F5E9; padding:5px; border-radius:5px; margin-top:5px;'>👤 Sizin vurduğunuz satış: <b>{float(my_sales):.2f} ₼</b></div>", unsafe_allow_html=True)
     
     c2.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
     c2.write(f"Səhər (Açılış): {opening_limit:.2f} ₼")
@@ -115,10 +144,8 @@ def render_z_report_page():
         def z_final_d():
             st.warning("⚠️ Gün bağlanacaq və 'Kassada Olmalıdır' məbləği sabahın yeni limiti olacaq.")
             if st.button("✅ Bəli, Günü Bitir"):
-                # Növbəti gün üçün kassa limitini yenilə
                 set_setting("cash_limit", str(expected_cash))
                 set_setting("last_z_report_time", get_baku_now().isoformat())
-                
                 st.session_state.z_report_active=False
                 st.success("GÜN UĞURLA BAĞLANDI! 🌙")
                 time.sleep(2)
