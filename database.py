@@ -3,7 +3,6 @@ from sqlalchemy import text
 import os
 import pandas as pd
 import bcrypt
-from utils import ADMIN_DEFAULT_PASS
 
 def get_connection():
     try:
@@ -35,7 +34,6 @@ def set_setting(key, value):
 def ensure_schema():
     if not conn: return False
     with conn.session as s:
-        # Tables creation (Standard Schema)
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, tip_amount DECIMAL(10,2) DEFAULT 0);"))
@@ -54,10 +52,8 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, title TEXT, amount DECIMAL(10,2) DEFAULT 0);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        
-        # Admin User
         try:
-            p_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASS.encode(), bcrypt.gensalt()).decode()
+            p_hash = bcrypt.hashpw(os.environ.get("ADMIN_PASS", "admin123").encode(), bcrypt.gensalt()).decode()
             s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
             s.commit()
         except: s.rollback()
