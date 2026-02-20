@@ -3,8 +3,8 @@ pandas
 sqlalchemy
 psycopg2-binary
 bcrypt
-qrcode
-Pillow
-xlsxwriter
+qrcode[pil]
 openpyxl
+xlsxwriter
+numpy
 requests
