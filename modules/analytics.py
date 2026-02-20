@@ -16,7 +16,15 @@ def render_analytics_page():
     ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
     ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
     
-    sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC", {"s":ts_start, "e":ts_end})
+    # DÜZƏLİŞ: MÜŞTƏRİ MƏLUMATLARINI GƏTİRƏN BİRLƏŞDİRİLMİŞ SORĞU
+    query = """
+        SELECT s.*, c.type as cust_type, c.stars as cust_stars 
+        FROM sales s 
+        LEFT JOIN customers c ON s.customer_card_id = c.card_id 
+        WHERE s.created_at BETWEEN :s AND :e 
+        ORDER BY s.created_at DESC
+    """
+    sales = run_query(query, {"s":ts_start, "e":ts_end})
     
     if not sales.empty:
         total_rev = sales['total'].sum()
@@ -37,10 +45,38 @@ def render_analytics_page():
         with tab1:
             st.write("Səhv vurulmuş çeki seçib silə bilərsiniz.")
             sales_disp = sales.copy()
-            sales_disp.insert(0, "Seç", False)
             
-            ed_sales = st.data_editor(sales_disp, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id", "items", "total", "payment_method", "created_at", "cashier"], use_container_width=True, key="sales_admin_ed")
-            sel_sales = ed_sales[ed_sales["Seç"]]; sel_s_ids = sel_sales['id'].tolist()
+            # --- MÜŞTƏRİ XANASINI FORMATLAMAQ ---
+            def format_customer(row):
+                if pd.notna(row['customer_card_id']) and str(row['customer_card_id']).strip() != "":
+                    ctype = str(row['cust_type']).upper() if pd.notna(row['cust_type']) else "MEMBER"
+                    stars = int(row['cust_stars']) if pd.notna(row['cust_stars']) else 0
+                    return f"💳 {row['customer_card_id']} ({ctype} | ⭐ {stars})"
+                return ""
+            
+            sales_disp['Müştəri'] = sales_disp.apply(format_customer, axis=1)
+            
+            # Yalnız lazım olan sütunları ekrana çıxarırıq
+            cols_to_show = ['id', 'created_at', 'items', 'total', 'payment_method', 'cashier', 'Müştəri', 'note']
+            cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
+            
+            display_df = sales_disp[cols_to_show].copy()
+            display_df.insert(0, "Seç", False)
+            
+            ed_sales = st.data_editor(
+                display_df, 
+                hide_index=True, 
+                column_config={
+                    "Seç": st.column_config.CheckboxColumn(required=True),
+                    "created_at": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm")
+                }, 
+                disabled=cols_to_show, 
+                use_container_width=True, 
+                key="sales_admin_ed"
+            )
+            
+            sel_sales = ed_sales[ed_sales["Seç"]]
+            sel_s_ids = sel_sales['id'].tolist()
             
             if len(sel_s_ids) > 0 and st.session_state.role == 'admin':
                 if st.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
@@ -62,7 +98,6 @@ def render_analytics_page():
                             if not s_info.empty:
                                 i_str = s_info.iloc[0]['items']
                                 t_val = s_info.iloc[0]['total']
-                                # LOGLARA YAZIRIQ
                                 log_system(st.session_state.user, f"SİLİNDİ | Səbəb: {reason} | Məbləğ: {t_val} AZN | Məhsullar: {i_str} | Qeyd: {note}")
                             run_action("DELETE FROM sales WHERE id=:id", {"id":int(i)})
                         st.session_state.sales_to_delete = None
@@ -110,7 +145,7 @@ def render_z_report_page():
     s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     total_sales = float(s_cash) + float(s_card) + float(s_staff)
     
-    # İŞÇİNİN ŞƏXSİ SATIŞI (YENİ ƏLAVƏ)
+    # İŞÇİNİN ŞƏXSİ SATIŞI 
     my_sales = run_query("SELECT SUM(total) as s FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
     
     # Xərc və Mədaxil
@@ -125,7 +160,7 @@ def render_z_report_page():
     c1.write(f"💳 Kartla: {float(s_card):.2f} ₼")
     c1.write(f"💵 Nağd: {float(s_cash):.2f} ₼")
     c1.write(f"👥 Personal: {float(s_staff):.2f} ₼")
-    # İŞÇİ GÖSTƏRİCİSİ VURĞULANIR
+    
     c1.markdown(f"<div style='background:#E8F5E9; padding:5px; border-radius:5px; margin-top:5px;'>👤 Sizin vurduğunuz satış: <b>{float(my_sales):.2f} ₼</b></div>", unsafe_allow_html=True)
     
     c2.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
