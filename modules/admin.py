@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import time
 import base64
+import json
 from io import BytesIO
 from database import run_query, run_action, get_setting, set_setting, conn
 from auth import admin_confirm_dialog
-from utils import hash_password, image_to_base64, BONUS_RECIPIENTS, DEFAULT_TERMS, ALLOWED_TABLES
+from utils import hash_password, image_to_base64, BONUS_RECIPIENTS, DEFAULT_TERMS, ALLOWED_TABLES, get_baku_now
 
 def render_settings_page():
     st.subheader("⚙️ Ayarlar")
@@ -73,27 +74,52 @@ def render_settings_page():
         if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
 
 def render_database_page():
-    st.subheader("💾 Baza")
-    if st.button("FULL BACKUP", key="full_backup_btn"):
-        out = BytesIO()
-        with pd.ExcelWriter(out, engine='xlsxwriter') as w:
+    st.subheader("💾 Baza İdarəetməsi (JSON Backup)")
+    st.info("Bütün verilənlər bazasını tamamilə JSON faylı kimi endirə və bərpa edə bilərsiniz.")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("⬇️ FULL BACKUP HAZIRLA (JSON)", key="full_backup_json_btn", type="primary"):
+            db_dump = {}
             for t in ALLOWED_TABLES:
-                 try: run_query(f"SELECT * FROM {t}").to_excel(w, sheet_name=t, index=False)
+                 try: 
+                     df = run_query(f"SELECT * FROM {t}")
+                     # Tarix formatlarını təmizləyirik ki, JSON problem yaratmasın
+                     for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+                         df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                     db_dump[t] = df.to_dict(orient="records")
                  except: pass
-        st.download_button("Download Backup", out.getvalue(), "backup.xlsx")
-    rf = st.file_uploader("Restore (.xlsx)")
-    if rf and st.button("Bərpa Et", key="restore_btn"):
-        try:
-            xls = pd.ExcelFile(rf)
-            for t in xls.sheet_names: 
-                if t in ALLOWED_TABLES:
-                    run_action(f"DELETE FROM {t}")
-                    pd.read_excel(xls, t).to_sql(t, conn.engine, if_exists='append', index=False)
-            st.success("Bərpa Olundu!"); st.rerun()
-        except Exception as e: st.error(f"Xəta: {e}")
+            
+            json_str = json.dumps(db_dump, indent=4, ensure_ascii=False)
+            file_name = f"fuzuli_backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json"
+            
+            st.download_button("💾 Backup Faylını Endir (.json)", json_str, file_name, "application/json")
+    
+    with c2:
+        rf = st.file_uploader("⬆️ Bərpa Et (.json formatı)", type="json")
+        if rf and st.button("⚠️ Bazanı Bərpa Et (DİQQƏT!)", key="restore_json_btn"):
+            try:
+                data = json.load(rf)
+                with conn.session as s:
+                    for t, records in data.items():
+                        if t in ALLOWED_TABLES and isinstance(records, list):
+                            # Əvvəlcə cədvəli tam təmizləyirik
+                            s.execute(text(f"DELETE FROM {t}"))
+                            
+                            # Cədvəl boş deyilsə, yükləyirik
+                            if records:
+                                df_restore = pd.DataFrame(records)
+                                df_restore.to_sql(t, conn.engine, if_exists='append', index=False)
+                    s.commit()
+                st.success("✅ Baza JSON-dan TAM bərpa olundu!")
+                time.sleep(1.5)
+                st.rerun()
+            except Exception as e: 
+                st.error(f"Xəta baş verdi: {e}")
 
 def render_logs_page():
-    st.subheader("📜 Loglar"); st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 50"))
+    st.subheader("📜 Loglar")
+    st.dataframe(run_query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 100"))
 
 def render_notes_page():
     st.subheader("📝 Şəxsi Qeydlər")
