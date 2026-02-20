@@ -24,21 +24,29 @@ def render_finance_page():
         last_z_dt = datetime.datetime.fromisoformat(last_z) if last_z else datetime.datetime.now() - datetime.timedelta(days=365)
         cond = "AND created_at > :d"; params = {"d":last_z_dt}
 
+    # KASSA HESABI
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", params).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
     i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
     start_lim = float(get_setting("cash_limit", "0.0" if "Növbə" in view_mode else "100.0"))
-    
     disp_cash = start_lim + float(s_cash) + float(i_cash) - float(e_cash)
     
-    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", params).iloc[0]['s'] or 0.0
-    e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
-    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
-    disp_card = float(s_card) + float(i_card) - float(e_card)
+    # KART HESABI (Növbəlik)
+    s_card_shift = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", params).iloc[0]['s'] or 0.0
+    e_card_shift = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
+    i_card_shift = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
+    disp_card_view = float(s_card_shift) + float(i_card_shift) - float(e_card_shift)
+    
+    # KART HESABI (Ümumi - Həmişə görünsün)
+    s_card_all = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
+    e_card_all = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out'").iloc[0]['e'] or 0.0
+    i_card_all = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in'").iloc[0]['i'] or 0.0
+    disp_card_all = float(s_card_all) + float(i_card_all) - float(e_card_all)
     
     st.divider(); m1, m2 = st.columns(2)
     m1.metric("🏪 Kassa (Cibdə)", f"{disp_cash:.2f} ₼")
-    m2.metric("💳 Bank Kartı", f"{disp_card:.2f} ₼")
+    # BURADA HƏM NÖVBƏ, HƏM ÜMUMİ KART BALANSI GÖSTƏRİLİR
+    m2.metric(f"💳 Bank Kartı ({'Növbə' if 'Növbə' in view_mode else 'Seçilmiş'})", f"{disp_card_view:.2f} ₼", delta=f"Bazada Ümumi: {disp_card_all:.2f} ₼", delta_color="off")
 
     st.markdown("---")
     with st.expander("➕ Yeni Əməliyyat", expanded=True):
@@ -61,12 +69,16 @@ def render_finance_page():
         
         c_btn1, c_btn2 = st.columns(2)
         if len(sel_ids) == 1:
-            if c_btn1.button("✏️ Düzəliş", key="edit_fin_btn"): st.session_state.edit_fin_id = int(sel_ids[0]); st.rerun()
+            if c_btn1.button("✏️ Düzəliş", key="edit_fin_btn"): 
+                st.session_state.edit_fin_id = int(sel_ids[0])
+                st.rerun()
+                
         if len(sel_ids) > 0 and st.session_state.role == 'admin':
             if c_btn2.button(f"🗑️ Sil ({len(sel_ids)})", key="del_fin_btn"): 
                 for i in sel_ids: run_action("DELETE FROM finance WHERE id=:id", {"id":int(i)})
                 st.success("Silindi!"); time.sleep(1); st.rerun()
                 
+        # --- DÜZƏLİŞ DİALOQU ---
         if st.session_state.get('edit_fin_id'):
             res_fin = run_query("SELECT * FROM finance WHERE id=:id", {"id":st.session_state.edit_fin_id})
             if not res_fin.empty:
@@ -79,9 +91,13 @@ def render_finance_page():
                         n_c = st.text_input("Kateqoriya", r['category'])
                         n_a = st.number_input("Məbləğ", value=float(r['amount']), step=0.5)
                         n_d = st.text_input("Qeyd", r['description'] if pd.notna(r['description']) else "")
+                        
                         if st.form_submit_button("Yadda Saxla"):
                             run_action("UPDATE finance SET type=:t, source=:s, category=:c, amount=:a, description=:d WHERE id=:id", {"t":n_t,"s":n_s,"c":n_c,"a":n_a,"d":n_d,"id":int(r['id'])})
-                            st.session_state.edit_fin_id = None; st.success("Düzəldildi!"); time.sleep(1); st.rerun()
+                            st.session_state.edit_fin_id = None
+                            st.success("Düzəldildi!")
+                            time.sleep(1)
+                            st.rerun()
                 edit_fin_dialog(r_fin)
     else:
         st.dataframe(fin_df, hide_index=True)
