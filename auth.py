@@ -18,8 +18,8 @@ def check_url_token_login():
     if token_in_url and not st.session_state.get('logged_in'):
         res = run_query("SELECT * FROM active_sessions WHERE token=:t", {"t": token_in_url})
         if not res.empty:
-            r = res.iloc[0]
-            if (get_baku_now() - (pd.to_datetime(r['last_activity']) if r['last_activity'] else pd.to_datetime(r['created_at']))).total_seconds() > 28800:
+            r = res.iloc[0]; last_act = pd.to_datetime(r['last_activity']) if r['last_activity'] else pd.to_datetime(r['created_at'])
+            if (get_baku_now() - last_act).total_seconds() > 28800:
                  run_action("DELETE FROM active_sessions WHERE token=:t", {"t": token_in_url}); st.error("Sessiya bitib."); return False
             st.session_state.logged_in = True; st.session_state.user = r['username']; st.session_state.role = r['role']; st.session_state.session_token = token_in_url
             run_action("UPDATE active_sessions SET last_activity=:n WHERE token=:t", {"n": get_baku_now(), "t": token_in_url}); st.query_params.clear(); return True
