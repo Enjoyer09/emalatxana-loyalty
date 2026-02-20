@@ -16,7 +16,6 @@ def render_analytics_page():
     ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
     ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
     
-    # DÜZƏLİŞ: MÜŞTƏRİ MƏLUMATLARINI GƏTİRƏN BİRLƏŞDİRİLMİŞ SORĞU
     query = """
         SELECT s.*, c.type as cust_type, c.stars as cust_stars 
         FROM sales s 
@@ -46,18 +45,16 @@ def render_analytics_page():
             st.write("Səhv vurulmuş çeki seçib silə bilərsiniz.")
             sales_disp = sales.copy()
             
-            # --- MÜŞTƏRİ XANASINI FORMATLAMAQ ---
-            def format_customer(row):
-                if pd.notna(row['customer_card_id']) and str(row['customer_card_id']).strip() != "":
-                    ctype = str(row['cust_type']).upper() if pd.notna(row['cust_type']) else "MEMBER"
-                    stars = int(row['cust_stars']) if pd.notna(row['cust_stars']) else 0
-                    return f"💳 {row['customer_card_id']} ({ctype} | ⭐ {stars})"
-                return ""
+            # --- MÜŞTƏRİ MƏLUMATLARINI AYRI SÜTUNLARA BÖLMƏK ---
+            sales_disp['Müştəri Kodu'] = sales_disp['customer_card_id']
+            sales_disp['Müştəri Tipi'] = sales_disp['cust_type'].fillna('').str.upper()
+            sales_disp['Ulduz'] = sales_disp['cust_stars']
             
-            sales_disp['Müştəri'] = sales_disp.apply(format_customer, axis=1)
+            # Boş olanları səliqəli göstərmək üçün
+            sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Müştəri Tipi'] = ''
+            sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Ulduz'] = None
             
-            # Yalnız lazım olan sütunları ekrana çıxarırıq
-            cols_to_show = ['id', 'created_at', 'items', 'total', 'payment_method', 'cashier', 'Müştəri', 'note']
+            cols_to_show = ['id', 'created_at', 'items', 'total', 'payment_method', 'cashier', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
             cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
             
             display_df = sales_disp[cols_to_show].copy()
@@ -68,7 +65,8 @@ def render_analytics_page():
                 hide_index=True, 
                 column_config={
                     "Seç": st.column_config.CheckboxColumn(required=True),
-                    "created_at": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm")
+                    "created_at": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
+                    "Ulduz": st.column_config.NumberColumn(format="%d ⭐")
                 }, 
                 disabled=cols_to_show, 
                 use_container_width=True, 
@@ -83,7 +81,6 @@ def render_analytics_page():
                     st.session_state.sales_to_delete = sel_s_ids
                     st.rerun()
 
-            # --- SİLMƏ SƏBƏBİ PƏNCƏRƏSİ (LOG ÜÇÜN) ---
             if st.session_state.get('sales_to_delete'):
                 @st.dialog("⚠️ Satışı Silmə Səbəbi")
                 def del_sale_dialog():
@@ -139,16 +136,13 @@ def render_z_report_page():
     
     st.info(f"Növbə: {sh_start_z.strftime('%d %b %H:%M')} - {sh_end_z.strftime('%d %b %H:%M')}")
     
-    # Satış Məlumatları
     s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     total_sales = float(s_cash) + float(s_card) + float(s_staff)
     
-    # İŞÇİNİN ŞƏXSİ SATIŞI 
     my_sales = run_query("SELECT SUM(total) as s FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
     
-    # Xərc və Mədaxil
     f_out = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     f_in = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
     
