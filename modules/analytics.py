@@ -74,7 +74,8 @@ def render_analytics_page():
             sel_sales = ed_sales[ed_sales["Seç"]]
             sel_s_ids = sel_sales['id'].tolist()
             
-            if len(sel_s_ids) > 0 and st.session_state.role == 'admin':
+            # DÜZƏLİŞ: Artıq HƏM ADMİN, HƏM DƏ MENECER silə bilər
+            if len(sel_s_ids) > 0 and st.session_state.role in ['admin', 'manager']:
                 if st.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
                     st.session_state.sales_to_delete = sel_s_ids
                     st.rerun()
@@ -137,7 +138,6 @@ def render_z_report_page():
     user_role = st.session_state.role
     
     if user_role == 'staff':
-        # --- YALNIZ İŞÇİYƏ AİD (ŞƏXSİ) HESABAT ---
         my_sales_df = run_query("SELECT * FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e ORDER BY created_at DESC", 
                                 {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
         
@@ -185,7 +185,6 @@ def render_z_report_page():
             st.info("Siz bu növbədə hələ satış etməmisiniz.")
             
     else:
-        # --- ADMİN / MENECER ÜÇÜN ÜMUMİ HESABAT ---
         s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
         s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
         s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
