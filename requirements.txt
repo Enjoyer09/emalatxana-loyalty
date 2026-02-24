@@ -8,3 +8,5 @@ openpyxl
 xlsxwriter
 numpy
 requests
+google-generativeai
+gTTS
