@@ -4,17 +4,13 @@ import datetime
 from database import run_query, run_action, get_setting
 from utils import get_baku_now, BRAND_NAME
 
-# XÜSUSİ İŞ GÜNÜ (NÖVBƏ) MƏNTİQİ (08:00 - 01:00)
 def get_custom_shift_range(d_start, d_end):
-    # Seçilən başlanğıc tarixinin səhər 08:00-ı
     s = datetime.datetime.combine(d_start, datetime.time(8, 0))
-    # Seçilən bitiş tarixindən 1 gün sonranın gecə 01:00-ı
     e = datetime.datetime.combine(d_end + datetime.timedelta(days=1), datetime.time(1, 0))
     return s, e
 
 def get_current_logical_shift():
     now = get_baku_now()
-    # Əgər saat gecə 00:00 ilə 07:59 arasındadısa, o əslində "Dünən"in növbəsidir
     if now.time() < datetime.time(8, 0):
         logical_date = (now - datetime.timedelta(days=1)).date()
     else:
@@ -45,7 +41,7 @@ def render_analytics_page():
     if role in ['admin', 'manager']:
         st.subheader("📊 CFO Maliyyə Analitikası (P&L)")
     else:
-        st.subheader(f"📊 {user} - Mənim Satışlarım")
+        st.subheader(f"📋 {user} - Mənim Gündəlik Satışlarım")
 
     c1, c2 = st.columns([1, 1])
     d1 = c1.date_input("Başlanğıc Tarixi", logical_today)
@@ -53,7 +49,7 @@ def render_analytics_page():
     
     ts_start, ts_end = get_custom_shift_range(d1, d2)
     
-    # ---------------- ADMIN / MANAGER GÖRÜNÜŞÜ (BÜTÜN KASSA) ----------------
+    # ---------------- ADMIN / MANAGER GÖRÜNÜŞÜ (BÜTÜN KASSA VƏ KARTLAR) ----------------
     if role in ['admin', 'manager']:
         sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC", {"s":ts_start, "e":ts_end})
         total_rev = sales['total'].sum() if not sales.empty else 0.0
@@ -98,15 +94,9 @@ def render_analytics_page():
             WHERE s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC
         """, {"s":ts_start, "e":ts_end})
 
-    # ---------------- STAFF (İŞÇİ) GÖRÜNÜŞÜ (YALNIZ ÖZÜNÜNKÜLƏR) ----------------
+    # ---------------- STAFF (İŞÇİ) GÖRÜNÜŞÜ (YALNIZ CƏDVƏL, QUTULAR YOXDUR) ----------------
     else:
-        sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e AND cashier=:u ORDER BY created_at DESC", {"s":ts_start, "e":ts_end, "u":user})
-        my_total = sales['total'].sum() if not sales.empty else 0.0
-        
-        sm1, sm2 = st.columns(2)
-        sm1.markdown(f"<div class='cfo-card cfo-net'><h4>Mənim Vurduğum Dövriyyə</h4><h2>{my_total:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        sm2.markdown(f"<div class='cfo-card cfo-gross'><h4>Çek Sayı</h4><h2>{len(sales)} Ədəd</h2></div>", unsafe_allow_html=True)
-        
+        st.info("Bu cədvəldə yalnız sizin tərəfinizdən vurulan satışlar (seçilmiş tarix aralığında) göstərilir.")
         detailed_sales = run_query("""
             SELECT TO_CHAR(s.created_at, 'YYYY-MM-DD HH24:MI') as "Tarix", s.items as "Sifarişlər", s.original_total as "İlkin (₼)", 
             s.discount_amount as "Endirim (₼)", s.total as "Yekun (₼)", s.payment_method as "Ödəniş", 
@@ -120,7 +110,7 @@ def render_analytics_page():
     if not detailed_sales.empty:
         st.dataframe(detailed_sales, use_container_width=True, hide_index=True)
     else:
-        st.info("Bu tarixlərdə (və ya bu işçi tərəfindən) heç bir satış tapılmadı.")
+        st.warning("Bu tarixlərdə heç bir satış tapılmadı.")
 
 
 @st.dialog("🖨️ Z-Hesabat Çapı")
@@ -165,7 +155,6 @@ def render_z_report_page():
     
     st.caption(f"🗓️ **Aktiv Növbə:** {start_dt.strftime('%d.%m.%Y %H:%M')} - {end_dt.strftime('%d.%m.%Y %H:%M')}")
     
-    # STAFF YALNIZ ÖZ Z-HESABATINI GÖRÜR, ADMİN HAMIYI!
     if role in ['admin', 'manager']:
         sales = run_query("SELECT payment_method, original_total, discount_amount, total FROM sales WHERE created_at BETWEEN :s AND :e", {"s": start_dt, "e": end_dt})
         fin_in = run_query("SELECT amount, source FROM finance WHERE type='in' AND created_at BETWEEN :s AND :e", {"s": start_dt, "e": end_dt})
