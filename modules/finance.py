@@ -1,6 +1,5 @@
 import streamlit as st
 from database import run_query, run_action
-from utils import get_baku_now
 import pandas as pd
 
 def render_finance_page():
@@ -55,7 +54,22 @@ def render_finance_page():
                     
     st.divider()
     st.markdown("### 📜 Son Əməliyyatlar (Tarixçə)")
-    df = run_query("SELECT created_at as Tarix, type as Növ, category as Kateqoriya, amount as Məbləğ, source as Hesab, description as Qeyd, created_by as İcraçı FROM finance ORDER BY created_at DESC LIMIT 50")
+    
+    # XƏTANIN HƏLLİ: Sütun adları məcburi cüt dırnağa ("") alındı
+    df = run_query("""
+        SELECT 
+            created_at as "Tarix", 
+            type as "Növ", 
+            category as "Kateqoriya", 
+            amount as "Məbləğ", 
+            source as "Hesab", 
+            description as "Qeyd", 
+            created_by as "İcraçı" 
+        FROM finance 
+        ORDER BY created_at DESC 
+        LIMIT 50
+    """)
+    
     if not df.empty:
         df['Növ'] = df['Növ'].apply(lambda x: '🟢 Mədaxil' if x == 'in' else '🔴 Məxaric')
         st.dataframe(df, use_container_width=True, hide_index=True)
