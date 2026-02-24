@@ -8,7 +8,7 @@ import base64
 from database import run_query, run_action, get_setting
 from utils import get_baku_now, BRAND_NAME
 
-# Məhsul siyahısını JSON-dan təmiz mətnə çevirən ağıllı köməkçi funksiya
+# Məhsul siyahısını JSON-dan təmiz mətnə çevirən köməkçi funksiya
 def parse_items(items_str):
     if not items_str: return ""
     try:
@@ -27,7 +27,6 @@ def render_analytics_page():
     today = get_baku_now().date()
     start_of_month = today.replace(day=1)
     
-    # KASSİR (STAFF) ÜÇÜN MÜDAFİƏ FİLTRİ
     role = st.session_state.get('role', 'staff')
     current_user = st.session_state.get('user', '')
     
@@ -37,7 +36,7 @@ def render_analytics_page():
         role_filter = " AND cashier = :u"
         base_params["u"] = current_user
 
-    # --- 1. CFO PANELİ (ƏSAS GÖSTƏRİCİLƏR) ---
+    # --- 1. CFO PANELİ (Sarsılmaz Nəğd/Kart Məntiqi ilə) ---
     td_params = {"d": today, **base_params}
     tm_params = {"d": start_of_month, **base_params}
     
@@ -51,8 +50,12 @@ def render_analytics_page():
         for _, r in td_df.iterrows():
             val = float(r['s']) if pd.notna(r['s']) else 0.0
             td_sales += val
-            if str(r['payment_method']).upper() == 'NƏĞD': td_cash += val
-            elif str(r['payment_method']).upper() == 'KART': td_card += val
+            pm = str(r['payment_method']).strip().upper()
+            # Əgər içində KART və ya CARD sözü varsa Kartdır, qalan hər şey Nəğddir! (Sarsılmaz məntiq)
+            if 'KART' in pm or 'CARD' in pm: 
+                td_card += val
+            else: 
+                td_cash += val
             
     tm_df = run_query(f"SELECT SUM(total) as s FROM sales WHERE DATE(created_at) >= :d {role_filter}", tm_params)
     tm_sales = float(tm_df.iloc[0]['s']) if not tm_df.empty and pd.notna(tm_df.iloc[0]['s']) else 0.0
@@ -82,32 +85,21 @@ def render_analytics_page():
 
     st.divider()
 
-    # --- 2. TARİX FİLTRİ VƏ AXTARIŞ ---
     st.markdown("### 🔍 Detallı Axtarış və Performans")
-    
     filter_col1, filter_col2 = st.columns([2, 1])
     with filter_col1:
         date_filter = st.radio("Tarix Aralığı Seçin:", ["Bu Gün", "Bu Ay", "Seçilmiş Tarix Aralığı"], horizontal=True)
-        
     with filter_col2:
         if date_filter == "Seçilmiş Tarix Aralığı":
             d_range = st.date_input("Başlanğıc və Bitiş tarixi seçin", [today, today])
-            if len(d_range) == 2:
-                start_date, end_date = d_range
-            else:
-                start_date, end_date = today, today
-        elif date_filter == "Bu Ay":
-            start_date = start_of_month
-            end_date = today
-        else:
-            start_date = today
-            end_date = today
+            if len(d_range) == 2: start_date, end_date = d_range
+            else: start_date, end_date = today, today
+        elif date_filter == "Bu Ay": start_date, end_date = start_of_month, today
+        else: start_date, end_date = today, today
 
     perf_params = {"sd": start_date, "ed": end_date}
-    if role == 'staff':
-        perf_params["u"] = current_user
+    if role == 'staff': perf_params["u"] = current_user
 
-    # --- 3. İŞÇİ PERFORMANSI VƏ QRAFİK ---
     g_col1, g_col2 = st.columns(2)
     with g_col1:
         st.markdown("**👥 İşçi Performansı**")
@@ -115,35 +107,24 @@ def render_analytics_page():
             SELECT cashier as "Kassir", COUNT(id) as "Sifariş", SUM(total) as "Satış (₼)"
             FROM sales 
             WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
-            GROUP BY cashier
-            ORDER BY SUM(total) DESC
+            GROUP BY cashier ORDER BY SUM(total) DESC
         """, perf_params)
-        
         if not staff_df.empty: st.dataframe(staff_df, hide_index=True, use_container_width=True)
         else: st.info("Bu aralıqda satış tapılmadı.")
             
     with g_col2:
         st.markdown("**📈 Satış Trendi**")
-        trend_df = run_query(f"""
-            SELECT DATE(created_at) as d, SUM(total) as s 
-            FROM sales 
-            WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
-            GROUP BY DATE(created_at) 
-            ORDER BY d
-        """, perf_params)
-        
+        trend_df = run_query(f"SELECT DATE(created_at) as d, SUM(total) as s FROM sales WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter} GROUP BY DATE(created_at) ORDER BY d", perf_params)
         if not trend_df.empty and len(trend_df) > 1:
             fig1 = px.line(trend_df, x='d', y='s', markers=True, line_shape="spline", color_discrete_sequence=["#ffd700"])
             fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
             st.plotly_chart(fig1, use_container_width=True)
-        elif not trend_df.empty and len(trend_df) == 1:
-            st.info(f"Yalnız 1 günlük məlumat var: {trend_df.iloc[0]['s']} ₼")
-        else:
-            st.info("Kifayət qədər məlumat yoxdur.")
+        elif not trend_df.empty and len(trend_df) == 1: st.info(f"Yalnız 1 günlük məlumat var: {trend_df.iloc[0]['s']} ₼")
+        else: st.info("Kifayət qədər məlumat yoxdur.")
 
     st.divider()
 
-    # --- 4. DETALLI SATIŞLAR CƏDVƏLİ (ADMİN ÜÇÜN MARAQLI CƏDVƏL) ---
+    # --- 4. DETALLI SATIŞLAR CƏDVƏLİ ---
     st.markdown("### 📝 Detallı Satışlar (Nə Satıldığını Görün)")
     sales_list_df = run_query(f"""
         SELECT id, created_at, cashier, items, payment_method, total, discount_amount, note 
@@ -153,21 +134,63 @@ def render_analytics_page():
     """, perf_params)
     
     if not sales_list_df.empty:
-        # JSON formatında olan məhsulları təmizləyirik (Kofe 2x, Çay 1x və s.)
-        sales_list_df['items'] = sales_list_df['items'].apply(parse_items)
-        sales_list_df['created_at'] = pd.to_datetime(sales_list_df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+        # Cədvəli göstərmək üçün kopyasını alırıq
+        display_df = sales_list_df.copy()
+        display_df['items'] = display_df['items'].apply(parse_items)
+        display_df['created_at'] = pd.to_datetime(display_df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+        display_df = display_df.rename(columns={"id": "Çek №", "created_at": "Tarix", "cashier": "Kassir", "items": "Satılan Mallar", "payment_method": "Ödəniş", "total": "Məbləğ (₼)", "discount_amount": "Endirim", "note": "Qeyd"})
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
         
-        sales_list_df = sales_list_df.rename(columns={
-            "id": "Çek №", 
-            "created_at": "Tarix", 
-            "cashier": "Kassir", 
-            "items": "Satılan Mallar", 
-            "payment_method": "Ödəniş", 
-            "total": "Məbləğ (₼)", 
-            "discount_amount": "Endirim", 
-            "note": "Qeyd"
-        })
-        st.dataframe(sales_list_df, hide_index=True, use_container_width=True)
+        # ========================================================
+        # 🗑️ ÇEK İPTALI VƏ ANBARA QAYTARMA (YALNIZ ADMIN/MANAGER)
+        # ========================================================
+        if role in ['admin', 'manager']:
+            st.markdown("---")
+            st.markdown("<h4 style='color:#ff4b4b;'>⚠️ Çek İptalı və Geri Qaytarma</h4>", unsafe_allow_html=True)
+            
+            with st.form("delete_sale_form", clear_on_submit=True):
+                del_c1, del_c2, del_c3 = st.columns([1, 2, 1])
+                with del_c1:
+                    sale_ids = ["Seçilməyib"] + sales_list_df['id'].astype(str).tolist()
+                    selected_id = st.selectbox("Silinəcək Çek №:", sale_ids)
+                with del_c2:
+                    reason = st.selectbox("Səbəb:", [
+                        "Test / Yanlış Vuruş (Xammal anbara geri QAYIDACAQ)", 
+                        "Xarab / Zay oldu (Xammal anbara QAYITMAYACAQ)"
+                    ])
+                with del_c3:
+                    st.write("") # Boşluq
+                    submit_del = st.form_submit_button("🗑️ Çeki İptal Et", type="primary", use_container_width=True)
+                
+                if submit_del and selected_id != "Seçilməyib":
+                    # 1. Çekin içindəki malları (JSON) alırıq
+                    target_sale = sales_list_df[sales_list_df['id'] == int(selected_id)].iloc[0]
+                    items_str = target_sale['items']
+                    
+                    # 2. Əgər TEST-dirsə anbara xammalı geri qaytarırıq (Rollback Logic)
+                    if "QAYIDACAQ" in reason and items_str:
+                        try:
+                            items = json.loads(items_str)
+                            for item in items:
+                                m_name = item.get('item_name', '')
+                                qty = float(item.get('qty', 1))
+                                
+                                # Bu məhsulun reseptini tap
+                                rec_df = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name = :m", {"m": m_name})
+                                for _, r_row in rec_df.iterrows():
+                                    ing_name = r_row['ingredient_name']
+                                    req_qty = float(r_row['quantity_required'])
+                                    # İstifadə olunan xammalı hesablayıb anbara (+) edirik
+                                    total_return = req_qty * qty
+                                    run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name = :n", {"q": total_return, "n": ing_name})
+                        except Exception as e:
+                            pass # JSON oxunmasa davam et
+                            
+                    # 3. Çeki cədvəldən tamamilə silirik
+                    run_action("DELETE FROM sales WHERE id = :id", {"id": int(selected_id)})
+                    st.success(f"✅ Çek №{selected_id} uğurla silindi! ({reason})")
+                    time.sleep(1.5)
+                    st.rerun()
     else:
         st.warning("Seçilmiş tarix aralığında heç bir detal tapılmadı.")
 
@@ -196,8 +219,10 @@ def render_z_report_page():
         
         if not orders_df.empty:
             for _, r in orders_df.iterrows():
-                if str(r['payment_method']).upper() == 'NƏĞD': cash_sales += float(r['s'])
-                elif str(r['payment_method']).upper() == 'KART': card_sales += float(r['s'])
+                val = float(r['s'])
+                pm = str(r['payment_method']).strip().upper()
+                if 'KART' in pm or 'CARD' in pm: card_sales += val
+                else: cash_sales += val
                 
         total_sales = cash_sales + card_sales
         expenses_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND source='Kassa' AND created_at >= :st", {"st": shift_start_time})
@@ -213,13 +238,10 @@ def render_z_report_page():
         
         st.divider()
         
-        # === YENİ ƏLAVƏ: İŞÇİNİN NÖVBƏ ƏRZİNDƏKİ SATIŞLARI (CƏDVƏL) ===
         st.markdown("### 📋 Bu Növbədəki Satışlar (Nə Satmısınız?)")
-        
         role = st.session_state.get('role', 'staff')
         current_user = st.session_state.get('user', '')
         
-        # Əgər staffdırsa ancaq özünün, admindirsə hər kəsin bu növbədəki satışını görür
         shift_role_filter = " AND cashier = :u" if role == 'staff' else ""
         shift_params = {"st": shift_start_time, "u": current_user} if role == 'staff' else {"st": shift_start_time}
         
@@ -233,15 +255,7 @@ def render_z_report_page():
         if not shift_sales_df.empty:
             shift_sales_df['items'] = shift_sales_df['items'].apply(parse_items)
             shift_sales_df['created_at'] = pd.to_datetime(shift_sales_df['created_at']).dt.strftime('%H:%M')
-            
-            shift_sales_df = shift_sales_df.rename(columns={
-                "id": "Çek №", 
-                "created_at": "Saat", 
-                "cashier": "Kassir", 
-                "items": "Satılan Mallar", 
-                "payment_method": "Ödəniş", 
-                "total": "Məbləğ (₼)"
-            })
+            shift_sales_df = shift_sales_df.rename(columns={"id": "Çek №", "created_at": "Saat", "cashier": "Kassir", "items": "Satılan Mallar", "payment_method": "Ödəniş", "total": "Məbləğ (₼)"})
             st.dataframe(shift_sales_df, hide_index=True, use_container_width=True)
         else:
             st.info("Bu növbədə hələ heç nə satılmayıb.")
@@ -252,63 +266,13 @@ def render_z_report_page():
         with st.form("z_report_form"):
             actual_cash = st.number_input("Kassadakı Real Nəğd Pul (₼)", min_value=0.0, step=0.1, value=float(expected_cash))
             diff = actual_cash - expected_cash
-            
-            st.markdown(f"**Fərq:** {'+ ' if diff > 0 else ''}{diff:.2f} ₼ (Mənfidirsə kəsir, müsbətdirsə artıqdır)")
+            st.markdown(f"**Fərq:** {'+ ' if diff > 0 else ''}{diff:.2f} ₼")
             
             if st.form_submit_button("🚨 Z-Hesabat Çıxar və Növbəni Bitir", type="primary", use_container_width=True):
-                fl_total = float(total_sales)
-                fl_cash = float(cash_sales)
-                fl_card = float(card_sales)
-                fl_exp = float(expected_cash)
-                fl_act = float(actual_cash)
-                fl_diff = float(diff)
-                
-                run_action("""
-                    UPDATE z_reports 
-                    SET shift_end = :e, total_sales = :t, cash_sales = :cs, card_sales = :cds, expected_cash = :ec, actual_cash = :ac, difference = :d
-                    WHERE id = :id
-                """, {
-                    "e": get_baku_now(), "t": fl_total, "cs": fl_cash, "cds": fl_card, 
-                    "ec": fl_exp, "ac": fl_act, "d": fl_diff, "id": int(shift_data['id'])
-                })
-                
-                user_str = str(st.session_state.user)
-                run_action("""
-                    INSERT INTO finance (type, category, amount, source, description, created_by) 
-                    VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı və Günü Bitirildi', :u)
-                """, {"a": fl_exp, "u": user_str})
-                
-                html_report = f"""
-                <html>
-                <head><style>body{{font-family:monospace; text-align:center;}} table{{width:100%; text-align:left; border-collapse:collapse;}} th,td{{border-bottom:1px dashed #000; padding:5px;}}</style></head>
-                <body>
-                    <div style="width:300px; margin:0 auto; padding:10px;">
-                        <h2>{BRAND_NAME}</h2>
-                        <h3>Z-HESABAT (NÖVBƏ BAĞLANIŞI)</h3>
-                        <p>Növbə: {shift_start_time.strftime('%d/%m %H:%M')} - {get_baku_now().strftime('%d/%m %H:%M')}</p>
-                        <p>Kassir: {st.session_state.user}</p>
-                        <hr>
-                        <table>
-                            <tr><td>Ümumi Satış:</td><td style='text-align:right;'>{fl_total:.2f} ₼</td></tr>
-                            <tr><td>Nəğd:</td><td style='text-align:right;'>{fl_cash:.2f} ₼</td></tr>
-                            <tr><td>Kart:</td><td style='text-align:right;'>{fl_card:.2f} ₼</td></tr>
-                            <tr><td>Növbə Xərcləri:</td><td style='text-align:right;'>-{shift_expenses:.2f} ₼</td></tr>
-                        </table>
-                        <hr>
-                        <h3>Sistemdə Olmalı: {fl_exp:.2f} ₼</h3>
-                        <h3>Təhvil Verildi: {fl_act:.2f} ₼</h3>
-                        <p>Fərq: {fl_diff:.2f} ₼</p>
-                        <br>
-                        <button onclick="window.print()" style="background:#000; color:#fff; padding:10px; width:100%; border:none; cursor:pointer;">ÇAP ET</button>
-                    </div>
-                </body>
-                </html>
-                """
-                b64 = base64.b64encode(html_report.encode('utf-8')).decode('utf-8')
-                st.markdown(f'<a href="data:text/html;base64,{b64}" download="Z_Hesabat_{get_baku_now().strftime("%Y%m%d_%H%M")}.html" target="_blank"><button style="background:#2E7D32; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; width:100%; font-weight:bold; font-size:16px;">⬇️ Z-Hesabatı Yüklə / Çap Et</button></a>', unsafe_allow_html=True)
-                
+                run_action("UPDATE z_reports SET shift_end = :e, total_sales = :t, cash_sales = :cs, card_sales = :cds, expected_cash = :ec, actual_cash = :ac, difference = :d WHERE id = :id", {"e": get_baku_now(), "t": float(total_sales), "cs": float(cash_sales), "cds": float(card_sales), "ec": float(expected_cash), "ac": float(actual_cash), "d": float(diff), "id": int(shift_data['id'])})
+                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı', :u)", {"a": float(expected_cash), "u": str(st.session_state.user)})
                 st.session_state.z_report_active = False
-                st.success("✅ Növbə uğurla bağlandı və İnkassasiya qeydə alındı!")
+                st.success("✅ Növbə bağlandı!")
                 time.sleep(2)
                 st.rerun()
 
