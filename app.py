@@ -41,6 +41,7 @@ if 'z_report_active' not in st.session_state: st.session_state.z_report_active =
 if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
 if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
+if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown = False # ANBAR XƏBƏRDARLIĞI ÜÇÜN
 
 ensure_schema()
 
@@ -63,11 +64,9 @@ st.markdown("""
     .stApp { background: var(--metal-bg) !important; color: var(--text-light) !important; }
     div[data-testid="stStatusWidget"], #MainMenu, header, footer { display: none !important; }
     
-    /* BAŞLIQLAR VƏ MƏTNLƏR */
     h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura', sans-serif !important; font-weight: 800 !important; text-transform: uppercase; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
     h4, p, span, label { color: var(--text-light) !important; }
 
-    /* İNPUT VƏ AXTARIŞ QUTULARI (DÜZƏLDİLDİ: TÜND VƏ OXUNAQLI) */
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div { 
         background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important;
     }
@@ -79,16 +78,13 @@ st.markdown("""
     ul[role="listbox"] { background-color: #1e2226 !important; border: 1px solid #3a4149 !important; }
     ul[role="listbox"] li { color: #ffffff !important; }
     
-    /* DIALOQ VƏ POPUP PƏNCƏRƏLƏR (AĞ EKRAN XƏTASI HƏLL EDİLDİ) */
     div[role="dialog"] { background: transparent !important; }
-    div[role="dialog"] > div {
-        background: var(--metal-bg) !important; border: 2px solid #ffd700 !important; border-radius: 15px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
-    }
+    div[role="dialog"] > div { background: var(--metal-bg) !important; border: 2px solid #ffd700 !important; border-radius: 15px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.9) !important; }
     div[role="dialog"] h1, div[role="dialog"] h2, div[role="dialog"] h3 { color: #ffd700 !important; }
     div[role="dialog"] p, div[role="dialog"] span, div[role="dialog"] label { color: #ffffff !important; }
     div[role="dialog"] header { background: transparent !important; }
     
-    /* RADIO DÜYMƏLƏR - METAL HƏBLƏR */
+    /* NAVİQASİYA DÜYMƏLƏRİ VƏ "HARADAYAM" EFEKTİ */
     div[role="radiogroup"] { gap: 10px; border: none; flex-wrap: wrap; }
     div[role="radiogroup"] > label { 
         background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; 
@@ -97,18 +93,22 @@ st.markdown("""
     div[role="radiogroup"] > label > div:first-child { display: none !important; width: 0 !important; height: 0 !important; }
     div[role="radiogroup"] > label p { color: #ffffff !important; font-weight: 800 !important; font-size: 15px !important; font-family: 'Jura', sans-serif !important; margin: 0 !important; display: block !important;}
     div[role="radiogroup"] > label:hover { background: var(--metal-btn-hover) !important; transform: translateY(-2px); }
-    div[role="radiogroup"] > label[data-checked="true"] { 
-        background: var(--accent-gold) !important; border-color: #ffd700 !important; box-shadow: 0 0 15px rgba(255, 215, 0, 0.5), inset 2px 2px 5px rgba(0,0,0,0.3) !important;
-    }
-    div[role="radiogroup"] > label[data-checked="true"] p { color: #000000 !important; }
     
-    /* KONTEYNERLƏR */
+    /* AKTİV SƏHİFƏNİN VİZUAL QABARDILMASI (HARADAYAM?) */
+    div[role="radiogroup"] > label[data-checked="true"] { 
+        background: var(--accent-gold) !important; 
+        border: 2px solid #ffffff !important; 
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), inset 2px 2px 5px rgba(255,255,255,0.5) !important;
+        transform: scale(1.08) translateY(-3px) !important;
+        z-index: 10;
+    }
+    div[role="radiogroup"] > label[data-checked="true"] p { color: #000000 !important; font-size: 16px !important; font-weight: 900 !important; }
+    
     div[data-testid="stVerticalBlockBorderWrapper"], div[data-testid="expander"], div[data-testid="stPopoverBody"] {
         background: var(--metal-panel) !important; border: 2px solid #3a4149 !important; border-radius: 12px !important;
         box-shadow: 6px 6px 12px rgba(0,0,0,0.4), inset 1px 1px 2px rgba(255,255,255,0.05) !important; padding: 15px !important;
     }
 
-    /* NORMAL VƏ LOGIN DÜYMƏLƏR */
     button[kind="secondary"], button[kind="secondaryFormSubmit"] { 
         background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 10px !important; 
         box-shadow: inset 0 1px 0 #6a7179, 0 5px 10px rgba(0,0,0,0.5) !important; min-height: 70px; transition: all 0.15s;
@@ -120,7 +120,6 @@ st.markdown("""
         background: var(--metal-btn-hover) !important; transform: translateY(-3px); border-color: #7b8896 !important; 
     }
     
-    /* ƏSAS DÜYMƏLƏR (ÖDƏNİŞ) */
     button[kind="primary"], button[kind="primaryFormSubmit"] { 
         background: var(--accent-gold) !important; border: 2px solid #ffd700 !important; border-radius: 10px !important; 
         box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4), inset 2px 2px 5px rgba(255,255,255,0.5) !important; min-height: 50px;
@@ -254,12 +253,38 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
                     else: st.error("Səhv")
 else:
-    if not validate_session(): logout_user()
+    if not validate_session(): 
+        st.session_state.clear()
+        st.rerun()
+        
+    # LOGOUT XƏTASININ TAM HƏLLİ (Callback olmadan, birbaşa trigger)
     h1, h2, h3 = st.columns([4,1,1], vertical_alignment="center")
     with h1: st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
     with h2: st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
-    with h3: st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True, on_click=logout_user)
+    with h3: 
+        if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
+            st.session_state.clear()
+            st.session_state.logged_in = False
+            st.rerun()
     st.divider()
+
+    # ANBAR POP-UP XƏBƏRDARLIĞI (Yalnız daxil olanda və 1 dəfə görünür)
+    if not st.session_state.low_stock_shown:
+        try:
+            low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
+            if not low_stock_df.empty:
+                @st.dialog("⚠️ DİQQƏT: ANBARDA AZALAN MALLAR VAR!")
+                def show_low_stock_dialog(df):
+                    st.error("Aşağıdakı xammalların ehtiyatı kritik səviyyədədir (5-dən azdır). Xahiş edirik anbarı yoxlayın!")
+                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    if st.button("✅ Anladım, Bağla", type="primary", use_container_width=True):
+                        st.session_state.low_stock_shown = True
+                        st.rerun()
+                show_low_stock_dialog(low_stock_df)
+            else:
+                st.session_state.low_stock_shown = True
+        except:
+            st.session_state.low_stock_shown = True
 
     role = st.session_state.role
     tabs_list = []
