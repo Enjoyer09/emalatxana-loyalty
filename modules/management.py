@@ -90,29 +90,6 @@ def render_menu_page():
 def render_recipe_page():
     st.subheader("📜 Resept və AI Aşpaz")
     
-    # ------------------ BAZA CƏRRAHİYYƏSİ (ULTIMATE FIX) ------------------
-    if st.session_state.role in ['admin', 'manager']:
-        with st.expander("🛠️ Sistem Təmiri (Qramajlar '0' olursa bura daxil olun)", expanded=False):
-            st.warning("Bu əməliyyat bazadakı 'quantity_required' sütununu kökündən silib, kəsr ədəd (FLOAT) kimi yenidən yaradacaq. Bir dəfə etmək kifayətdir.")
-            if st.button("🔧 Qramaj Xətasını Birdəfəlik Həll Et", type="primary"):
-                with st.spinner("Əməliyyat gedir, lütfən gözləyin..."):
-                    # 1. POSTGRESQL CƏHDi
-                    try:
-                        run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE NUMERIC(15,4) USING quantity_required::numeric")
-                        st.success("✅ PostgreSQL bazası uğurla yeniləndi! Artıq 0.018 yazılacaq.")
-                    except Exception as pg_err:
-                        # 2. SQLITE CƏHDİ (Drop/Create metodu)
-                        try:
-                            # Təhlükəsizlik üçün cədvəli addım-addım yenidən qururuq
-                            run_action("CREATE TABLE IF NOT EXISTS recipes_new (id INTEGER PRIMARY KEY AUTOINCREMENT, menu_item_name TEXT, ingredient_name TEXT, quantity_required REAL)")
-                            run_action("INSERT INTO recipes_new (id, menu_item_name, ingredient_name, quantity_required) SELECT id, menu_item_name, ingredient_name, CAST(quantity_required AS REAL) FROM recipes")
-                            run_action("DROP TABLE recipes")
-                            run_action("ALTER TABLE recipes_new RENAME TO recipes")
-                            st.success("✅ SQLite bazası uğurla yeniləndi! Cədvəl dəyişdirildi. Artıq itki olmayacaq.")
-                        except Exception as sq_err:
-                            st.error(f"XƏTA BİLDİRİŞİ:\nPostgres: {pg_err}\nSQLite: {sq_err}")
-    # ----------------------------------------------------------------------
-
     menu_items = run_query("SELECT item_name, price FROM menu WHERE is_active=TRUE")
     menu_list = menu_items['item_name'].tolist() if not menu_items.empty else []
     sel_p = st.selectbox("Məhsul Seçin", menu_list)
@@ -182,7 +159,7 @@ def render_recipe_page():
         erd = st.data_editor(recs_disp, hide_index=True, column_config={
             "Seç": st.column_config.CheckboxColumn(required=True),
             "quantity_required": st.column_config.NumberColumn("Miqdar", format="%.4f")
-        }, key="rec_ed_safe", use_container_width=True)
+        }, disabled=["id", "ingredient_name", "quantity_required", "unit"], key="rec_ed_safe", use_container_width=True)
         
         srd = erd[erd["Seç"]]['id'].tolist()
         
@@ -198,10 +175,21 @@ def render_recipe_page():
                 ing_map = {row['name']: row['unit'] for _, row in ing_df.iterrows()}
                 ing = st.selectbox("Xammal", list(ing_map.keys()))
                 unit_label = ing_map.get(ing, "")
-                qty = st.number_input(f"Miqdar ({unit_label})", format="%.4f", step=0.001)
+                
+                # ZİREHLİ MİQDAR XANASI (Nöqtə və Vergül fərqini aradan qaldırır)
+                qty_str = st.text_input(f"Miqdar ({unit_label}) (Məsələn: 0.018 və ya 0,018)", placeholder="0.000")
+                
                 if st.form_submit_button("Əlavə Et"): 
-                    # Burada məcburi FLOAT qoyuruq ki heç bir şansı qalmasın
-                    run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":float(qty)}); st.rerun()
+                    if qty_str.strip():
+                        try:
+                            # Həm nöqtəni, həm vergülü başa düşür
+                            clean_qty = float(qty_str.replace(",", "."))
+                            run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p, "i":ing, "q":clean_qty})
+                            st.rerun()
+                        except ValueError:
+                            st.error("⚠️ Lütfən rəqəmi düzgün formatda daxil edin. Hərflərdən istifadə etməyin.")
+                    else:
+                        st.warning("Miqdarı yazın.")
             else: st.warning("Anbarda xammal yoxdur.")
                 
     if st.session_state.get('edit_recipe_id'):
@@ -214,9 +202,20 @@ def render_recipe_page():
                     all_ings = run_query("SELECT name FROM ingredients ORDER BY name")['name'].tolist()
                     curr_ing_idx = all_ings.index(r['ingredient_name']) if r['ingredient_name'] in all_ings else 0
                     new_ing = st.selectbox("Xammal", all_ings, index=curr_ing_idx)
-                    new_qty = st.number_input("Miqdar", format="%.4f", step=0.001, value=float(r['quantity_required']))
+                    
+                    # ZİREHLİ MİQDAR XANASI (Düzəliş pəncərəsi üçün)
+                    new_qty_str = st.text_input("Miqdar (Məsələn: 0.018)", value=str(r['quantity_required']))
+                    
                     if st.form_submit_button("Yadda Saxla"): 
-                        run_action("UPDATE recipes SET ingredient_name=:i, quantity_required=:q WHERE id=:id", {"i":new_ing, "q":float(new_qty), "id":int(r['id'])}); st.session_state.edit_recipe_id = None; st.success("Yeniləndi!"); time.sleep(0.5); st.rerun()
+                        try:
+                            clean_new_qty = float(new_qty_str.replace(",", "."))
+                            run_action("UPDATE recipes SET ingredient_name=:i, quantity_required=:q WHERE id=:id", {"i":new_ing, "q":clean_new_qty, "id":int(r['id'])})
+                            st.session_state.edit_recipe_id = None
+                            st.success("Yeniləndi!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except ValueError:
+                            st.error("⚠️ Düzgün rəqəm formatı daxil edin.")
             edit_recipe_dialog(rec_item)
             
     if st.session_state.role == 'admin':
@@ -236,7 +235,6 @@ def render_recipe_page():
             if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
 def render_crm_page():
-    # CRM kodu əvvəlki kimi
     st.subheader("👥 CRM və AI Marketoloq")
     crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
     if not crm_stats.empty:
