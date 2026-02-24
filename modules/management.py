@@ -90,34 +90,28 @@ def render_menu_page():
 def render_recipe_page():
     st.subheader("📜 Resept və AI Aşpaz")
     
-    # ------------------ BAZA CƏRRAHİYYƏSİ BLOKU (YALNIZ ADMİNLƏR ÜÇÜN) ------------------
+    # ------------------ BAZA CƏRRAHİYYƏSİ (ULTIMATE FIX) ------------------
     if st.session_state.role in ['admin', 'manager']:
-        with st.expander("🛠️ Sistem Təmiri (Qramajlar '0' olursa bura daxil olun)"):
-            st.warning("Əgər əlavə etdiyiniz rəqəmlər (məs: 0.018) yadda saxlayandan sonra 0 olursa, verilənlər bazası onu səhvən 'Tam Ədəd' kimi tanıyır. Düzəltmək üçün aşağıdakı düyməyə BİR DƏFƏ basın.")
+        with st.expander("🛠️ Sistem Təmiri (Qramajlar '0' olursa bura daxil olun)", expanded=False):
+            st.warning("Bu əməliyyat bazadakı 'quantity_required' sütununu kökündən silib, kəsr ədəd (FLOAT) kimi yenidən yaradacaq. Bir dəfə etmək kifayətdir.")
             if st.button("🔧 Qramaj Xətasını Birdəfəlik Həll Et", type="primary"):
-                try:
-                    # Əgər Postgres-dirsə:
-                    run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE REAL USING quantity_required::real")
-                    st.success("PostgreSQL bazası yeniləndi! Artıq 0.018 yazılacaq.")
-                except:
+                with st.spinner("Əməliyyat gedir, lütfən gözləyin..."):
+                    # 1. POSTGRESQL CƏHDi
                     try:
-                        # Əgər SQLite-dirsə:
-                        run_action("CREATE TABLE recipes_backup AS SELECT * FROM recipes")
-                        run_action("DROP TABLE recipes")
-                        run_action("""
-                            CREATE TABLE recipes (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                menu_item_name TEXT,
-                                ingredient_name TEXT,
-                                quantity_required REAL
-                            )
-                        """)
-                        run_action("INSERT INTO recipes (id, menu_item_name, ingredient_name, quantity_required) SELECT id, menu_item_name, ingredient_name, CAST(quantity_required AS REAL) FROM recipes_backup")
-                        run_action("DROP TABLE recipes_backup")
-                        st.success("✅ Verilənlər Bazası yenidən quruldu! (Kəsr ədəd aktivdir). Artıq rəqəmlər itməyəcək.")
-                    except Exception as e:
-                        st.error(f"Xəta: {e}")
-    # -------------------------------------------------------------------------------------
+                        run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE NUMERIC(15,4) USING quantity_required::numeric")
+                        st.success("✅ PostgreSQL bazası uğurla yeniləndi! Artıq 0.018 yazılacaq.")
+                    except Exception as pg_err:
+                        # 2. SQLITE CƏHDİ (Drop/Create metodu)
+                        try:
+                            # Təhlükəsizlik üçün cədvəli addım-addım yenidən qururuq
+                            run_action("CREATE TABLE IF NOT EXISTS recipes_new (id INTEGER PRIMARY KEY AUTOINCREMENT, menu_item_name TEXT, ingredient_name TEXT, quantity_required REAL)")
+                            run_action("INSERT INTO recipes_new (id, menu_item_name, ingredient_name, quantity_required) SELECT id, menu_item_name, ingredient_name, CAST(quantity_required AS REAL) FROM recipes")
+                            run_action("DROP TABLE recipes")
+                            run_action("ALTER TABLE recipes_new RENAME TO recipes")
+                            st.success("✅ SQLite bazası uğurla yeniləndi! Cədvəl dəyişdirildi. Artıq itki olmayacaq.")
+                        except Exception as sq_err:
+                            st.error(f"XƏTA BİLDİRİŞİ:\nPostgres: {pg_err}\nSQLite: {sq_err}")
+    # ----------------------------------------------------------------------
 
     menu_items = run_query("SELECT item_name, price FROM menu WHERE is_active=TRUE")
     menu_list = menu_items['item_name'].tolist() if not menu_items.empty else []
@@ -206,6 +200,7 @@ def render_recipe_page():
                 unit_label = ing_map.get(ing, "")
                 qty = st.number_input(f"Miqdar ({unit_label})", format="%.4f", step=0.001)
                 if st.form_submit_button("Əlavə Et"): 
+                    # Burada məcburi FLOAT qoyuruq ki heç bir şansı qalmasın
                     run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p,"i":ing,"q":float(qty)}); st.rerun()
             else: st.warning("Anbarda xammal yoxdur.")
                 
