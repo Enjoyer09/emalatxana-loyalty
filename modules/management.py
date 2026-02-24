@@ -96,7 +96,7 @@ def render_recipe_page():
     if sel_p:
         sale_price = float(menu_items[menu_items['item_name'] == sel_p].iloc[0]['price'])
         
-        # DÜZƏLİŞ: Qramajları zorla FLOAT kimi oxudururq ki, 0 olmasın!
+        # FLOAT MƏCBURİYYƏTİ - 0 XƏTASININ HƏLLİ
         recs = run_query("SELECT r.id, r.ingredient_name, CAST(r.quantity_required AS FLOAT) AS quantity_required, i.unit, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:n", {"n":sel_p})
         
         total_cost = 0.0
@@ -155,7 +155,6 @@ def render_recipe_page():
         recs_disp = recs[['id', 'ingredient_name', 'quantity_required', 'unit']].copy()
         recs_disp.insert(0, "Seç", False)
         
-        # DÜZƏLİŞ: Formatı %.4f edirik ki, 0.018 ədədi sıfırlanmasın!
         erd = st.data_editor(recs_disp, hide_index=True, column_config={
             "Seç": st.column_config.CheckboxColumn(required=True),
             "quantity_required": st.column_config.NumberColumn("Miqdar", format="%.4f")
@@ -195,7 +194,6 @@ def render_recipe_page():
                         run_action("UPDATE recipes SET ingredient_name=:i, quantity_required=:q WHERE id=:id", {"i":new_ing, "q":float(new_qty), "id":int(r['id'])}); st.session_state.edit_recipe_id = None; st.success("Yeniləndi!"); time.sleep(0.5); st.rerun()
             edit_recipe_dialog(rec_item)
             
-    # Qalan import/export kodları ...
     if st.session_state.role == 'admin':
         with st.expander("📤 Reseptləri İmport / Export (Excel)"):
             if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"): admin_confirm_dialog("Bütün reseptlər silinsin?", lambda: run_action("DELETE FROM recipes"))
@@ -210,11 +208,103 @@ def render_recipe_page():
                                 run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", {"m":str(r['menu_item_name']), "i":str(r['ingredient_name']), "q":float(r['quantity_required'])}); cnt += 1
                             st.success(f"{cnt} resept sətri yükləndi!")
                         except Exception as e: st.error(f"Xəta: {e}")
+            if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
+# YOXA ÇIXMIŞ CRM VƏ QR SƏHİFƏLƏRİ GERİ QAYTARILDI!
 def render_crm_page():
-    # ... (Mövcud kod olduğu kimi saxlanılır)
-    pass
+    st.subheader("👥 CRM və AI Marketoloq")
+    crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
+    if not crm_stats.empty:
+        cols = st.columns(len(crm_stats))
+        stat_str = []
+        for idx, row in crm_stats.iterrows():
+            lbl = row['type'].upper()
+            icon = "🥇" if lbl=='GOLDEN' else "🥈" if lbl=='PLATINUM' else "💎" if lbl=='ELITE' else "🎁" if lbl=='IKRAM' else "👤"
+            with cols[idx % 4]: st.metric(f"{icon} {lbl}", row['cnt'])
+            stat_str.append(f"{lbl}: {row['cnt']} nəfər")
+            
+    st.divider()
+    
+    if st.session_state.role in ['admin','manager']:
+         with st.expander("🎫 Yeni Kupon / Promo Kod Yarat", expanded=False):
+            with st.form("new_promo_code_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                pc_code = c1.text_input("Kod (Məs: YAY2026)")
+                pc_disc = c2.number_input("Endirim %", 1, 100)
+                pc_days = c3.number_input("Gün", 1, 365)
+                if st.form_submit_button("Kodu Yarat"):
+                    valid_until = get_baku_now() + datetime.timedelta(days=pc_days)
+                    run_action("INSERT INTO promo_codes (code, discount_percent, valid_until, assigned_user_id, is_used) VALUES (:c, :d, :v, 'system', FALSE)", {"c":pc_code, "d":pc_disc, "v":valid_until}); st.success("Yaradıldı!"); st.rerun()
+                    
+    cust_df = run_query("SELECT card_id, type, stars, email FROM customers")
+    cust_df.insert(0, "Seç", False)
+    ed_cust = st.data_editor(cust_df, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, key="crm_sel")
+    sel_cust_ids = ed_cust[ed_cust["Seç"]]['card_id'].tolist()
+    
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🤖 AI Mesaj İdeyası (Marketoloq)", type="secondary"):
+            with st.spinner("Marketoloq düşünür..."):
+                prompt = f"Sən 'Füzuli' kofe şopunun Marketinq müdirisən. Müştərilərin yenidən gəlməsini təşviq edəcək, şirin, emojilərlə 3 fərqli qısa mesaj şablonu ver. Azərbaycan dilində yaz."
+                ai_msg = call_ai(prompt)
+                st.markdown(f"<div style='background: #1e2226; padding:20px; border-left:5px solid #ffd700; border-radius:10px; margin-bottom:15px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);'>{ai_msg}</div>", unsafe_allow_html=True)
+
+        msg = st.text_area("Ekran Mesajı (Müştərinin QR ekranına gedəcək)")
+        promo_list = ["(Kuponsuz)"] + run_query("SELECT code FROM promo_codes")['code'].tolist()
+        sel_promo = st.selectbox("Promo Yapışdır (Seçilənlərə)", promo_list)
+        if st.button("📢 Seçilənlərə Göndər / Tətbiq Et", key="crm_send_btn", type="primary"):
+            if sel_cust_ids:
+                for cid in sel_cust_ids:
+                    if msg: run_action("INSERT INTO notifications (card_id, message) VALUES (:c, :m)", {"c":cid, "m":msg})
+                    if sel_promo != "(Kuponsuz)": 
+                        expires = get_baku_now() + datetime.timedelta(days=30)
+                        run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:c, :t, :e)", {"c":cid, "t":sel_promo, "e":expires})
+                st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
+            else:
+                st.error("Cədvəldən ən azı 1 müştəri seçin!")
 
 def render_qr_page():
-    # ... (Mövcud kod olduğu kimi saxlanılır)
-    pass
+    st.subheader("QR Generator")
+    c1, c2 = st.columns(2)
+    cnt = c1.number_input("Say", 1, 50, key="qr_cnt")
+    tp = c2.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"], key="qr_type")
+    use_inventory = st.checkbox("📦 Fiziki Kartı Anbardan Sil", key="qr_inv")
+    selected_card_stock = None
+    
+    if use_inventory:
+        inv_items = run_query("SELECT id, name, stock_qty FROM ingredients WHERE category ILIKE '%Kart%' OR category ILIKE '%Mətbəə%' ORDER BY name")
+        if not inv_items.empty: 
+            item_map = {f"{row['name']} (Qalıq: {int(row['stock_qty'])})": row['id'] for _, row in inv_items.iterrows()}
+            sel_label = st.selectbox("Hansı Kart?", list(item_map.keys()), key="qr_stock_sel")
+            selected_card_stock = item_map[sel_label]
+        else: st.warning("⚠️ Anbarda 'Kart' kateqoriyalı mal tapılmadı.")
+            
+    if st.button("QR Kodları Yarat 🚀", type="primary"):
+        can_proceed = True
+        if use_inventory and selected_card_stock:
+            curr_qty = run_query("SELECT stock_qty FROM ingredients WHERE id=:id", {"id":selected_card_stock}).iloc[0]['stock_qty']
+            if curr_qty < cnt: 
+                st.error(f"⛔ Stok yetmir! Qalıq: {int(curr_qty)}, Lazım: {cnt}"); can_proceed = False
+                
+        if can_proceed:
+            type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
+            generated_qrs = []
+            for _ in range(cnt):
+                cid = str(random.randint(10000000,99999999))
+                tok = secrets.token_hex(8)
+                run_action("INSERT INTO customers (card_id, stars, type, secret_token) VALUES (:i, 0, :t, :s)", {"i":cid, "t":type_map[tp], "s":tok})
+                url = f"{APP_URL}/?id={cid}&t={tok}"
+                img_bytes = generate_styled_qr(url)
+                generated_qrs.append((cid, img_bytes))
+                
+            if use_inventory and selected_card_stock: 
+                run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE id=:id", {"q":cnt, "id":selected_card_stock})
+                st.toast(f"📦 Anbardan {cnt} ədəd kart silindi.")
+                
+            zip_buf = BytesIO()
+            with zipfile.ZipFile(zip_buf, "w") as zf:
+                for cid, img in generated_qrs: zf.writestr(f"{cid}_{type_map[tp]}.png", img)
+                    
+            st.success(f"{cnt} QR Kod yaradıldı!")
+            st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
