@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 
-# Verilənlər bazasına qoşulma
-conn = st.connection("postgresql", type="sql")
+# Verilənlər bazasına qoşulma (Standart Streamlit bağlantısı)
+# Əgər secrets.toml faylında başqa ad qoymusansa, "sql" sözünü onunla əvəz et (məsələn "postgresql")
+conn = st.connection("sql")
 
 def run_query(query, params=None):
     """Məlumat oxumaq üçün (SELECT)"""
