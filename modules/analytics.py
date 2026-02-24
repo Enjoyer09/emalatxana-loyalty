@@ -2,18 +2,32 @@ import streamlit as st
 import pandas as pd
 import datetime
 import time
+import json
 import plotly.express as px
 import base64
 from database import run_query, run_action, get_setting
 from utils import get_baku_now, BRAND_NAME
 
+# Məhsul siyahısını JSON-dan təmiz mətnə çevirən ağıllı köməkçi funksiya
+def parse_items(items_str):
+    if not items_str: return ""
+    try:
+        items = json.loads(items_str)
+        if isinstance(items, list):
+            return ", ".join([f"{i.get('item_name', 'Məhsul')} ({i.get('qty', 1)}x)" for i in items])
+        elif isinstance(items, dict):
+            return str(items)
+    except:
+        pass
+    return str(items_str)
+
 def render_analytics_page():
-    st.subheader("📊 Analitika və Satış Hesabatları")
+    st.subheader("📊 Analitika və Satış Hesabatları (CFO Paneli)")
     
     today = get_baku_now().date()
     start_of_month = today.replace(day=1)
     
-    # KASSİR (STAFF) ÜÇÜN MÜDAFİƏ FİLTRİ: Əgər daxil olan user staff-dırsa, yalnız özünü görəcək.
+    # KASSİR (STAFF) ÜÇÜN MÜDAFİƏ FİLTRİ
     role = st.session_state.get('role', 'staff')
     current_user = st.session_state.get('user', '')
     
@@ -27,7 +41,6 @@ def render_analytics_page():
     td_params = {"d": today, **base_params}
     tm_params = {"d": start_of_month, **base_params}
     
-    # Bugünkü Satışlar (Nəğd / Kart bölgüsü)
     td_df = run_query(f"SELECT payment_method, SUM(total) as s FROM sales WHERE DATE(created_at) = :d {role_filter} GROUP BY payment_method", td_params)
     
     td_sales = 0.0
@@ -41,11 +54,9 @@ def render_analytics_page():
             if str(r['payment_method']).upper() == 'NƏĞD': td_cash += val
             elif str(r['payment_method']).upper() == 'KART': td_card += val
             
-    # Aylıq Satışlar
     tm_df = run_query(f"SELECT SUM(total) as s FROM sales WHERE DATE(created_at) >= :d {role_filter}", tm_params)
     tm_sales = float(tm_df.iloc[0]['s']) if not tm_df.empty and pd.notna(tm_df.iloc[0]['s']) else 0.0
     
-    # Xərclər və Mənfəət yalnız Admin/Manager üçün görünür
     if role in ['admin', 'manager']:
         exp_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND DATE(created_at) >= :d", {"d": start_of_month})
         tm_expenses = float(exp_df.iloc[0]['s']) if not exp_df.empty and pd.notna(exp_df.iloc[0]['s']) else 0.0
@@ -74,7 +85,6 @@ def render_analytics_page():
     # --- 2. TARİX FİLTRİ VƏ AXTARIŞ ---
     st.markdown("### 🔍 Detallı Axtarış və Performans")
     
-    # Tarix seçimi
     filter_col1, filter_col2 = st.columns([2, 1])
     with filter_col1:
         date_filter = st.radio("Tarix Aralığı Seçin:", ["Bu Gün", "Bu Ay", "Seçilmiş Tarix Aralığı"], horizontal=True)
@@ -93,7 +103,6 @@ def render_analytics_page():
             start_date = today
             end_date = today
 
-    # Dinamik sorğu parametrləri
     perf_params = {"sd": start_date, "ed": end_date}
     if role == 'staff':
         perf_params["u"] = current_user
@@ -103,20 +112,18 @@ def render_analytics_page():
     with g_col1:
         st.markdown("**👥 İşçi Performansı**")
         staff_df = run_query(f"""
-            SELECT cashier as "Kassir / İşçi", COUNT(id) as "Sifariş Sayı", SUM(total) as "Cəmi Satış (₼)"
+            SELECT cashier as "Kassir", COUNT(id) as "Sifariş", SUM(total) as "Satış (₼)"
             FROM sales 
             WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
             GROUP BY cashier
             ORDER BY SUM(total) DESC
         """, perf_params)
         
-        if not staff_df.empty:
-            st.dataframe(staff_df, hide_index=True, use_container_width=True)
-        else:
-            st.info("Bu aralıqda heç bir satış tapılmadı.")
+        if not staff_df.empty: st.dataframe(staff_df, hide_index=True, use_container_width=True)
+        else: st.info("Bu aralıqda satış tapılmadı.")
             
     with g_col2:
-        st.markdown("**📈 Satış Trendi (Günlük)**")
+        st.markdown("**📈 Satış Trendi**")
         trend_df = run_query(f"""
             SELECT DATE(created_at) as d, SUM(total) as s 
             FROM sales 
@@ -127,7 +134,7 @@ def render_analytics_page():
         
         if not trend_df.empty and len(trend_df) > 1:
             fig1 = px.line(trend_df, x='d', y='s', markers=True, line_shape="spline", color_discrete_sequence=["#ffd700"])
-            fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"), xaxis_title="Tarix", yaxis_title="Məbləğ (₼)")
+            fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
             st.plotly_chart(fig1, use_container_width=True)
         elif not trend_df.empty and len(trend_df) == 1:
             st.info(f"Yalnız 1 günlük məlumat var: {trend_df.iloc[0]['s']} ₼")
@@ -136,39 +143,31 @@ def render_analytics_page():
 
     st.divider()
 
-    # --- 4. DETALLI SATIŞLAR CƏDVƏLİ ---
-    st.markdown("### 📝 Detallı Satışlar Cədvəli")
-    
+    # --- 4. DETALLI SATIŞLAR CƏDVƏLİ (ADMİN ÜÇÜN MARAQLI CƏDVƏL) ---
+    st.markdown("### 📝 Detallı Satışlar (Nə Satıldığını Görün)")
     sales_list_df = run_query(f"""
-        SELECT id, created_at, cashier, payment_method, total, discount_amount, note 
+        SELECT id, created_at, cashier, items, payment_method, total, discount_amount, note 
         FROM sales 
         WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
         ORDER BY created_at DESC
     """, perf_params)
     
     if not sales_list_df.empty:
+        # JSON formatında olan məhsulları təmizləyirik (Kofe 2x, Çay 1x və s.)
+        sales_list_df['items'] = sales_list_df['items'].apply(parse_items)
         sales_list_df['created_at'] = pd.to_datetime(sales_list_df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
-        # Sütunları səliqəyə salırıq
+        
         sales_list_df = sales_list_df.rename(columns={
-            "id": "Çek №",
-            "created_at": "Tarix / Saat",
-            "cashier": "Kassir",
-            "payment_method": "Ödəniş Növü",
-            "total": "Məbləğ (₼)",
-            "discount_amount": "Endirim (₼)",
+            "id": "Çek №", 
+            "created_at": "Tarix", 
+            "cashier": "Kassir", 
+            "items": "Satılan Mallar", 
+            "payment_method": "Ödəniş", 
+            "total": "Məbləğ (₼)", 
+            "discount_amount": "Endirim", 
             "note": "Qeyd"
         })
-        
         st.dataframe(sales_list_df, hide_index=True, use_container_width=True)
-        
-        # Excel / CSV kimi yükləmək imkanı
-        csv = sales_list_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Bu cədvəli yüklə (CSV)",
-            data=csv,
-            file_name=f"satishlar_{start_date}_to_{end_date}.csv",
-            mime="text/csv",
-        )
     else:
         st.warning("Seçilmiş tarix aralığında heç bir detal tapılmadı.")
 
@@ -191,7 +190,6 @@ def render_z_report_page():
         shift_start_time = pd.to_datetime(shift_data['shift_start'])
         st.info(f"🟢 **Aktiv Növbə:** Başlama vaxtı: {shift_start_time.strftime('%d/%m/%Y %H:%M')}")
         
-        # Füzulinin SALES cədvəlindən Sifarişləri cəmləyirik
         orders_df = run_query("SELECT payment_method, SUM(total) as s FROM sales WHERE created_at >= :st GROUP BY payment_method", {"st": shift_start_time})
         cash_sales = 0.0
         card_sales = 0.0
@@ -202,12 +200,9 @@ def render_z_report_page():
                 elif str(r['payment_method']).upper() == 'KART': card_sales += float(r['s'])
                 
         total_sales = cash_sales + card_sales
-        
-        # Xərclər (Kassadan çıxanlar)
         expenses_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND source='Kassa' AND created_at >= :st", {"st": shift_start_time})
         shift_expenses = float(expenses_df.iloc[0]['s']) if not expenses_df.empty and pd.notna(expenses_df.iloc[0]['s']) else 0.0
         
-        # Gözlənilən kassa
         expected_cash = cash_sales - shift_expenses
         
         c1, c2, c3, c4 = st.columns(4)
@@ -216,6 +211,41 @@ def render_z_report_page():
         c3.metric("Kassadan Xərc", f"{shift_expenses:.2f} ₼")
         c4.metric("GÖZLƏNİLƏN KASSA", f"{expected_cash:.2f} ₼")
         
+        st.divider()
+        
+        # === YENİ ƏLAVƏ: İŞÇİNİN NÖVBƏ ƏRZİNDƏKİ SATIŞLARI (CƏDVƏL) ===
+        st.markdown("### 📋 Bu Növbədəki Satışlar (Nə Satmısınız?)")
+        
+        role = st.session_state.get('role', 'staff')
+        current_user = st.session_state.get('user', '')
+        
+        # Əgər staffdırsa ancaq özünün, admindirsə hər kəsin bu növbədəki satışını görür
+        shift_role_filter = " AND cashier = :u" if role == 'staff' else ""
+        shift_params = {"st": shift_start_time, "u": current_user} if role == 'staff' else {"st": shift_start_time}
+        
+        shift_sales_df = run_query(f"""
+            SELECT id, created_at, cashier, items, payment_method, total 
+            FROM sales 
+            WHERE created_at >= :st {shift_role_filter}
+            ORDER BY created_at DESC
+        """, shift_params)
+        
+        if not shift_sales_df.empty:
+            shift_sales_df['items'] = shift_sales_df['items'].apply(parse_items)
+            shift_sales_df['created_at'] = pd.to_datetime(shift_sales_df['created_at']).dt.strftime('%H:%M')
+            
+            shift_sales_df = shift_sales_df.rename(columns={
+                "id": "Çek №", 
+                "created_at": "Saat", 
+                "cashier": "Kassir", 
+                "items": "Satılan Mallar", 
+                "payment_method": "Ödəniş", 
+                "total": "Məbləğ (₼)"
+            })
+            st.dataframe(shift_sales_df, hide_index=True, use_container_width=True)
+        else:
+            st.info("Bu növbədə hələ heç nə satılmayıb.")
+            
         st.divider()
         st.markdown("### 🏁 Növbəni Bağla (Z-Hesabatı Çıxar)")
         
