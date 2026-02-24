@@ -10,3 +10,4 @@ numpy
 requests
 google-generativeai
 gTTS
+plotly
