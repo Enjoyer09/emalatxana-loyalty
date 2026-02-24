@@ -32,7 +32,6 @@ def render_analytics_page():
         </style>
     """, unsafe_allow_html=True)
 
-    # AVTOMATİK GÜNLÜK HESABLAMA (DÜYMƏSİZ)
     c1, c2 = st.columns([1, 1])
     d1 = c1.date_input("Başlanğıc Tarixi", get_logical_date())
     d2 = c2.date_input("Bitiş Tarixi", get_logical_date())
@@ -40,7 +39,6 @@ def render_analytics_page():
     ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
     ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
     
-    # DÖVRİYYƏ VƏ MAYA DƏYƏRİ HESABLAMASI
     sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC", {"s":ts_start, "e":ts_end})
     total_rev = sales['total'].sum() if not sales.empty else 0.0
     
@@ -73,7 +71,6 @@ def render_analytics_page():
     
     net_profit = gross_profit - total_opex
     
-    # YEKUN KARTLAR EKRANDA
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.markdown(f"<div class='cfo-card cfo-rev'><h4>Dövriyyə</h4><h2>{total_rev:.2f} ₼</h2></div>", unsafe_allow_html=True)
     m2.markdown(f"<div class='cfo-card cfo-cost'><h4>Maya Dəyəri</h4><h2>-{total_cogs:.2f} ₼</h2></div>", unsafe_allow_html=True)
@@ -84,15 +81,18 @@ def render_analytics_page():
     st.divider()
     st.markdown("### 📋 Detallı Satış Tarixçəsi (Hər Çek Üzrə)")
     
+    # ENDİRİM SÜTUNLARI VƏ SƏBƏBİ ƏLAVƏ EDİLDİ
     detailed_sales = run_query("""
         SELECT 
             TO_CHAR(s.created_at, 'YYYY-MM-DD HH24:MI') as "Tarix",
             s.items as "Sifarişlər",
-            s.total as "Məbləğ (₼)",
+            s.original_total as "İlkin (₼)",
+            s.discount_amount as "Endirim (₼)",
+            s.total as "Yekun (₼)",
             s.payment_method as "Ödəniş",
             COALESCE(s.customer_card_id, 'Anonim') as "Müştəri QR",
             COALESCE(CAST(c.stars AS VARCHAR), '-') as "Ulduz",
-            COALESCE(UPPER(c.type), 'STANDART') as "Tip",
+            s.note as "Qeyd (Endirim Səbəbi)",
             s.cashier as "Kassir"
         FROM sales s 
         LEFT JOIN customers c ON s.customer_card_id = c.card_id
@@ -212,7 +212,6 @@ def render_z_report_page():
         
     st.divider()
     
-    # 💸 KASSADAN MAAŞ / XƏRC ÇIXARILMASI BLOKU
     col_out, col_close = st.columns([1, 1.5])
     
     with col_out:
@@ -228,7 +227,6 @@ def render_z_report_page():
                 else:
                     st.error("Məbləği və Səbəbi tam doldurun.")
 
-    # 🛑 GÜNÜN (NÖVBƏNİN) RƏSMƏN BAĞLANMASI VƏ Z-HESABAT
     with col_close:
         st.markdown("### 🛑 Növbənin Təhvili (Kassanı Sıfırla)")
         actual_cash = st.number_input("Kassadakı Faktiki Nağd Pul (Sayım)", min_value=0.0, step=0.1, value=float(expected_cash))
@@ -251,7 +249,6 @@ def render_z_report_page():
             z_report_print_dialog(z_data)
             
         if c_z2.button("🛑 GÜNÜ BİTİR VƏ SIFIRLA", type="primary", use_container_width=True):
-            # İnkassasiya edib kassanı növbəti işçi üçün tam sıfırlayır
             run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı və Günü Bitirildi', :u)", {"a": expected_cash, "u":st.session_state.user})
             st.success("✅ GÜN BAĞLANDI! Kassa sıfırlandı. Z-Hesabat məlumatları arxivləndi.")
             time.sleep(2)
