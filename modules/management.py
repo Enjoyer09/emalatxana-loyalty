@@ -169,20 +169,20 @@ def render_recipe_page():
             for i in srd: run_action("DELETE FROM recipes WHERE id=:id", {"id":int(i)})
             st.rerun()
             
-        with st.form("nrec", clear_on_submit=True):
+        with st.form("new_recipe_form", clear_on_submit=True):
             ing_df = run_query("SELECT name, unit FROM ingredients ORDER BY name")
             if not ing_df.empty:
                 ing_map = {row['name']: row['unit'] for _, row in ing_df.iterrows()}
-                ing = st.selectbox("Xammal", list(ing_map.keys()))
+                # XÜSUSİ KEY (ID) ƏLAVƏ EDİLDİ
+                ing = st.selectbox("Xammal", list(ing_map.keys()), key="new_rec_ing_select")
                 unit_label = ing_map.get(ing, "")
                 
-                # ZİREHLİ MİQDAR XANASI (Nöqtə və Vergül fərqini aradan qaldırır)
-                qty_str = st.text_input(f"Miqdar ({unit_label}) (Məsələn: 0.018 və ya 0,018)", placeholder="0.000")
+                # ZİREHLİ MİQDAR XANASI XÜSUSİ KEY İLƏ
+                qty_str = st.text_input(f"Miqdar ({unit_label}) (Məs: 0.018 və ya 0,018)", key="new_rec_qty_input")
                 
                 if st.form_submit_button("Əlavə Et"): 
-                    if qty_str.strip():
+                    if qty_str and qty_str.strip():
                         try:
-                            # Həm nöqtəni, həm vergülü başa düşür
                             clean_qty = float(qty_str.replace(",", "."))
                             run_action("INSERT INTO recipes (menu_item_name,ingredient_name,quantity_required) VALUES (:m,:i,:q)", {"m":sel_p, "i":ing, "q":clean_qty})
                             st.rerun()
@@ -198,13 +198,12 @@ def render_recipe_page():
             rec_item = r_res.iloc[0]
             @st.dialog("✏️ Resept Düzəliş")
             def edit_recipe_dialog(r):
-                with st.form("edit_rec_form"):
+                with st.form("edit_rec_form_dialog"):
                     all_ings = run_query("SELECT name FROM ingredients ORDER BY name")['name'].tolist()
                     curr_ing_idx = all_ings.index(r['ingredient_name']) if r['ingredient_name'] in all_ings else 0
-                    new_ing = st.selectbox("Xammal", all_ings, index=curr_ing_idx)
+                    new_ing = st.selectbox("Xammal", all_ings, index=curr_ing_idx, key="edit_rec_ing")
                     
-                    # ZİREHLİ MİQDAR XANASI (Düzəliş pəncərəsi üçün)
-                    new_qty_str = st.text_input("Miqdar (Məsələn: 0.018)", value=str(r['quantity_required']))
+                    new_qty_str = st.text_input("Miqdar (Məsələn: 0.018)", value=str(r['quantity_required']), key="edit_rec_qty")
                     
                     if st.form_submit_button("Yadda Saxla"): 
                         try:
