@@ -1,240 +1,206 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import plotly.express as px
 from database import run_query, run_action, get_setting
 from utils import get_baku_now, BRAND_NAME
-
-def get_custom_shift_range(d_start, d_end):
-    s = datetime.datetime.combine(d_start, datetime.time(8, 0))
-    e = datetime.datetime.combine(d_end + datetime.timedelta(days=1), datetime.time(1, 0))
-    return s, e
-
-def get_current_logical_shift():
-    now = get_baku_now()
-    if now.time() < datetime.time(8, 0):
-        logical_date = (now - datetime.timedelta(days=1)).date()
-    else:
-        logical_date = now.date()
-    
-    s = datetime.datetime.combine(logical_date, datetime.time(8, 0))
-    e = datetime.datetime.combine(logical_date + datetime.timedelta(days=1), datetime.time(1, 0))
-    return s, e, logical_date
+import base64
 
 def render_analytics_page():
-    st.markdown("""
-        <style>
-        .cfo-card { background: var(--metal-panel); border: 2px solid #3a4149; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 4px 4px 10px rgba(0,0,0,0.5); margin-bottom: 15px; }
-        .cfo-card h4 { color: #aaa !important; font-size: 16px; margin-bottom: 5px; font-weight: 700; }
-        .cfo-card h2 { color: #ffffff !important; font-size: 26px; font-family: 'Jura'; margin: 0; font-weight: 900; }
-        .cfo-rev h2 { color: #64b5f6 !important; } .cfo-cost h2 { color: #e57373 !important; }
-        .cfo-gross h2 { color: #ffd700 !important; } .cfo-opex h2 { color: #ffb74d !important; }
-        .cfo-net { border-color: #2E7D32 !important; background: linear-gradient(145deg, #1b3b22, #122616) !important; }
-        .cfo-net h4 { color: #81c784 !important; } .cfo-net h2 { color: #4CAF50 !important; font-size: 30px; text-shadow: 0 0 10px rgba(76, 175, 80, 0.4); }
-        </style>
-    """, unsafe_allow_html=True)
-
-    role = st.session_state.role
-    user = st.session_state.user
+    st.subheader("📊 Analitika və CFO Paneli")
     
-    _, _, logical_today = get_current_logical_shift()
-
-    if role in ['admin', 'manager']:
-        st.subheader("📊 CFO Maliyyə Analitikası (P&L)")
-    else:
-        st.subheader(f"📋 {user} - Mənim Gündəlik Satışlarım")
-
-    c1, c2 = st.columns([1, 1])
-    d1 = c1.date_input("Başlanğıc Tarixi", logical_today)
-    d2 = c2.date_input("Bitiş Tarixi", logical_today)
+    # --- 1. CFO PANELİ (ƏSAS GÖSTƏRİCİLƏR) ---
+    today = get_baku_now().date()
+    start_of_month = today.replace(day=1)
     
-    ts_start, ts_end = get_custom_shift_range(d1, d2)
+    # Bügünkü satışlar
+    td_df = run_query("SELECT SUM(total_price) as s FROM orders WHERE DATE(created_at) = :d", {"d": today})
+    td_sales = float(td_df.iloc[0]['s']) if not td_df.empty and pd.notna(td_df.iloc[0]['s']) else 0.0
     
-    # ---------------- ADMIN / MANAGER GÖRÜNÜŞÜ (BÜTÜN KASSA VƏ KARTLAR) ----------------
-    if role in ['admin', 'manager']:
-        sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC", {"s":ts_start, "e":ts_end})
-        total_rev = sales['total'].sum() if not sales.empty else 0.0
-        
-        menu_costs = {}
-        recs = run_query("SELECT r.menu_item_name, CAST(r.quantity_required AS FLOAT) as q, i.unit_cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name")
-        for _, r in recs.iterrows():
-            m_name = r['menu_item_name']
-            cost = float(r['q']) * float(r['unit_cost'] if pd.notna(r['unit_cost']) else 0)
-            menu_costs[m_name] = menu_costs.get(m_name, 0.0) + cost
-        
-        total_cogs = 0.0
-        if not sales.empty:
-            for items_str in sales['items']:
-                if not isinstance(items_str, str) or items_str == "Table Order": continue
-                for p in items_str.split(", "):
-                    if " x" in p:
-                        try:
-                            n_part, q_part = p.rsplit(" x", 1)
-                            qty = int(q_part.split()[0])
-                            total_cogs += menu_costs.get(n_part, 0.0) * qty
-                        except: pass
-        
-        gross_profit = total_rev - total_cogs
-        fin = run_query("SELECT amount FROM finance WHERE type='out' AND created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
-        total_opex = fin['amount'].sum() if not fin.empty else 0.0
-        net_profit = gross_profit - total_opex
-        
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.markdown(f"<div class='cfo-card cfo-rev'><h4>Dövriyyə</h4><h2>{total_rev:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div class='cfo-card cfo-cost'><h4>Maya Dəyəri</h4><h2>-{total_cogs:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div class='cfo-card cfo-gross'><h4>Brüt Qazanc</h4><h2>{gross_profit:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div class='cfo-card cfo-opex'><h4>Xərclər (OPEX)</h4><h2>-{total_opex:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        m5.markdown(f"<div class='cfo-card cfo-net'><h4>XALİS QAZANC</h4><h2>{net_profit:.2f} ₼</h2></div>", unsafe_allow_html=True)
-        
-        detailed_sales = run_query("""
-            SELECT TO_CHAR(s.created_at, 'YYYY-MM-DD HH24:MI') as "Tarix", s.items as "Sifarişlər", s.original_total as "İlkin (₼)", 
-            s.discount_amount as "Endirim (₼)", s.total as "Yekun (₼)", s.payment_method as "Ödəniş", 
-            COALESCE(s.customer_card_id, 'Anonim') as "Müştəri", COALESCE(CAST(c.stars AS VARCHAR), '-') as "Ulduz", 
-            s.note as "Qeyd", s.cashier as "Kassir" 
-            FROM sales s LEFT JOIN customers c ON s.customer_card_id = c.card_id 
-            WHERE s.created_at BETWEEN :s AND :e ORDER BY s.created_at DESC
-        """, {"s":ts_start, "e":ts_end})
-
-    # ---------------- STAFF (İŞÇİ) GÖRÜNÜŞÜ (YALNIZ CƏDVƏL, QUTULAR YOXDUR) ----------------
-    else:
-        st.info("Bu cədvəldə yalnız sizin tərəfinizdən vurulan satışlar (seçilmiş tarix aralığında) göstərilir.")
-        detailed_sales = run_query("""
-            SELECT TO_CHAR(s.created_at, 'YYYY-MM-DD HH24:MI') as "Tarix", s.items as "Sifarişlər", s.original_total as "İlkin (₼)", 
-            s.discount_amount as "Endirim (₼)", s.total as "Yekun (₼)", s.payment_method as "Ödəniş", 
-            COALESCE(s.customer_card_id, 'Anonim') as "Müştəri", COALESCE(CAST(c.stars AS VARCHAR), '-') as "Ulduz", 
-            s.note as "Qeyd"
-            FROM sales s LEFT JOIN customers c ON s.customer_card_id = c.card_id 
-            WHERE s.created_at BETWEEN :s AND :e AND s.cashier=:u ORDER BY s.created_at DESC
-        """, {"s":ts_start, "e":ts_end, "u":user})
-
+    # Aylıq satışlar
+    tm_df = run_query("SELECT SUM(total_price) as s FROM orders WHERE DATE(created_at) >= :d", {"d": start_of_month})
+    tm_sales = float(tm_df.iloc[0]['s']) if not tm_df.empty and pd.notna(tm_df.iloc[0]['s']) else 0.0
+    
+    # Aylıq Xərclər (Maaş və digər)
+    exp_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND DATE(created_at) >= :d", {"d": start_of_month})
+    tm_expenses = float(exp_df.iloc[0]['s']) if not exp_df.empty and pd.notna(exp_df.iloc[0]['s']) else 0.0
+    
+    net_profit = tm_sales - tm_expenses
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("💰 Bu Gün (Satış)", f"{td_sales:.2f} ₼")
+    c2.metric("📅 Bu Ay (Satış)", f"{tm_sales:.2f} ₼")
+    c3.metric("💸 Bu Ay (Xərc)", f"{tm_expenses:.2f} ₼")
+    c4.metric("📈 Xalis Mənfəət", f"{net_profit:.2f} ₼", delta=f"{net_profit:.2f} ₼", delta_color="normal" if net_profit>=0 else "inverse")
+    
     st.divider()
-    if not detailed_sales.empty:
-        st.dataframe(detailed_sales, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Bu tarixlərdə heç bir satış tapılmadı.")
-
-
-@st.dialog("🖨️ Z-Hesabat Çapı")
-def z_report_print_dialog(z_data):
-    store = get_setting("receipt_store_name", BRAND_NAME)
-    time_str = get_baku_now().strftime('%d/%m/%Y %H:%M')
     
-    html = f"""
-    <html><head><style>
-        body{{font-family:'Courier New',monospace;text-align:center;background:white;color:black;margin:0;padding:10px;}}
-        .z-container{{width:300px;margin:0 auto;}}
-        hr{{border-top:1px dashed #000;}} h3,p{{margin:5px 0;color:black;}}
-        .row{{display:flex;justify-content:space-between;margin:3px 0;font-size:14px;}}
-        @media print{{ #print-btn{{display:none;}} }}
-    </style></head><body>
-    <div class="z-container">
-        <h3>{store}</h3><p>Z-HESABAT (NÖVBƏ BAĞLANIŞI)</p><p>{time_str}</p><hr>
-        <div class="row"><span>Kassir:</span><span>{st.session_state.user}</span></div><hr>
-        <div class="row"><span>Ümumi Dövriyyə:</span><span>{z_data['total_sales']:.2f} ₼</span></div>
-        <div class="row"><span>Nağd Satış:</span><span>{z_data['cash_sales']:.2f} ₼</span></div>
-        <div class="row"><span>Kartla Satış:</span><span>{z_data['card_sales']:.2f} ₼</span></div>
-        <div class="row"><span>Personal Satışı:</span><span>{z_data['staff_sales']:.2f} ₼</span></div><hr>
-        <div class="row"><span>Nağd Mədaxil:</span><span>{z_data['cash_in']:.2f} ₼</span></div>
-        <div class="row"><span>Nağd Məxaric:</span><span>-{z_data['cash_out']:.2f} ₼</span></div><hr>
-        <div class="row" style="font-weight:bold;font-size:16px;"><span>KASSA QALIĞI:</span><span>{z_data['expected_cash']:.2f} ₼</span></div>
-        <div class="row" style="font-weight:bold;"><span>FAKTİKİ SAYIM:</span><span>{z_data['actual_cash']:.2f} ₼</span></div>
-        <div class="row"><span>FƏRQ:</span><span>{z_data['diff']:.2f} ₼</span></div><hr>
-        <p>İmza: ________________</p><br>
-        <button id="print-btn" onclick="window.print()" style="background:#2E7D32;color:white;border:none;padding:10px 20px;width:100%;font-weight:bold;cursor:pointer;">🖨️ ÇAP ET</button>
-    </div>
-    </body></html>
-    """
-    import streamlit.components.v1 as components
-    components.html(html, height=550, scrolling=True)
-    if st.button("❌ Bağla"): st.rerun()
+    # --- 2. QRAFİKLƏR ---
+    g_col1, g_col2 = st.columns(2)
+    with g_col1:
+        st.markdown("**📅 Son 7 Günün Satış Qrafiki**")
+        sev_days_ago = today - datetime.timedelta(days=7)
+        trend_df = run_query("SELECT DATE(created_at) as d, SUM(total_price) as s FROM orders WHERE DATE(created_at) >= :sd GROUP BY DATE(created_at) ORDER BY d", {"sd": sev_days_ago})
+        if not trend_df.empty:
+            fig1 = px.line(trend_df, x='d', y='s', markers=True, line_shape="spline", color_discrete_sequence=["#ffd700"])
+            fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
+            st.plotly_chart(fig1, use_container_width=True)
+        else:
+            st.info("Kifayət qədər məlumat yoxdur.")
+            
+    with g_col2:
+        st.markdown("**🔥 Ən Çox Satılan 5 Məhsul (Bu Ay)**")
+        top_df = run_query("""
+            SELECT oi.item_name, SUM(oi.quantity) as q 
+            FROM order_items oi 
+            JOIN orders o ON oi.order_id = o.id 
+            WHERE DATE(o.created_at) >= :sd 
+            GROUP BY oi.item_name 
+            ORDER BY q DESC LIMIT 5
+        """, {"sd": start_of_month})
+        if not top_df.empty:
+            fig2 = px.bar(top_df, x='item_name', y='q', color_discrete_sequence=["#E65100"])
+            fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("Kifayət qədər məlumat yoxdur.")
+            
+    st.divider()
+
+    # --- 3. İŞÇİ GÖSTƏRİCİLƏRİ VƏ MƏHDUDİYYƏTLƏR ---
+    st.markdown("### 👥 İşçi Performansı və Növbələr")
+    staff_df = run_query("""
+        SELECT o.created_by as user, COUNT(o.id) as orders, SUM(o.total_price) as total 
+        FROM orders o 
+        WHERE DATE(o.created_at) >= :sd 
+        GROUP BY o.created_by
+    """, {"sd": start_of_month})
+    
+    if not staff_df.empty:
+        st.dataframe(staff_df, hide_index=True, use_container_width=True)
+    else:
+        st.info("Bu ay hələ sifariş yoxdur.")
 
 def render_z_report_page():
-    st.subheader("🧾 Z-Hesabat və Növbə İdarəetməsi")
-    role = st.session_state.role
-    user = st.session_state.user
-    start_dt, end_dt, logical_date = get_current_logical_shift()
+    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
     
-    st.caption(f"🗓️ **Aktiv Növbə:** {start_dt.strftime('%d.%m.%Y %H:%M')} - {end_dt.strftime('%d.%m.%Y %H:%M')}")
+    # Aktiv növbənin yoxlanması
+    active_shift = run_query("SELECT * FROM z_reports WHERE shift_end IS NULL ORDER BY shift_start DESC LIMIT 1")
     
-    if role in ['admin', 'manager']:
-        sales = run_query("SELECT payment_method, original_total, discount_amount, total FROM sales WHERE created_at BETWEEN :s AND :e", {"s": start_dt, "e": end_dt})
-        fin_in = run_query("SELECT amount, source FROM finance WHERE type='in' AND created_at BETWEEN :s AND :e", {"s": start_dt, "e": end_dt})
-        fin_out = run_query("SELECT amount, source FROM finance WHERE type='out' AND created_at BETWEEN :s AND :e", {"s": start_dt, "e": end_dt})
+    if active_shift.empty:
+        st.warning("⚠️ Hazırda aktiv növbə yoxdur.")
+        if st.button("🟢 Yeni Növbəni Başlat", type="primary", use_container_width=True):
+            run_action("INSERT INTO z_reports (shift_start, generated_by) VALUES (:s, :u)", {"s": get_baku_now(), "u": st.session_state.user})
+            st.session_state.z_report_active = True
+            st.success("Yeni növbə başladı! Uğurlar! ☕")
+            st.rerun()
     else:
-        sales = run_query("SELECT payment_method, original_total, discount_amount, total FROM sales WHERE created_at BETWEEN :s AND :e AND cashier=:u", {"s": start_dt, "e": end_dt, "u": user})
-        fin_in = run_query("SELECT amount, source FROM finance WHERE type='in' AND created_at BETWEEN :s AND :e AND created_by=:u", {"s": start_dt, "e": end_dt, "u": user})
-        fin_out = run_query("SELECT amount, source FROM finance WHERE type='out' AND created_at BETWEEN :s AND :e AND created_by=:u", {"s": start_dt, "e": end_dt, "u": user})
-    
-    total_sales = sales['total'].sum() if not sales.empty else 0.0
-    total_disc = sales['discount_amount'].sum() if not sales.empty else 0.0
-    
-    cash_sales = sales[sales['payment_method']=='Cash']['total'].sum() if not sales.empty else 0.0
-    card_sales = sales[sales['payment_method']=='Card']['total'].sum() if not sales.empty else 0.0
-    staff_sales = sales[sales['payment_method']=='Staff']['total'].sum() if not sales.empty else 0.0
-    
-    cash_in = fin_in[fin_in['source']=='Kassa']['amount'].sum() if not fin_in.empty else 0.0
-    card_in = fin_in[fin_in['source']=='Bank Kartı']['amount'].sum() if not fin_in.empty else 0.0
-    cash_out = fin_out[fin_out['source']=='Kassa']['amount'].sum() if not fin_out.empty else 0.0
-    card_out = fin_out[fin_out['source']=='Bank Kartı']['amount'].sum() if not fin_out.empty else 0.0
-    
-    expected_cash = cash_sales + cash_in - cash_out
-    
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(f"""
-        <div style="background:var(--metal-panel); padding:20px; border-radius:10px; border:1px solid var(--border-color);">
-            <h3 style="color:#ffd700; margin-top:0;">💰 Satışlar</h3>
-            <p>Dövriyyə: {total_sales + total_disc:.2f} ₼</p><p>Güzəşt: -{total_disc:.2f} ₼</p>
-            <h4 style="color:#4CAF50;">Xalis Satış: {total_sales:.2f} ₼</h4><hr>
-            <p>Nağd: {cash_sales:.2f} ₼</p><p>Kart: {card_sales:.2f} ₼</p><p>Personal: {staff_sales:.2f} ₼</p>
-        </div>
-        """, unsafe_allow_html=True)
+        shift_data = active_shift.iloc[0]
+        shift_start_time = pd.to_datetime(shift_data['shift_start'])
+        st.info(f"🟢 **Aktiv Növbə:** Başlama vaxtı: {shift_start_time.strftime('%d/%m/%Y %H:%M')}")
         
-    with c2:
-        st.markdown(f"""
-        <div style="background:var(--metal-panel); padding:20px; border-radius:10px; border:1px solid var(--border-color);">
-            <h3 style="color:#64b5f6; margin-top:0;">💸 Kassa Hərəkəti</h3>
-            <p>➕ Mədaxil (Nağd): {cash_in:.2f} ₼</p><p>➕ Mədaxil (Kart): {card_in:.2f} ₼</p><hr>
-            <p>➖ Məxaric (Nağd): {cash_out:.2f} ₼</p><p>➖ Məxaric (Kart): {card_out:.2f} ₼</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Sifarişləri cəmləyirik
+        orders_df = run_query("SELECT payment_method, SUM(total_price) as s FROM orders WHERE created_at >= :st GROUP BY payment_method", {"st": shift_start_time})
+        cash_sales = 0.0
+        card_sales = 0.0
         
-    with c3:
-        st.markdown(f"""
-        <div style="background:var(--metal-panel); padding:20px; border-radius:10px; border:2px solid #ffd700; text-align:center;">
-            <h3 style="color:#ffd700; margin-top:0;">KASSA QALIĞI</h3>
-            <h1 style="color:#4CAF50; font-size:40px; margin:10px 0;">{expected_cash:.2f} ₼</h1>
-            <p style="color:#aaa; font-size:12px;">Qutuda olmalı olan nağd pul</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if not orders_df.empty:
+            for _, r in orders_df.iterrows():
+                if str(r['payment_method']).upper() == 'NƏĞD': cash_sales += float(r['s'])
+                elif str(r['payment_method']).upper() == 'KART': card_sales += float(r['s'])
+                
+        total_sales = cash_sales + card_sales
         
-    st.divider()
-    col_out, col_close = st.columns([1, 1.5])
-    
-    with col_out:
-        st.markdown("### 💸 Kassadan Xərc / Maaş Çıxart")
-        with st.form("cash_out_form", clear_on_submit=True):
-            co_amt = st.number_input("Məbləğ (₼)", min_value=0.0, step=1.0)
-            co_desc = st.text_input("Səbəb (Məs: Füzuli maaş)")
-            if st.form_submit_button("Nağd Çıxar"):
-                if co_amt > 0 and co_desc:
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Xərc / Maaş (Növbə)', :a, 'Kassa', :d, :u)", {"a":co_amt, "d":co_desc, "u":user})
-                    st.success(f"{co_amt} ₼ çıxıldı!"); st.rerun()
-                else: st.error("Məbləği və Səbəbi tam doldurun.")
-
-    with col_close:
-        st.markdown("### 🛑 Növbənin Təhvili (Kassanı Sıfırla)")
-        actual_cash = st.number_input("Kassadakı Faktiki Nağd Pul (Sayım)", min_value=0.0, step=0.1, value=float(expected_cash))
-        diff = actual_cash - expected_cash
+        # Xərclər (Kassadan çıxanlar)
+        expenses_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND source='Kassa' AND created_at >= :st", {"st": shift_start_time})
+        shift_expenses = float(expenses_df.iloc[0]['s']) if not expenses_df.empty and pd.notna(expenses_df.iloc[0]['s']) else 0.0
         
-        if diff < 0: st.error(f"⚠️ Kəsir: {diff:.2f} ₼")
-        elif diff > 0: st.success(f"📈 Artıq: +{diff:.2f} ₼")
-        else: st.success("✅ Kassa tam dəqiqdir!")
-
-        c_z1, c_z2 = st.columns(2)
-        if c_z1.button("🖨️ Yalnız Çap Et (Sıfırlama)", type="secondary", use_container_width=True):
-            z_data = {'total_sales': total_sales, 'cash_sales': cash_sales, 'card_sales': card_sales, 'staff_sales': staff_sales, 'cash_in': cash_in, 'cash_out': cash_out, 'expected_cash': expected_cash, 'actual_cash': actual_cash, 'diff': diff}
-            z_report_print_dialog(z_data)
+        # Gözlənilən kassa = Nəğd satışlar - Kassadan çıxan xərclər
+        expected_cash = cash_sales - shift_expenses
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Nəğd Satış", f"{cash_sales:.2f} ₼")
+        c2.metric("Kartla Satış", f"{card_sales:.2f} ₼")
+        c3.metric("Kassadan Xərc", f"{shift_expenses:.2f} ₼")
+        c4.metric("GÖZLƏNİLƏN KASSA", f"{expected_cash:.2f} ₼")
+        
+        st.divider()
+        st.markdown("### 🏁 Növbəni Bağla (Z-Hesabatı Çıxar)")
+        
+        with st.form("z_report_form"):
+            actual_cash = st.number_input("Kassadakı Real Nəğd Pul (₼)", min_value=0.0, step=0.1, value=float(expected_cash))
+            diff = actual_cash - expected_cash
             
-        if c_z2.button("🛑 GÜNÜ BİTİR VƏ SIFIRLA", type="primary", use_container_width=True):
-            run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı və Günü Bitirildi', :u)", {"a": expected_cash, "u":user})
-            st.success("✅ GÜN BAĞLANDI! Kassa sıfırlandı."); time.sleep(2); st.rerun()
+            st.markdown(f"**Fərq:** {'+ ' if diff > 0 else ''}{diff:.2f} ₼ (Mənfidirsə kəsir, müsbətdirsə artıqdır)")
+            
+            if st.form_submit_button("🚨 Z-Hesabat Çıxar və Növbəni Bitir", type="primary", use_container_width=True):
+                # ZİREHLİ MÜDAFİƏ: Bütün rəqəmləri məcburi olaraq Python Float formatına salırıq
+                fl_total = float(total_sales)
+                fl_cash = float(cash_sales)
+                fl_card = float(card_sales)
+                fl_exp = float(expected_cash)
+                fl_act = float(actual_cash)
+                fl_diff = float(diff)
+                
+                # Z-Hesabat cədvəlini bağla
+                run_action("""
+                    UPDATE z_reports 
+                    SET shift_end = :e, total_sales = :t, cash_sales = :cs, card_sales = :cds, expected_cash = :ec, actual_cash = :ac, difference = :d
+                    WHERE id = :id
+                """, {
+                    "e": get_baku_now(), "t": fl_total, "cs": fl_cash, "cds": fl_card, 
+                    "ec": fl_exp, "ac": fl_act, "d": fl_diff, "id": int(shift_data['id'])
+                })
+                
+                # İnkassasiya qeydini Maliyyəyə əlavə et (Burada fl_exp istifadə edirik ki schema xətası verməsin)
+                user_str = str(st.session_state.user)
+                run_action("""
+                    INSERT INTO finance (type, category, amount, source, description, created_by) 
+                    VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı və Günü Bitirildi', :u)
+                """, {"a": fl_exp, "u": user_str})
+                
+                # Çıxarılmış Z-Hesabatın HTML formasını hazırla
+                html_report = f"""
+                <html>
+                <head><style>body{{font-family:monospace; text-align:center;}} table{{width:100%; text-align:left; border-collapse:collapse;}} th,td{{border-bottom:1px dashed #000; padding:5px;}}</style></head>
+                <body>
+                    <div style="width:300px; margin:0 auto; padding:10px;">
+                        <h2>{BRAND_NAME}</h2>
+                        <h3>Z-HESABAT (NÖVBƏ BAĞLANIŞI)</h3>
+                        <p>Növbə: {shift_start_time.strftime('%d/%m %H:%M')} - {get_baku_now().strftime('%d/%m %H:%M')}</p>
+                        <p>Kassir: {st.session_state.user}</p>
+                        <hr>
+                        <table>
+                            <tr><td>Ümumi Satış:</td><td style='text-align:right;'>{fl_total:.2f} ₼</td></tr>
+                            <tr><td>Nəğd:</td><td style='text-align:right;'>{fl_cash:.2f} ₼</td></tr>
+                            <tr><td>Kart:</td><td style='text-align:right;'>{fl_card:.2f} ₼</td></tr>
+                            <tr><td>Növbə Xərcləri:</td><td style='text-align:right;'>-{shift_expenses:.2f} ₼</td></tr>
+                        </table>
+                        <hr>
+                        <h3>Sistemdə Olmalı: {fl_exp:.2f} ₼</h3>
+                        <h3>Təhvil Verildi: {fl_act:.2f} ₼</h3>
+                        <p>Fərq: {fl_diff:.2f} ₼</p>
+                        <br>
+                        <button onclick="window.print()" style="background:#000; color:#fff; padding:10px; width:100%; border:none; cursor:pointer;">ÇAP ET</button>
+                    </div>
+                </body>
+                </html>
+                """
+                b64 = base64.b64encode(html_report.encode('utf-8')).decode('utf-8')
+                st.markdown(f'<a href="data:text/html;base64,{b64}" download="Z_Hesabat_{get_baku_now().strftime("%Y%m%d_%H%M")}.html" target="_blank"><button style="background:#2E7D32; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; width:100%; font-weight:bold; font-size:16px;">⬇️ Z-Hesabatı Yüklə / Çap Et</button></a>', unsafe_allow_html=True)
+                
+                st.session_state.z_report_active = False
+                st.success("✅ Növbə uğurla bağlandı və İnkassasiya qeydə alındı!")
+                time.sleep(2)
+                st.rerun()
+
+    # --- KEÇMİŞ Z-HESABATLAR ARXİVİ ---
+    st.divider()
+    with st.expander("📂 Keçmiş Z-Hesabatlar Arxivi"):
+        past_z = run_query("SELECT id, shift_start, shift_end, total_sales, expected_cash, actual_cash, difference, generated_by FROM z_reports WHERE shift_end IS NOT NULL ORDER BY shift_end DESC LIMIT 30")
+        if not past_z.empty:
+            past_z['shift_start'] = pd.to_datetime(past_z['shift_start']).dt.strftime('%d/%m/%Y %H:%M')
+            past_z['shift_end'] = pd.to_datetime(past_z['shift_end']).dt.strftime('%d/%m/%Y %H:%M')
+            st.dataframe(past_z, hide_index=True, use_container_width=True)
+        else:
+            st.info("Keçmiş hesabat tapılmadı.")
