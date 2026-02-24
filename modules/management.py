@@ -90,12 +90,34 @@ def render_menu_page():
 def render_recipe_page():
     st.subheader("📜 Resept və AI Aşpaz")
     
-    # --- MƏLUMAT BAZASI CƏRRAHİYYƏSİ (0 XƏTASINI BİRDƏFƏLİK HƏLL EDİR) ---
-    try:
-        # Postgres üçün sütunu məcbur FLOAT-a çeviririk.
-        run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE FLOAT USING quantity_required::double precision")
-    except:
-        pass # Əgər SQLite-dirsə və ya artıq FLOAT-dırsa, səssizcə keçir.
+    # ------------------ BAZA CƏRRAHİYYƏSİ BLOKU (YALNIZ ADMİNLƏR ÜÇÜN) ------------------
+    if st.session_state.role in ['admin', 'manager']:
+        with st.expander("🛠️ Sistem Təmiri (Qramajlar '0' olursa bura daxil olun)"):
+            st.warning("Əgər əlavə etdiyiniz rəqəmlər (məs: 0.018) yadda saxlayandan sonra 0 olursa, verilənlər bazası onu səhvən 'Tam Ədəd' kimi tanıyır. Düzəltmək üçün aşağıdakı düyməyə BİR DƏFƏ basın.")
+            if st.button("🔧 Qramaj Xətasını Birdəfəlik Həll Et", type="primary"):
+                try:
+                    # Əgər Postgres-dirsə:
+                    run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE REAL USING quantity_required::real")
+                    st.success("PostgreSQL bazası yeniləndi! Artıq 0.018 yazılacaq.")
+                except:
+                    try:
+                        # Əgər SQLite-dirsə:
+                        run_action("CREATE TABLE recipes_backup AS SELECT * FROM recipes")
+                        run_action("DROP TABLE recipes")
+                        run_action("""
+                            CREATE TABLE recipes (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                menu_item_name TEXT,
+                                ingredient_name TEXT,
+                                quantity_required REAL
+                            )
+                        """)
+                        run_action("INSERT INTO recipes (id, menu_item_name, ingredient_name, quantity_required) SELECT id, menu_item_name, ingredient_name, CAST(quantity_required AS REAL) FROM recipes_backup")
+                        run_action("DROP TABLE recipes_backup")
+                        st.success("✅ Verilənlər Bazası yenidən quruldu! (Kəsr ədəd aktivdir). Artıq rəqəmlər itməyəcək.")
+                    except Exception as e:
+                        st.error(f"Xəta: {e}")
+    # -------------------------------------------------------------------------------------
 
     menu_items = run_query("SELECT item_name, price FROM menu WHERE is_active=TRUE")
     menu_list = menu_items['item_name'].tolist() if not menu_items.empty else []
@@ -150,7 +172,6 @@ def render_recipe_page():
                             if recipe_data:
                                 run_action("DELETE FROM recipes WHERE menu_item_name=:m", {"m": sel_p})
                                 for item in recipe_data:
-                                    # Burada da mütləq FLOAT göndəririk
                                     run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", {"m":sel_p, "i":item['ingredient'], "q":float(item['qty'])})
                                 st.success("✅ Resept avtomatik yaradıldı və cədvələ əlavə olundu!")
                                 time.sleep(1.5)
@@ -161,7 +182,7 @@ def render_recipe_page():
         st.divider()
 
         recs_disp = recs[['id', 'ingredient_name', 'quantity_required', 'unit']].copy()
-        recs_disp['quantity_required'] = recs_disp['quantity_required'].astype(float) # Python səviyyəsində sığorta
+        recs_disp['quantity_required'] = recs_disp['quantity_required'].astype(float)
         recs_disp.insert(0, "Seç", False)
         
         erd = st.data_editor(recs_disp, hide_index=True, column_config={
@@ -220,6 +241,7 @@ def render_recipe_page():
             if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
 def render_crm_page():
+    # CRM kodu əvvəlki kimi
     st.subheader("👥 CRM və AI Marketoloq")
     crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
     if not crm_stats.empty:
