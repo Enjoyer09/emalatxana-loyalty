@@ -1,11 +1,47 @@
 import streamlit as st
 import pandas as pd
 import time
-from database import run_query, run_action
+import google.generativeai as genai
+from database import run_query, run_action, get_setting
 from utils import PRESET_CATEGORIES
 
 def render_inventory_page():
-    st.subheader("📦 Anbar İdarəetməsi")
+    st.subheader("📦 Anbar İdarəetməsi və AI Analiz")
+    
+    if st.session_state.role in ['admin', 'manager']:
+        api_key = get_setting("gemini_api_key", "")
+        with st.expander("🤖 Süni İntellektlə Anbar Analizi", expanded=False):
+            if not api_key:
+                st.warning("⚠️ AI funksiyası üçün 'AI Menecer' səhifəsində API Key daxil edin.")
+            else:
+                st.info("AI bütün anbar qalıqlarınızı yoxlayacaq və bitmək üzrə olan malları, ehtimal olunan təhlükələri bildirəcək.")
+                if st.button("🧠 Anbarı İndi Analiz Et", type="primary"):
+                    with st.spinner("🤖 AI anbarı sayır və analiz edir..."):
+                        try:
+                            genai.configure(api_key=api_key)
+                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                            chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0]) if valid_models else 'gemini-pro'
+                            model = genai.GenerativeModel(chosen_model)
+                            
+                            inv_df = run_query("SELECT name, stock_qty, unit, category FROM ingredients")
+                            if inv_df.empty:
+                                st.warning("Anbarda məlumat yoxdur.")
+                            else:
+                                inv_str = "\n".join([f"- {r['name']}: {r['stock_qty']} {r['unit']} ({r['category']})" for _, r in inv_df.iterrows()])
+                                prompt = f"""
+                                Sən 'Füzuli' kofe şopunun Anbardarısan.
+                                Aşağıdakı anbar qalıqlarına bax və mənə qısa hesabat ver:
+                                1. Təcili alınmalı olanlar (Bitmək üzrə olanlar).
+                                2. Anbar israfı barədə xəbərdarlıq.
+                                
+                                Anbar Siyahısı:
+                                {inv_str}
+                                """
+                                response = model.generate_content(prompt)
+                                st.markdown(f"<div style='background: #1e2226; padding: 20px; border-left: 5px solid #ffd700; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);'>{response.text}</div>", unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"Xəta: {e}")
+
     if st.session_state.role in ['admin','manager']:
         with st.expander("➕ Mədaxil / Yeni Mal"):
              with st.form("smart_add_item", clear_on_submit=True):
@@ -26,18 +62,20 @@ def render_inventory_page():
         edited_mgr_anbar = st.data_editor(df_page_display, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True)}, disabled=["id","name","stock_qty","unit","category"], use_container_width=True, key="anbar_mgr_ed")
         sel_mgr_rows = edited_mgr_anbar[edited_mgr_anbar["Seç"]]
         if len(sel_mgr_rows) == 1:
-            c1, c2 = st.columns(2)
-            if c1.button("➕ Mədaxil", key="anbar_restock_mgr"): st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
-            if c2.button("✏️ Düzəliş", key="anbar_edit_mgr"): st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+            c1_btn, c2_btn = st.columns(2)
+            if c1_btn.button("➕ Mədaxil", key="anbar_restock_mgr"): st.session_state.restock_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
+            if c2_btn.button("✏️ Düzəliş", key="anbar_edit_mgr"): st.session_state.edit_item_id = int(sel_mgr_rows.iloc[0]['id']); st.rerun()
     else:
         df_page.insert(0, "Seç", False)
         edited_df = st.data_editor(df_page, hide_index=True, column_config={"Seç": st.column_config.CheckboxColumn(required=True), "unit_cost": st.column_config.NumberColumn(format="%.5f"), "Total Value": st.column_config.NumberColumn(format="%.2f")}, disabled=["id", "name", "stock_qty", "unit", "unit_cost", "category", "Total Value", "type"], use_container_width=True, key="anbar_editor")
         sel_rows = edited_df[edited_df["Seç"]]; sel_ids = sel_rows['id'].tolist()
-        c1, c2, c3 = st.columns(3)
+        c1_btn, c2_btn, c3_btn = st.columns(3)
         if len(sel_ids) == 1:
-            if c1.button("➕ Mədaxil", key="anbar_restock_btn"): st.session_state.restock_item_id = int(sel_ids[0]); st.rerun()
-            if c2.button("✏️ Düzəliş", key="anbar_edit_btn"): st.session_state.edit_item_id = int(sel_ids[0]); st.rerun()
-        if len(sel_ids) > 0 and c3.button("🗑️ Sil", key="anbar_del_btn"): [run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)}) for i in sel_ids]; st.success("Silindi!"); st.rerun()
+            if c1_btn.button("➕ Mədaxil", key="anbar_restock_btn"): st.session_state.restock_item_id = int(sel_ids[0]); st.rerun()
+            if c2_btn.button("✏️ Düzəliş", key="anbar_edit_btn"): st.session_state.edit_item_id = int(sel_ids[0]); st.rerun()
+        if len(sel_ids) > 0 and c3_btn.button("🗑️ Sil", key="anbar_del_btn"): 
+            for i in sel_ids: run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)})
+            st.success("Silindi!"); time.sleep(1); st.rerun()
 
     pc1, pc2, pc3 = st.columns([1,2,1])
     if pc1.button("⬅️", key="anbar_prev") and st.session_state.anbar_page > 0: st.session_state.anbar_page -= 1; st.rerun()
@@ -52,7 +90,7 @@ def render_inventory_page():
             def show_restock(r):
                 with st.form("rs"):
                     p = st.number_input("Say", min_value=1.0, value=1.0, step=1.0)
-                    w = st.number_input(f"Çəki ({r['unit']})", min_value=0.001, value=1.0, step=0.1)
+                    w = st.number_input(f"Çəki/Həcm ({r['unit']})", min_value=0.001, value=1.0, step=0.1)
                     pr = st.number_input("Yekun Qiymət", min_value=0.0, value=0.0, step=0.5)
                     if st.form_submit_button("Təsdiq"):
                         tq = p*w; uc = pr/tq if tq>0 else r['unit_cost']
