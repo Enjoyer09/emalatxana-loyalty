@@ -4,8 +4,9 @@ import random
 import datetime
 import time
 import os
+from sqlalchemy import text
 
-from database import ensure_schema, run_query, run_action, get_setting, set_setting
+from database import ensure_schema, run_query, run_action, get_setting, set_setting, conn
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, verify_password
 from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now
 
@@ -16,6 +17,7 @@ from modules.finance import render_finance_page
 from modules.analytics import render_analytics_page, render_z_report_page
 from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
+from modules.ai_manager import render_ai_page
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
@@ -36,40 +38,103 @@ if 'show_receipt_popup' not in st.session_state: st.session_state.show_receipt_p
 if 'last_receipt_data' not in st.session_state: st.session_state.last_receipt_data = None
 if 'anbar_page' not in st.session_state: st.session_state.anbar_page = 0
 if 'z_report_active' not in st.session_state: st.session_state.z_report_active = False
-if 'z_calculated' not in st.session_state: st.session_state.z_calculated = False 
+if 'restock_item_id' not in st.session_state: st.session_state.restock_item_id = None
+if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
+if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 
 ensure_schema()
 
+# --- YENİ TƏMİZ VƏ SƏHVSİZ METALLİK CSS ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&display=swap');
-    :root { --primary-color: #2E7D32; }
-    .stApp { background-color: #F4F5F7 !important; color: #333 !important; font-family: 'Arial', sans-serif !important; }
-    div[data-testid="stStatusWidget"] { visibility: hidden; } #MainMenu { visibility: hidden; } header { visibility: hidden; } footer { visibility: hidden; }
-    div[data-testid="stImage"] img { border-radius: 50% !important; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-    div.stRadio > div[role="radiogroup"] { display: flex; flex-direction: row; justify-content: center; overflow-x: auto; background: white; padding: 10px; border-radius: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-    div.stRadio > div[role="radiogroup"] > label { background: transparent; border: 1px solid #ddd; border-radius: 8px; margin: 0 5px; padding: 5px 15px; cursor: pointer; transition: all 0.2s; }
-    div.stRadio > div[role="radiogroup"] > label[data-checked="true"] { background: #2E7D32 !important; color: white !important; border-color: #2E7D32; }
-    div.stButton > button { border-radius: 12px !important; font-weight: bold !important; border: 1px solid #999 !important; box-shadow: 2px 2px 5px rgba(0,0,0,0.2) !important; transition: all 0.1s; }
-    div.stButton > button:active { transform: scale(0.98); box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3) !important; }
-    div.stButton > button[kind="primary"] { background: linear-gradient(135deg, #FF6B35, #FF8C00) !important; color: white !important; border: none !important; }
-    div.stButton > button[kind="secondary"] { background: linear-gradient(145deg, #f8f9fa, #cfd8dc) !important; color: #263238 !important; min-height: 90px !important; white-space: pre-wrap !important; font-size: 16px !important; line-height: 1.3 !important; padding: 8px !important; }
-    @keyframes flash { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
-    .flash-message { animation: flash 1.5s infinite; border: 3px solid #FFD700 !important; background: linear-gradient(45deg, #FF6B35, #FF8C00) !important; }
-    .msg-box { background: linear-gradient(45deg, #FF9800, #FFC107); padding: 15px; border-radius: 15px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px; font-family: 'Comfortaa', cursive !important; animation: pulse 2s infinite; }
-    .stamp-container { display: flex; justify-content: center; margin-bottom: 20px; }
-    .stamp-card { background: white; padding: 15px 30px; text-align: center; font-family: 'Courier Prime', monospace; font-weight: bold; transform: rotate(-3deg); border-radius: 12px; border: 4px solid #B71C1C; color: #B71C1C; box-shadow: 0 0 0 4px white, 0 0 0 7px #B71C1C; }
-    .coffee-grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; justify-items: center; margin-top: 20px; max-width: 400px; margin-left: auto; margin-right: auto; }
-    .coffee-icon-img { width: 50px; height: 50px; transition: all 0.5s ease; }
-    .cup-earned { filter: invert(24%) sepia(96%) saturate(1720%) hue-rotate(94deg) brightness(92%) contrast(102%); opacity: 1; transform: scale(1.1); }
-    .cup-red-base { filter: invert(18%) sepia(90%) saturate(6329%) hue-rotate(356deg) brightness(96%) contrast(116%); }
-    .cup-anim { animation: bounce 1s infinite; }
-    .cup-empty { filter: grayscale(100%); opacity: 0.2; }
-    div[data-testid="stRating"] { justify-content: center !important; transform: scale(1.5); }
-    div[data-testid="stRating"] svg { fill: #FF0000 !important; color: #FF0000 !important; }
-    .round-logo { display: block; margin-left: auto; margin-right: auto; border-radius: 50%; width: 150px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;800&family=Nunito:wght@400;700;900&display=swap');
+    
+    :root { 
+        --metal-bg: radial-gradient(circle at center, #4a5159 0%, #1a1d21 100%);
+        --metal-panel: linear-gradient(145deg, #323841, #252a30);
+        --metal-btn: linear-gradient(160deg, #4a5159 0%, #2a2f35 50%, #1e2226 100%);
+        --metal-btn-hover: linear-gradient(160deg, #5c6570 0%, #383f47 50%, #2a2f35 100%);
+        --accent-gold: linear-gradient(160deg, #ffd700 0%, #e6b800 50%, #b38f00 100%);
+        --text-light: #ffffff;
+        --border-color: #545b66;
+    }
+    
+    html, body { font-family: 'Nunito', sans-serif !important; font-size: 16px !important; }
+    .stApp { background: var(--metal-bg) !important; color: var(--text-light) !important; }
+    div[data-testid="stStatusWidget"], #MainMenu, header, footer { display: none !important; }
+    
+    /* BAŞLIQLAR VƏ MƏTNLƏR */
+    h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura', sans-serif !important; font-weight: 800 !important; text-transform: uppercase; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+    h4, p, span, label { color: var(--text-light) !important; }
+
+    /* İNPUT VƏ AXTARIŞ QUTULARI (DÜZƏLDİLDİ: TÜND VƏ OXUNAQLI) */
+    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div { 
+        background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important;
+    }
+    div[data-baseweb="input"] input { 
+        color: #ffffff !important; font-weight: 700 !important; -webkit-text-fill-color: #ffffff !important; background: transparent !important;
+    }
+    div[data-baseweb="input"] input::placeholder { color: #7b8896 !important; -webkit-text-fill-color: #7b8896 !important; }
+    div[data-baseweb="select"] span { color: #ffffff !important; font-weight: 700 !important; }
+    ul[role="listbox"] { background-color: #1e2226 !important; border: 1px solid #3a4149 !important; }
+    ul[role="listbox"] li { color: #ffffff !important; }
+    
+    /* DIALOQ VƏ POPUP PƏNCƏRƏLƏR (AĞ EKRAN XƏTASI HƏLL EDİLDİ) */
+    div[role="dialog"] { background: transparent !important; }
+    div[role="dialog"] > div {
+        background: var(--metal-bg) !important; border: 2px solid #ffd700 !important; border-radius: 15px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+    }
+    div[role="dialog"] h1, div[role="dialog"] h2, div[role="dialog"] h3 { color: #ffd700 !important; }
+    div[role="dialog"] p, div[role="dialog"] span, div[role="dialog"] label { color: #ffffff !important; }
+    div[role="dialog"] header { background: transparent !important; }
+    
+    /* RADIO DÜYMƏLƏR - METAL HƏBLƏR */
+    div[role="radiogroup"] { gap: 10px; border: none; flex-wrap: wrap; }
+    div[role="radiogroup"] > label { 
+        background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; 
+        padding: 10px 20px !important; cursor: pointer; box-shadow: 4px 4px 8px rgba(0,0,0,0.6), inset 1px 1px 2px rgba(255,255,255,0.1) !important; transition: all 0.2s;
+    }
+    div[role="radiogroup"] > label > div:first-child { display: none !important; width: 0 !important; height: 0 !important; }
+    div[role="radiogroup"] > label p { color: #ffffff !important; font-weight: 800 !important; font-size: 15px !important; font-family: 'Jura', sans-serif !important; margin: 0 !important; display: block !important;}
+    div[role="radiogroup"] > label:hover { background: var(--metal-btn-hover) !important; transform: translateY(-2px); }
+    div[role="radiogroup"] > label[data-checked="true"] { 
+        background: var(--accent-gold) !important; border-color: #ffd700 !important; box-shadow: 0 0 15px rgba(255, 215, 0, 0.5), inset 2px 2px 5px rgba(0,0,0,0.3) !important;
+    }
+    div[role="radiogroup"] > label[data-checked="true"] p { color: #000000 !important; }
+    
+    /* KONTEYNERLƏR */
+    div[data-testid="stVerticalBlockBorderWrapper"], div[data-testid="expander"], div[data-testid="stPopoverBody"] {
+        background: var(--metal-panel) !important; border: 2px solid #3a4149 !important; border-radius: 12px !important;
+        box-shadow: 6px 6px 12px rgba(0,0,0,0.4), inset 1px 1px 2px rgba(255,255,255,0.05) !important; padding: 15px !important;
+    }
+
+    /* NORMAL VƏ LOGIN DÜYMƏLƏR */
+    button[kind="secondary"], button[kind="secondaryFormSubmit"] { 
+        background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 10px !important; 
+        box-shadow: inset 0 1px 0 #6a7179, 0 5px 10px rgba(0,0,0,0.5) !important; min-height: 70px; transition: all 0.15s;
+    }
+    button[kind="secondary"] p, button[kind="secondaryFormSubmit"] p, button[kind="secondaryFormSubmit"] div { 
+        color: #ffffff !important; font-size: 16px !important; font-weight: 800 !important; font-family: 'Nunito' !important; display: block !important;
+    }
+    button[kind="secondary"]:hover, button[kind="secondaryFormSubmit"]:hover { 
+        background: var(--metal-btn-hover) !important; transform: translateY(-3px); border-color: #7b8896 !important; 
+    }
+    
+    /* ƏSAS DÜYMƏLƏR (ÖDƏNİŞ) */
+    button[kind="primary"], button[kind="primaryFormSubmit"] { 
+        background: var(--accent-gold) !important; border: 2px solid #ffd700 !important; border-radius: 10px !important; 
+        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4), inset 2px 2px 5px rgba(255,255,255,0.5) !important; min-height: 50px;
+    }
+    button[kind="primary"] p, button[kind="primaryFormSubmit"] p, button[kind="primaryFormSubmit"] div { 
+        color: #000000 !important; font-weight: 900 !important; font-size: 18px !important; font-family: 'Jura' !important; text-shadow: none !important; display: block !important;
+    }
+    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover { 
+        background: linear-gradient(160deg, #ffed4d 0%, #ffd700 50%, #e6b800 100%) !important; transform: translateY(-2px); 
+    }
+    
+    hr { border-top: 2px solid #3a4149 !important; opacity: 0.5; }
+    .stMetric { background: var(--metal-btn); padding: 15px; border-radius: 10px; border: 2px solid #3a4149; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5); }
+    .stMetric label { color: #aaa !important; font-weight: 700; } .stMetric div { color: #ffd700 !important; font-family: 'Jura'; font-weight: 900; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -79,7 +144,7 @@ def get_receipt_html_string(cart, total):
     logo = get_setting("receipt_logo_base64"); time_str = get_baku_now().strftime('%d/%m/%Y %H:%M')
     img_tag = f'<img src="data:image/png;base64,{logo}" style="width:80px; margin-bottom: 10px; filter:grayscale(100%);">' if logo else ""
     rows = "".join([f"<tr><td style='border-bottom:1px dashed #000; padding:5px;'>{int(i['qty'])}</td><td style='border-bottom:1px dashed #000; padding:5px;'>{i['item_name']}</td><td style='border-bottom:1px dashed #000; padding:5px; text-align:right;'>{i['qty']*i['price']:.2f}</td></tr>" for i in cart])
-    return f"""<html><head><style>body{{font-family:'Courier New',monospace;text-align:center;margin:0;padding:0}}.receipt-container{{width:300px;margin:0 auto;padding:10px;background:white}}table{{width:100%;text-align:left;border-collapse:collapse}}th{{border-bottom:1px dashed #000;padding:5px}}@media print{{body,html{{width:100%;height:100%;margin:0;padding:0}}body *{{visibility:hidden}}.receipt-container,.receipt-container *{{visibility:visible}}.receipt-container{{position:absolute;left:0;top:0;width:100%;margin:0;padding:0}}#print-btn{{display:none}}}}</style></head><body><div class="receipt-container">{img_tag}<h3 style="margin:5px 0;">{store}</h3><p style="margin:0;font-size:12px;">{addr}<br>{phone}</p><p style="margin:5px 0;font-weight:bold;">{header}</p><p style="font-size:12px;">{time_str}</p><br><table><tr><th>Say</th><th>Mal</th><th style='text-align:right;'>Məb</th></tr>{rows}</table><h3>YEKUN: {total:.2f} ₼</h3><p>{footer}</p><br><button id="print-btn" onclick="window.print()" style="background:#2E7D32;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;font-weight:bold;width:100%;">🖨️ ÇAP ET</button></div></body></html>"""
+    return f"""<html><head><style>body{{font-family:'Courier New',monospace;text-align:center;margin:0;padding:0;background:white;color:black;}}.receipt-container{{width:300px;margin:0 auto;padding:10px;background:white;color:black;}}table{{width:100%;text-align:left;border-collapse:collapse;color:black;}}th,td{{border-bottom:1px dashed #000;padding:5px;color:black;}}h3,p{{color:black;}}@media print{{body,html{{width:100%;height:100%;margin:0;padding:0}}body *{{visibility:hidden}}.receipt-container,.receipt-container *{{visibility:visible}}.receipt-container{{position:absolute;left:0;top:0;width:100%;margin:0;padding:0}}#print-btn{{display:none}}}}</style></head><body><div class="receipt-container">{img_tag}<h3 style="margin:5px 0;">{store}</h3><p style="margin:0;font-size:12px;">{addr}<br>{phone}</p><p style="margin:5px 0;font-weight:bold;">{header}</p><p style="font-size:12px;">{time_str}</p><br><table><tr><th>Say</th><th>Mal</th><th style='text-align:right;'>Məb</th></tr>{rows}</table><h3>YEKUN: {total:.2f} ₼</h3><p>{footer}</p><br><button id="print-btn" onclick="window.print()" style="background:#2E7D32;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;font-weight:bold;width:100%;">🖨️ ÇAP ET</button></div></body></html>"""
 
 @st.dialog("🧾 Çek")
 def show_receipt_dialog(cart_data, total_amt, cust_email):
@@ -93,63 +158,81 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
             send_email(cust_email, "Çekiniz", html); st.success("Getdi!")
     if st.button("❌ Bağla"): st.session_state.show_receipt_popup=False; st.session_state.last_receipt_data=None; st.rerun()
 
+# --- MÜŞTƏRİ EKRANI ÜÇÜN XÜSUSİ AĞ REJİM VƏ MOBİL OPTİMİZASİYA ---
 if "id" in st.query_params and not st.session_state.logged_in:
+    st.markdown("""
+        <style>
+        .stApp { background: #FFFFFF !important; }
+        .stApp h1, .stApp h2, .stApp h3, .stApp p, .stApp span, .stApp div { color: #000000 !important; text-shadow: none !important; }
+        .stApp button { background: #2E7D32 !important; border: none !important; box-shadow: none !important; min-height: 50px !important; }
+        .stApp button p { color: #FFFFFF !important; font-family: 'Nunito' !important; display: block !important;}
+        .customer-card { background: #f8f9fa; border: 4px solid #2E7D32; border-radius: 15px; padding: 20px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .msg-box { background: #e3f2fd; border-left: 5px solid #2196f3; padding: 15px; margin-bottom: 15px; border-radius: 8px; font-weight: bold; }
+        </style>
+    """, unsafe_allow_html=True)
+    
     card_id = st.query_params["id"]; token = st.query_params.get("t")
     c1, c2, c3 = st.columns([1,2,1])
     with c2: 
         logo_db = get_setting("receipt_logo_base64")
-        if logo_db: st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo_db}" class="round-logo" width="120"></div>', unsafe_allow_html=True)
-        elif os.path.exists("logo.jpg"): st.image("logo.jpg", width=120)
-    st.markdown("""<style>.stApp{background-color:#FFFFFF!important;}h1,h2,h3,h4,h5,h6,p,div,span,label,li{color:#000000!important;}</style>""", unsafe_allow_html=True)
+        if logo_db: st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo_db}" width="120"></div>', unsafe_allow_html=True)
+        st.markdown(f"<h2 style='text-align:center; color:#2E7D32 !important; margin:0;'>{BRAND_NAME}</h2>", unsafe_allow_html=True)
+        st.divider()
+
     try: df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":card_id})
-    except: st.stop()
+    except: st.error("Baza xətası"); st.stop()
+    
     if not df.empty:
         user = df.iloc[0]
-        if user['secret_token'] and token and user['secret_token'] != token: st.warning("⚠️ QR kod köhnəlib.")
-        st.markdown(f"<div class='cartoon-quote'>{random.choice(CARTOON_QUOTES)}</div>", unsafe_allow_html=True)
         notifs = run_query("SELECT * FROM notifications WHERE card_id=:id AND is_read=FALSE", {"id":card_id})
         for _, n in notifs.iterrows():
-            st.markdown(f"<div class='msg-box flash-message'>📩 {n['message']}</div>", unsafe_allow_html=True)
-            st.balloons()
-            if st.button("Oxudum ✅", key=f"n_{n['id']}"): run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id":n['id']}); st.rerun()
-        if not user['is_active']:
-            st.info("Xoş Gəldiniz!"); terms = get_setting("customer_rules", DEFAULT_TERMS)
-            with st.form("act"):
-                st.markdown(terms, unsafe_allow_html=True); agree = st.checkbox("Qaydaları oxudum və qəbul edirəm", value=False); st.divider(); st.write("**Könüllü:**"); em = st.text_input("Email"); dob = st.date_input("Doğum Tarixi", value=None, min_value=datetime.date(1950,1,1))
-                if st.form_submit_button("TƏSDİQLƏ VƏ QOŞUL"):
-                    if agree: run_action("UPDATE customers SET email=:e, birth_date=:b, is_active=TRUE WHERE card_id=:i", {"e":em, "b":str(dob) if dob else None, "i":card_id}); st.rerun()
-                    else: st.error("Qaydaları qəbul edin.")
-            st.stop()
-        ctype = user['type']; st_lbl = "MEMBER"; b_col = "#B71C1C"
+            st.markdown(f"<div class='msg-box'>📩 {n['message']}</div>", unsafe_allow_html=True)
+            if st.button("Oxudum ✅", key=f"n_{n['id']}", use_container_width=True): 
+                run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id":n['id']}); st.rerun()
+        
+        ctype = user['type']; st_lbl = "MEMBER"; b_col = "#2E7D32"
         if ctype=='golden': st_lbl="GOLDEN (5%)"; b_col="#D4AF37"
         elif ctype=='platinum': st_lbl="PLATINUM (10%)"; b_col="#78909C"
         elif ctype=='elite': st_lbl="ELITE (20%)"; b_col="#37474F"
-        elif ctype=='ikram': st_lbl="İKRAM (100%)"; b_col="#00C853"
-        elif ctype=='thermos': st_lbl="EKO-TERM (20%)"; b_col="#2E7D32"
-        st.markdown(f"<div class='stamp-container'><div class='stamp-card' style='border-color:{b_col};color:{b_col};box-shadow:0 0 0 4px white, 0 0 0 7px {b_col};'><div style='font-size:20px;border-bottom:2px solid;'>{st_lbl}</div><div style='font-size:50px;'>{user['stars']}/10</div><div>ULDUZ BALANSI</div></div></div>", unsafe_allow_html=True)
-        html = '<div class="coffee-grid-container">'
+        
+        st.markdown(f"""
+        <div class='customer-card' style='border-color:{b_col};'>
+            <h3 style='margin:0; color:{b_col} !important;'>{st_lbl}</h3>
+            <h1 style='font-size:60px; margin:10px 0; color:{b_col} !important;'>{user['stars']}/10</h1>
+            <p style='margin:0; font-weight:bold; color:{b_col} !important;'>ULDUZ BALANSI</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("")
+        cups_html = '<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin-top: 10px;">'
         for i in range(10):
-            icon = "https://cdn-icons-png.flaticon.com/512/751/751621.png"; style = ""; cls = "cup-empty"
-            if i == 9: 
-                if user['stars'] >= 10: cls = "cup-red-base cup-anim"; style = "opacity: 1;"
-                else: op = 0.1 + (user['stars'] * 0.09); cls = "cup-red-base"; style = f"opacity: {op};"
-            elif i < user['stars']: cls = "cup-earned"
-            html += f'<img src="{icon}" class="{cls} coffee-icon-img" style="{style}">'
-        st.markdown(html + "</div>", unsafe_allow_html=True)
-        if user['stars'] >= 10: st.success("🎉 Təbriklər! Bu kofeniz bizdəndir!")
-        with st.form("fd"):
-            s = st.feedback("stars"); m = st.text_input("Fikriniz...")
-            if st.form_submit_button("Göndər") and s: run_action("INSERT INTO feedbacks (card_id,rating,comment,created_at) VALUES (:c,:r,:m,:t)", {"c":card_id,"r":s+1,"m":m,"t":get_baku_now()}); st.success("Təşəkkürlər!")
-        st.stop()
+            if i < user['stars']:
+                cups_html += '<img src="https://cdn-icons-png.flaticon.com/512/751/751621.png" width="45" style="margin-bottom:10px;">'
+            else:
+                cups_html += '<img src="https://cdn-icons-png.flaticon.com/512/751/751621.png" width="45" style="filter: grayscale(100%); opacity: 0.2; margin-bottom:10px;">'
+        cups_html += '</div>'
+        st.markdown(cups_html, unsafe_allow_html=True)
+        
+        if user['stars'] >= 10: st.success("🎉 Təbriklər! 1 ədəd pulsuz kofeniz var!")
+        st.divider()
+        with st.expander("💬 Bizə Yazın (Rəy Bildir)"):
+             with st.form("fd"):
+                s = st.feedback("stars"); m = st.text_area("Fikriniz...")
+                if st.form_submit_button("Göndər") and s: 
+                    run_action("INSERT INTO feedbacks (card_id,rating,comment,created_at) VALUES (:c,:r,:m,:t)", {"c":card_id,"r":s+1,"m":m,"t":get_baku_now()}); st.success("Təşəkkürlər!")
+    else: st.error("Kart tapılmadı.")
+    st.stop()
 
+# --- LOGIN VƏ NAVIQASİYA ---
 if not st.session_state.logged_in: check_url_token_login()
 if not st.session_state.logged_in:
     c1,c2,c3 = st.columns([1,1,1])
     with c2:
         logo_db = get_setting("receipt_logo_base64")
-        if logo_db: st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo_db}" class="round-logo" width="150"></div>', unsafe_allow_html=True)
+        if logo_db: st.markdown(f'<div style="text-align:center;"><img src="data:image/png;base64,{logo_db}" class="round-logo" width="150" style="border-radius:50%;"></div>', unsafe_allow_html=True)
         elif os.path.exists("logo.jpg"): st.image("logo.jpg", width=150)
-        st.markdown(f"<h1 style='text-align:center; color:#2E7D32;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
+        st.markdown(f"<h1 style='text-align:center; margin-bottom:0;'>{BRAND_NAME}</h1><h5 style='text-align:center; color:#7b8896 !important;'>{VERSION}</h5>", unsafe_allow_html=True)
+        
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
         with t1:
             with st.form("sl"):
@@ -158,28 +241,24 @@ if not st.session_state.logged_in:
                     u = get_cached_users(); found = False; matched_user = None
                     for _,r in u.iterrows():
                         if r['role'] in ['staff','manager']:
-                            if r['locked_until'] and pd.to_datetime(r['locked_until']) > get_baku_now(): st.error("BLOKLANDI!"); found=True; break
                             if verify_password(p, r['password']): matched_user = r; found = True; break
-                            else: fail = (r['failed_attempts'] or 0) + 1
                     if matched_user is not None:
-                        st.session_state.logged_in=True; st.session_state.user=matched_user['username']; st.session_state.role=matched_user['role']; token = create_session(matched_user['username'],matched_user['role']); st.session_state.session_token = token; run_action("UPDATE users SET failed_attempts=0 WHERE username=:u", {"u":matched_user['username']}); st.query_params.clear(); st.rerun()
+                        st.session_state.logged_in=True; st.session_state.user=matched_user['username']; st.session_state.role=matched_user['role']; token = create_session(matched_user['username'],matched_user['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
                     elif not found: st.error("Yanlış PIN")
         with t2:
             with st.form("al"):
                 u = st.text_input("User"); p = st.text_input("Pass", type="password")
-                if st.form_submit_button("Login"):
+                if st.form_submit_button("Login", use_container_width=True):
                     ud = run_query("SELECT * FROM users WHERE username=:u", {"u":u})
                     if not ud.empty and verify_password(p, ud.iloc[0]['password']):
                         st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
                     else: st.error("Səhv")
 else:
     if not validate_session(): logout_user()
-    h1, h2, h3 = st.columns([4,1,1])
-    with h1: st.markdown(f"**👤 {st.session_state.user}** | {st.session_state.role.upper()}")
-    with h2: 
-        if st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary"): st.rerun()
-    with h3: 
-        if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True): logout_user()
+    h1, h2, h3 = st.columns([4,1,1], vertical_alignment="center")
+    with h1: st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
+    with h2: st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
+    with h3: st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True, on_click=logout_user)
     st.divider()
 
     role = st.session_state.role
@@ -188,14 +267,14 @@ else:
     show_tables_staff = get_setting("staff_show_tables", "TRUE") == "TRUE"; show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
     if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): tabs_list.append("🍽️ MASALAR")
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
-    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM"])
+    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
     if role == 'manager':
          if get_setting("manager_perm_menu", "FALSE") == "TRUE": tabs_list.append("📋 Menyu")
          if get_setting("manager_perm_recipes", "FALSE") == "TRUE": tabs_list.append("📜 Resept")
     if role == 'admin':
-        if "📋 Menyu" not in tabs_list: tabs_list.append("📋 Menyu")
-        if "📜 Resept" not in tabs_list: tabs_list.append("📜 Resept")
-        tabs_list.extend(["📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
+        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
+    
+    tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
 
     if "current_tab" not in st.session_state: st.session_state.current_tab = tabs_list[0]
     selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
@@ -211,6 +290,7 @@ else:
     elif selected_tab == "💰 Maliyyə": render_finance_page()
     elif selected_tab == "📊 Analitika": render_analytics_page()
     elif selected_tab == "👥 CRM": render_crm_page()
+    elif selected_tab == "🤖 AI Menecer": render_ai_page()
     elif selected_tab == "📋 Menyu": render_menu_page()
     elif selected_tab == "📜 Resept": render_recipe_page()
     elif selected_tab == "📝 Qeydlər": render_notes_page()
@@ -219,4 +299,4 @@ else:
     elif selected_tab == "QR": render_qr_page()
     elif selected_tab == "📜 Loglar": render_logs_page()
 
-    st.markdown(f"<div style='text-align:center;color:#aaa;margin-top:50px;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
