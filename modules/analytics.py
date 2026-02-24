@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import datetime
-from database import run_query
-from utils import get_logical_date, get_baku_now, get_shift_range
+from database import run_query, run_action, get_setting
+from utils import get_logical_date, get_baku_now, get_shift_range, BRAND_NAME
 
 def render_analytics_page():
     st.subheader("📊 CFO Maliyyə Analitikası (P&L)")
@@ -40,11 +40,10 @@ def render_analytics_page():
         ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
         ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
         
-        # 1. DÖVRİYYƏ (Revenue)
-        sales = run_query("SELECT items, total FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
+        # 1. DÖVRİYYƏ VƏ MAYA DƏYƏRİ HESABLAMASI
+        sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC", {"s":ts_start, "e":ts_end})
         total_rev = sales['total'].sum() if not sales.empty else 0.0
         
-        # 2. MAYA DƏYƏRİ (Food Cost / COGS) hesablanması
         menu_costs = {}
         recs = run_query("""
             SELECT r.menu_item_name, CAST(r.quantity_required AS FLOAT) as q, i.unit_cost 
@@ -67,17 +66,13 @@ def render_analytics_page():
                             total_cogs += menu_costs.get(n_part, 0.0) * qty
                         except: pass
         
-        # 3. BRÜT QAZANC (Gross Profit)
         gross_profit = total_rev - total_cogs
         
-        # 4. ƏMƏLİYYAT XƏRCLƏRİ (OPEX - İcarə, Maaş, Kommunal)
         fin = run_query("SELECT amount FROM finance WHERE type='out' AND created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
         total_opex = fin['amount'].sum() if not fin.empty else 0.0
         
-        # 5. XALİS QAZANC (Net Profit)
         net_profit = gross_profit - total_opex
         
-        # Ekrana Çıxarış
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.markdown(f"<div class='cfo-card cfo-rev'><h4>Dövriyyə</h4><h2>{total_rev:.2f} ₼</h2></div>", unsafe_allow_html=True)
         m2.markdown(f"<div class='cfo-card cfo-cost'><h4>Maya Dəyəri</h4><h2>-{total_cogs:.2f} ₼</h2></div>", unsafe_allow_html=True)
@@ -85,7 +80,75 @@ def render_analytics_page():
         m4.markdown(f"<div class='cfo-card cfo-opex'><h4>Xərclər (OPEX)</h4><h2>-{total_opex:.2f} ₼</h2></div>", unsafe_allow_html=True)
         m5.markdown(f"<div class='cfo-card cfo-net'><h4>XALİS QAZANC</h4><h2>{net_profit:.2f} ₼</h2></div>", unsafe_allow_html=True)
         
-        st.info("💡 Məsləhət: Maya Dəyəri Dövriyyənin 25-30%-dən yuxarıdırsa, təchizatçı qiymətlərinizi və israfı yoxlayın.")
+        # BURA SƏNİN İSTƏDİYİN DETALLI SATIŞ TARİXÇƏSİDİR!
+        st.divider()
+        st.markdown("### 📋 Gündəlik Satış Tarixçəsi (Hər Çek Üzrə)")
+        
+        detailed_sales = run_query("""
+            SELECT 
+                TO_CHAR(s.created_at, 'YYYY-MM-DD HH24:MI') as "Tarix",
+                s.items as "Sifarişlər",
+                s.total as "Məbləğ (₼)",
+                s.payment_method as "Ödəniş",
+                COALESCE(s.customer_card_id, 'Anonim') as "Müştəri QR",
+                COALESCE(CAST(c.stars AS VARCHAR), '-') as "Ulduz",
+                COALESCE(UPPER(c.type), 'STANDART') as "Tip",
+                s.cashier as "Kassir"
+            FROM sales s 
+            LEFT JOIN customers c ON s.customer_card_id = c.card_id
+            WHERE s.created_at BETWEEN :s AND :e
+            ORDER BY s.created_at DESC
+        """, {"s":ts_start, "e":ts_end})
+        
+        if not detailed_sales.empty:
+            st.dataframe(detailed_sales, use_container_width=True, hide_index=True)
+        else:
+            st.info("Bu tarixlərdə heç bir satış tapılmadı.")
+
+
+@st.dialog("🖨️ Z-Hesabat Çapı")
+def z_report_print_dialog(z_data):
+    store = get_setting("receipt_store_name", BRAND_NAME)
+    time_str = get_baku_now().strftime('%d/%m/%Y %H:%M')
+    
+    html = f"""
+    <html><head><style>
+        body{{font-family:'Courier New',monospace;text-align:center;background:white;color:black;margin:0;padding:10px;}}
+        .z-container{{width:300px;margin:0 auto;}}
+        hr{{border-top:1px dashed #000;}}
+        h3,p{{margin:5px 0;color:black;}}
+        .row{{display:flex;justify-content:space-between;margin:3px 0;font-size:14px;}}
+        @media print{{ #print-btn{{display:none;}} }}
+    </style></head><body>
+    <div class="z-container">
+        <h3>{store}</h3>
+        <p>Z-HESABAT (NÖVBƏ BAĞLANIŞI)</p>
+        <p>{time_str}</p>
+        <hr>
+        <div class="row"><span>Kassir:</span><span>{st.session_state.user}</span></div>
+        <hr>
+        <div class="row"><span>Ümumi Dövriyyə:</span><span>{z_data['total_sales']:.2f} ₼</span></div>
+        <div class="row"><span>Nağd Satış:</span><span>{z_data['cash_sales']:.2f} ₼</span></div>
+        <div class="row"><span>Kartla Satış:</span><span>{z_data['card_sales']:.2f} ₼</span></div>
+        <div class="row"><span>Personal Satışı:</span><span>{z_data['staff_sales']:.2f} ₼</span></div>
+        <hr>
+        <div class="row"><span>Nağd Mədaxil:</span><span>{z_data['cash_in']:.2f} ₼</span></div>
+        <div class="row"><span>Nağd Məxaric:</span><span>-{z_data['cash_out']:.2f} ₼</span></div>
+        <hr>
+        <div class="row" style="font-weight:bold;font-size:16px;"><span>KASSA QALIĞI:</span><span>{z_data['expected_cash']:.2f} ₼</span></div>
+        <div class="row" style="font-weight:bold;"><span>FAKTİKİ SAYIM:</span><span>{z_data['actual_cash']:.2f} ₼</span></div>
+        <div class="row"><span>FƏRQ:</span><span>{z_data['diff']:.2f} ₼</span></div>
+        <hr>
+        <p>İmza: ________________</p>
+        <br>
+        <button id="print-btn" onclick="window.print()" style="background:#2E7D32;color:white;border:none;padding:10px 20px;width:100%;font-weight:bold;cursor:pointer;">🖨️ ÇAP ET</button>
+    </div>
+    </body></html>
+    """
+    import streamlit.components.v1 as components
+    components.html(html, height=550, scrolling=True)
+    if st.button("❌ Bağla"):
+        st.rerun()
 
 def render_z_report_page():
     st.subheader("🧾 Z-Hesabat (Gündəlik)")
@@ -140,8 +203,42 @@ def render_z_report_page():
     with c3:
         st.markdown(f"""
         <div style="background:var(--metal-panel); padding:20px; border-radius:10px; border:2px solid #ffd700; text-align:center;">
-            <h3 style="color:#ffd700; margin-top:0;">KASSA QALIĞI (Gözlənilən)</h3>
+            <h3 style="color:#ffd700; margin-top:0;">KASSA QALIĞI</h3>
             <h1 style="color:#4CAF50; font-size:40px; margin:10px 0;">{expected_cash:.2f} ₼</h1>
-            <p style="color:#aaa; font-size:12px;">(Nağd Satış + Nağd Mədaxil - Nağd Məxaric)</p>
+            <p style="color:#aaa; font-size:12px;">Bu pul hazırda qutuda olmalıdır</p>
         </div>
         """, unsafe_allow_html=True)
+        
+    st.divider()
+    st.markdown("### 🛑 Növbənin Təhvili (Z-Hesabat Çıxart)")
+    
+    col_z1, col_z2 = st.columns([1, 1])
+    
+    with col_z1:
+        actual_cash = st.number_input("Kassadakı Faktiki Nağd Pul (₼)", min_value=0.0, step=0.1, value=float(expected_cash))
+        diff = actual_cash - expected_cash
+        
+        if diff < 0:
+            st.error(f"⚠️ Kəsir: {diff:.2f} ₼")
+        elif diff > 0:
+            st.success(f"📈 Artıq: +{diff:.2f} ₼")
+        else:
+            st.success("✅ Kassa tam dəqiqdir!")
+
+    with col_z2:
+        st.write("")
+        st.write("")
+        if st.button("🖨️ Z-Hesabatı Çap Et", type="primary", use_container_width=True):
+            # Məlumatları paketləyib Dialog funksiyasına göndəririk (Callback deyil, birbaşa çağırılır)
+            z_data = {
+                'total_sales': total_sales,
+                'cash_sales': cash_sales,
+                'card_sales': card_sales,
+                'staff_sales': staff_sales,
+                'cash_in': cash_in,
+                'cash_out': cash_out,
+                'expected_cash': expected_cash,
+                'actual_cash': actual_cash,
+                'diff': diff
+            }
+            z_report_print_dialog(z_data)
