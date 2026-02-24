@@ -89,6 +89,14 @@ def render_menu_page():
 
 def render_recipe_page():
     st.subheader("📜 Resept və AI Aşpaz")
+    
+    # --- MƏLUMAT BAZASI CƏRRAHİYYƏSİ (0 XƏTASINI BİRDƏFƏLİK HƏLL EDİR) ---
+    try:
+        # Postgres üçün sütunu məcbur FLOAT-a çeviririk.
+        run_action("ALTER TABLE recipes ALTER COLUMN quantity_required TYPE FLOAT USING quantity_required::double precision")
+    except:
+        pass # Əgər SQLite-dirsə və ya artıq FLOAT-dırsa, səssizcə keçir.
+
     menu_items = run_query("SELECT item_name, price FROM menu WHERE is_active=TRUE")
     menu_list = menu_items['item_name'].tolist() if not menu_items.empty else []
     sel_p = st.selectbox("Məhsul Seçin", menu_list)
@@ -96,7 +104,6 @@ def render_recipe_page():
     if sel_p:
         sale_price = float(menu_items[menu_items['item_name'] == sel_p].iloc[0]['price'])
         
-        # FLOAT MƏCBURİYYƏTİ - 0 XƏTASININ HƏLLİ
         recs = run_query("SELECT r.id, r.ingredient_name, CAST(r.quantity_required AS FLOAT) AS quantity_required, i.unit, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:n", {"n":sel_p})
         
         total_cost = 0.0
@@ -143,6 +150,7 @@ def render_recipe_page():
                             if recipe_data:
                                 run_action("DELETE FROM recipes WHERE menu_item_name=:m", {"m": sel_p})
                                 for item in recipe_data:
+                                    # Burada da mütləq FLOAT göndəririk
                                     run_action("INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)", {"m":sel_p, "i":item['ingredient'], "q":float(item['qty'])})
                                 st.success("✅ Resept avtomatik yaradıldı və cədvələ əlavə olundu!")
                                 time.sleep(1.5)
@@ -153,6 +161,7 @@ def render_recipe_page():
         st.divider()
 
         recs_disp = recs[['id', 'ingredient_name', 'quantity_required', 'unit']].copy()
+        recs_disp['quantity_required'] = recs_disp['quantity_required'].astype(float) # Python səviyyəsində sığorta
         recs_disp.insert(0, "Seç", False)
         
         erd = st.data_editor(recs_disp, hide_index=True, column_config={
@@ -210,7 +219,6 @@ def render_recipe_page():
                         except Exception as e: st.error(f"Xəta: {e}")
             if st.button("📤 Reseptləri Excel Kimi Endir"): out = BytesIO(); run_query("SELECT * FROM recipes").to_excel(out, index=False); st.download_button("⬇️ Endir (recipes.xlsx)", out.getvalue(), "recipes.xlsx")
 
-# YOXA ÇIXMIŞ CRM VƏ QR SƏHİFƏLƏRİ GERİ QAYTARILDI!
 def render_crm_page():
     st.subheader("👥 CRM və AI Marketoloq")
     crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
