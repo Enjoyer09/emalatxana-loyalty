@@ -1,75 +1,125 @@
 import streamlit as st
-from database import run_query, run_action
 import pandas as pd
+from database import run_query, run_action
 
 def render_finance_page():
-    st.subheader("💰 Maliyyə və Kassa İdarəetməsi")
-    st.info("💡 **İzah:** Bu bölmə yalnız kassaya girən və ya çıxan əlavə pulları qeyd etmək üçündür. Satış pulları buraya avtomatik düşür, onlara toxunmağa ehtiyac yoxdur.")
+    st.subheader("💰 Maliyyə və Xərclərin İdarəedilməsi")
     
-    col1, col2 = st.columns(2)
+    # Üç əsas bölmə yaradırıq
+    t1, t2, t3 = st.tabs(["💸 Məxaric (Xərc / Çıxarış)", "💵 Mədaxil (Kassaya Pul Qoyuluşu)", "📋 Maliyyə Tarixçəsi"])
     
-    with col1:
-        st.markdown("""
-        <div style='background: #1e2226; padding: 20px; border-radius: 10px; border: 2px solid #4CAF50;'>
-            <h3 style='color: #4CAF50; margin-top:0;'>📥 KASSAYA PUL QOY (Mədaxil)</h3>
-            <p style='color: #aaa; font-size: 14px;'>Məsələn: Təsisçi kassaya xırda pul (smen pulu) qoydu və ya kənardan əlavə gəlir gəldi.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        with st.form("finance_in_form", clear_on_submit=True):
-            amt_in = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0)
-            cat_in = st.selectbox("Səbəb / Kateqoriya", ["Kassaya Xırda Pul", "Təsisçi İnvestisiyası", "Digər Gəlir"])
-            src_in = st.selectbox("Hansı Hesaba?", ["Kassa (Nağd)", "Bank Kartı"])
-            desc_in = st.text_input("Əlavə Qeyd (İstəyə bağlı)")
-            if st.form_submit_button("✅ Pul Qəbul Et"):
-                if amt_in > 0:
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', :c, :a, :s, :d, :u)", 
-                               {"c":cat_in, "a":amt_in, "s":src_in, "d":desc_in, "u":st.session_state.user})
-                    st.success(f"{amt_in} ₼ mədaxil edildi!")
+    # ==========================================
+    # 1. MƏXARİC (KASSADAN VƏ YA KARTDAN ÇIXAN PUL)
+    # ==========================================
+    with t1:
+        st.markdown("### 💸 Yeni Xərc və ya Çıxarış")
+        with st.form("expense_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                category = st.selectbox("Xərcin Kateqoriyası", [
+                    "Maaş / Avans", 
+                    "Kommunal", 
+                    "Təchizat / Xammal", 
+                    "İcarə", 
+                    "Təmir / İnventar", 
+                    "Vergi / Rüsum", 
+                    "İnkassasiya (Növbə Bağlanışı)", 
+                    "Digər"
+                ])
+                amount = st.number_input("Məbləğ (₼)", min_value=0.01, step=0.5, format="%.2f")
+            
+            with c2:
+                # SƏN İSTƏYƏN "BANK KARTI" BURADADIR
+                source = st.selectbox("Mənbə (Pul hardan çıxır?)", [
+                    "Kassa", 
+                    "Bank Kartı", 
+                    "Şəxsi Cib", 
+                    "Təsisçi", 
+                    "Digər"
+                ])
+                description = st.text_input("Açıqlama (Məsələn: Ay işçisinə avans)")
+                
+            submit_expense = st.form_submit_button("Xərci Təsdiqlə", type="primary", use_container_width=True)
+            
+            if submit_expense:
+                if amount > 0:
+                    run_action("""
+                        INSERT INTO finance (type, category, amount, source, description, created_by) 
+                        VALUES ('out', :c, :a, :s, :d, :u)
+                    """, {
+                        "c": category, "a": float(amount), "s": source, "d": description, "u": str(st.session_state.user)
+                    })
+                    st.success(f"✅ {amount} ₼ məbləğində xərc uğurla qeydə alındı!")
                     st.rerun()
                 else:
-                    st.error("Məbləğ sıfırdan böyük olmalıdır.")
+                    st.warning("Məbləğ 0-dan böyük olmalıdır.")
 
-    with col2:
-        st.markdown("""
-        <div style='background: #1e2226; padding: 20px; border-radius: 10px; border: 2px solid #e57373;'>
-            <h3 style='color: #e57373; margin-top:0;'>📤 KASSADAN XƏRC ÇIX (Məxaric)</h3>
-            <p style='color: #aaa; font-size: 14px;'>Məsələn: İşçiyə avans verildi, obyektin icarəsi ödənildi, su və ya təsərrüfat malı alındı.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # ==========================================
+    # 2. MƏDAXİL (KASSAYA XIRDA PUL QOYULUŞU)
+    # ==========================================
+    with t2:
+        st.markdown("### 💵 Yeni Mədaxil (Kassaya və ya Karta Pul Mədaxili)")
+        st.info("💡 Məsələn: Səhər kassaya xırda pul kimi 100 AZN qoyursunuzsa, buradan qeyd edin.")
         
-        with st.form("finance_out_form", clear_on_submit=True):
-            amt_out = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0)
-            cat_out = st.selectbox("Səbəb / Kateqoriya", ["Maaş / Avans", "İcarə Haqqı", "Kommunal (İşıq/Su)", "Təchizat / Mal Alışı", "Təmir", "Vergi", "Digər Xərc"])
-            src_out = st.selectbox("Hansı Hesabdan?", ["Kassa (Nağd)", "Bank Kartı"])
-            desc_out = st.text_input("Kimin üçün / Nə üçün? (Mütləq yazın)")
-            if st.form_submit_button("❌ Xərc Çıx"):
-                if amt_out > 0 and desc_out:
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', :c, :a, :s, :d, :u)", 
-                               {"c":cat_out, "a":amt_out, "s":src_out, "d":desc_out, "u":st.session_state.user})
-                    st.success(f"{amt_out} ₼ məxaric edildi!")
+        with st.form("income_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                category_in = st.selectbox("Mədaxil Kateqoriyası", [
+                    "Kassaya Xırda Pul Qoyuluşu", 
+                    "Təsisçi İnvestisiyası", 
+                    "Sponsorluq / Reklam", 
+                    "Digər Mədaxil"
+                ])
+                amount_in = st.number_input("Məbləğ (₼)", min_value=0.01, step=0.5, format="%.2f", key="inc_amount")
+            
+            with c2:
+                # SƏN İSTƏYƏN "BANK KARTI" BURADADIR
+                source_in = st.selectbox("Hədəf (Pul hara daxil olur?)", [
+                    "Kassa", 
+                    "Bank Kartı", 
+                    "Digər"
+                ])
+                description_in = st.text_input("Açıqlama", placeholder="Məsələn: Səhər kassası üçün 100 AZN xırda")
+                
+            submit_income = st.form_submit_button("Mədaxili Təsdiqlə", type="primary", use_container_width=True)
+            
+            if submit_income:
+                if amount_in > 0:
+                    run_action("""
+                        INSERT INTO finance (type, category, amount, source, description, created_by) 
+                        VALUES ('in', :c, :a, :s, :d, :u)
+                    """, {
+                        "c": category_in, "a": float(amount_in), "s": source_in, "d": description_in, "u": str(st.session_state.user)
+                    })
+                    st.success(f"✅ {amount_in} ₼ məbləğində mədaxil uğurla qeydə alındı!")
                     st.rerun()
                 else:
-                    st.error("Məbləğ və Səbəb mütləq doldurulmalıdır!")
-                    
-    st.divider()
-    st.markdown("### 📜 Son Əməliyyatlar (Tarixçə)")
-    
-    # XƏTANIN HƏLLİ: Sütun adları məcburi cüt dırnağa ("") alındı
-    df = run_query("""
-        SELECT 
-            created_at as "Tarix", 
-            type as "Növ", 
-            category as "Kateqoriya", 
-            amount as "Məbləğ", 
-            source as "Hesab", 
-            description as "Qeyd", 
-            created_by as "İcraçı" 
-        FROM finance 
-        ORDER BY created_at DESC 
-        LIMIT 50
-    """)
-    
-    if not df.empty:
-        df['Növ'] = df['Növ'].apply(lambda x: '🟢 Mədaxil' if x == 'in' else '🔴 Məxaric')
-        st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.warning("Məbləğ 0-dan böyük olmalıdır.")
+
+    # ==========================================
+    # 3. MALİYYƏ TARİXÇƏSİ
+    # ==========================================
+    with t3:
+        st.markdown("### 📋 Son Əməliyyatlar")
+        df_finance = run_query("SELECT id, type, category, amount, source, description, created_by, created_at FROM finance ORDER BY created_at DESC LIMIT 100")
+        
+        if not df_finance.empty:
+            # Type sütununu Azərbaycan dilinə tərcümə edək ki, cədvəldə qəşəng görünsün
+            df_finance['type'] = df_finance['type'].apply(lambda x: "🟢 MƏDAXİL" if x == 'in' else "🔴 MƏXARİC")
+            df_finance['created_at'] = pd.to_datetime(df_finance['created_at']).dt.strftime('%d/%m/%Y %H:%M')
+            
+            # Sütun adlarını səliqəyə salaq
+            df_finance = df_finance.rename(columns={
+                "id": "ID",
+                "type": "Növ",
+                "category": "Kateqoriya",
+                "amount": "Məbləğ (₼)",
+                "source": "Mənbə / Hədəf",
+                "description": "Açıqlama",
+                "created_by": "İcra Edən",
+                "created_at": "Tarix"
+            })
+            
+            st.dataframe(df_finance, hide_index=True, use_container_width=True)
+        else:
+            st.info("Hələ heç bir maliyyə əməliyyatı yoxdur.")
