@@ -1,5 +1,6 @@
 import datetime
 import io
+import base64
 try:
     import qrcode
 except ImportError:
@@ -7,6 +8,7 @@ except ImportError:
 
 from database import get_setting, run_action
 
+# --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Füzuli"
 VERSION = "1.0.0"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
@@ -19,6 +21,8 @@ CARTOON_QUOTES = [
 ]
 
 SUBJECTS = ["Təchizatçı", "İşçi", "Dövlət/Vergi", "İcarədar", "Digər"]
+BONUS_RECIPIENTS = ["Hamısı", "Kassir", "Barista", "Xadimə", "Digər"]
+ALLOWED_TABLES = [f"Masa {i}" for i in range(1, 16)] + ["Bar", "VIP", "Teras"]
 
 PRESET_CATEGORIES = [
     "Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", 
@@ -33,6 +37,15 @@ CAT_ORDER_MAP = {cat: i for i, cat in enumerate([
     "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", 
     "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"
 ])}
+
+# --- KÖMƏKÇİ FUNKSİYALAR ---
+
+def image_to_base64(image_path):
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except Exception:
+        return ""
 
 def generate_styled_qr(data):
     try:
@@ -51,6 +64,8 @@ def generate_styled_qr(data):
         return buf.getvalue()
     except:
         return None
+
+# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI ---
 
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
@@ -101,6 +116,8 @@ def log_system(user, action):
                    {"u": str(user), "a": str(action), "t": get_baku_now()})
     except:
         pass
+
+# --- ŞİFRƏLƏMƏ (AUTH) ---
 
 def hash_password(password):
     try:
