@@ -4,7 +4,7 @@ import datetime
 import time
 import plotly.express as px
 from database import run_query, run_action, get_setting, set_setting
-from utils import SUBJECTS, get_logical_date, get_shift_range
+from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 from auth import admin_confirm_dialog
 
 def render_finance_page():
