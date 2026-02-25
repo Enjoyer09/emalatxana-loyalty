@@ -42,7 +42,7 @@ def render_analytics_page():
         tab1, tab2 = st.tabs(["📋 Çeklər (Satış Siyahısı)", "☕ Satılan Məhsullar (Detallı)"])
         
         with tab1:
-            st.info("💡 Məsləhət: Səhv vurulmuş çeki silə, yaxud cədvəlin üzərində dəyişiklik (Kassir, Məbləğ, Qeyd və s.) edib yadda saxlaya bilərsiniz.")
+            st.info("💡 Məsləhət: Səhv vurulmuş çeki silə, yaxud cədvəlin üzərində dəyişiklik (Kassir, Məbləğ, Endirim və s.) edib yadda saxlaya bilərsiniz.")
             sales_disp = sales.copy()
             
             sales_disp['Müştəri Kodu'] = sales_disp['customer_card_id']
@@ -52,8 +52,8 @@ def render_analytics_page():
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Müştəri Tipi'] = ''
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Ulduz'] = None
             
-            # Cədvəldə görünəcək sütunlar
-            cols_to_show = ['id', 'created_at', 'cashier', 'items', 'total', 'payment_method', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
+            # Cədvəldə görünəcək sütunlar (Endirim də əlavə edildi!)
+            cols_to_show = ['id', 'created_at', 'cashier', 'items', 'total', 'discount', 'payment_method', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
             cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
             
             display_df = sales_disp[cols_to_show].copy()
@@ -72,6 +72,7 @@ def render_analytics_page():
                     "cashier": st.column_config.TextColumn("Kassir (Kim Satıb)"),
                     "items": st.column_config.TextColumn("Məhsullar (Nə Satılıb)"),
                     "total": st.column_config.NumberColumn("Məbləğ", format="%.2f ₼"),
+                    "discount": st.column_config.NumberColumn("Endirim", format="%.2f ₼"),
                     "payment_method": st.column_config.SelectboxColumn("Ödəniş Növü", options=["Cash", "Card", "Staff"]),
                     "note": st.column_config.TextColumn("Qeyd"),
                     "Ulduz": st.column_config.NumberColumn(format="%d ⭐", disabled=True)
@@ -82,43 +83,44 @@ def render_analytics_page():
             )
             
             # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (UPDATE) MƏNTİQİ ---
+            # Burada 'Seç' checkbox-unu görməzlikdən gəlirik ki, ancaq söz/rəqəm dəyişəndə işə düşsün!
             if is_admin:
-                changed_indices = []
-                # Ancaq bu sütunlarda dəyişiklik olub-olmadığını yoxlayırıq ("Seç" sütununu çıxardaraq)
-                cols_to_check = ['cashier', 'items', 'total', 'payment_method', 'Müştəri Kodu', 'note']
+                real_edits_count = 0
+                edited_indices = []
                 
-                for idx in display_df.index:
-                    for c in cols_to_check:
-                        if c in display_df.columns:
-                            val_orig = display_df.at[idx, c]
-                            val_new = edited_sales.at[idx, c]
-                            
-                            if pd.isna(val_orig) and pd.isna(val_new): continue
-                            
-                            # Hər iki tərəfi eyni formata (sözə) salıb yoxlayırıq ki, tip fərqi problem yaratmasın
-                            if str(val_orig).strip() != str(val_new).strip():
-                                if idx not in changed_indices:
-                                    changed_indices.append(idx)
-
-                if len(changed_indices) > 0:
-                    st.warning(f"Cədvəldə {len(changed_indices)} sətirdə dəyişiklik etdiniz. Təsdiqləmək üçün düyməni sıxın.")
+                if "sales_admin_ed" in st.session_state:
+                    edits = st.session_state["sales_admin_ed"].get("edited_rows", {})
+                    for row_idx_str, changes in edits.items():
+                        # Əgər dəyişilən xana 'Seç' (Checkbox) DEYİLSƏ, deməli real dəyişiklikdir!
+                        if any(k != 'Seç' for k in changes.keys()):
+                            real_edits_count += 1
+                            edited_indices.append(int(row_idx_str))
+                
+                if real_edits_count > 0:
+                    st.warning(f"Cədvəldə {real_edits_count} sətirdə dəyişiklik etdiniz. Təsdiqləmək üçün düyməni sıxın.")
                     if st.button("💾 Dəyişiklikləri Yadda Saxla", type="primary"):
-                        for idx in changed_indices:
-                            row = edited_sales.loc[idx]
-                            run_action("""
-                                UPDATE sales 
-                                SET cashier=:c, items=:i, total=:t, payment_method=:p, customer_card_id=:cc, note=:n 
-                                WHERE id=:id
-                            """, {
+                        for idx in edited_indices:
+                            row = edited_sales.iloc[idx]
+                            real_id = int(row['id'])
+                            
+                            update_fields = "cashier=:c, items=:i, total=:t, payment_method=:p, customer_card_id=:cc, note=:n"
+                            params = {
                                 "c": row['cashier'], 
                                 "i": row['items'], 
                                 "t": float(row['total']), 
                                 "p": row['payment_method'], 
                                 "cc": row['Müştəri Kodu'] if pd.notna(row['Müştəri Kodu']) and str(row['Müştəri Kodu']).strip() else None,
                                 "n": row['note'] if pd.notna(row['note']) and str(row['note']).strip() else None,
-                                "id": int(row['id'])
-                            })
-                            log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {row['id']} | Yeni Kassir: {row['cashier']} | Yeni Məbləğ: {row['total']}")
+                                "id": real_id
+                            }
+                            
+                            # Əgər bazada 'discount' sütunu varsa, onu da yeniləyirik
+                            if 'discount' in row:
+                                update_fields += ", discount=:d"
+                                params["d"] = float(row['discount']) if pd.notna(row['discount']) else 0.0
+                                
+                            run_action(f"UPDATE sales SET {update_fields} WHERE id=:id", params)
+                            log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {real_id} | Yeni Kassir: {row['cashier']} | Yeni Məbləğ: {row['total']}")
                         
                         st.success("✅ Dəyişikliklər uğurla yadda saxlanıldı!")
                         time.sleep(1.5)
