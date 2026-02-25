@@ -9,10 +9,10 @@ except ImportError:
 from database import get_setting, run_action
 
 # --- SİSTEM KONSTANTLARI ---
-BRAND_NAME = "Füzuli"
+BRAND_NAME = "Emalatkhana POS AI Powered"
 VERSION = "1.0.0"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
-APP_URL = "https://fuzuli.com" 
+APP_URL = "https://ironwaves.store" 
 
 CARTOON_QUOTES = [
     "Qəhvəsiz bir gün, itirilmiş bir gündür!",
