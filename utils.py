@@ -65,7 +65,7 @@ def generate_styled_qr(data):
     except:
         return None
 
-# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI ---
+# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (YENİLƏNİB) ---
 
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
@@ -96,13 +96,24 @@ def get_shift_range(logical_date=None):
         logical_date = get_logical_date()
         
     shift_start_str = get_setting("shift_start_time", "08:00")
+    shift_end_str = get_setting("shift_end_time", "23:59")
+    
     try:
         start_hour, start_min = map(int, shift_start_str.split(':'))
     except:
         start_hour, start_min = 8, 0
         
+    try:
+        end_hour, end_min = map(int, shift_end_str.split(':'))
+    except:
+        end_hour, end_min = 23, 59
+        
     shift_start = datetime.datetime.combine(logical_date, datetime.time(start_hour, start_min))
-    shift_end = shift_start + datetime.timedelta(days=1)
+    shift_end = datetime.datetime.combine(logical_date, datetime.time(end_hour, end_min))
+    
+    # Məntiq: Qapanış saatı açılışdan kiçikdirsə (məs: gecə 02:00-da qapanış), deməli gün ertəsi günə keçir
+    if shift_end <= shift_start:
+        shift_end += datetime.timedelta(days=1)
     
     return shift_start, shift_end
 
