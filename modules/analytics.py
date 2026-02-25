@@ -2,286 +2,256 @@ import streamlit as st
 import pandas as pd
 import datetime
 import time
-import json
-import plotly.express as px
-import base64
-from database import run_query, run_action, get_setting
-from utils import get_baku_now, BRAND_NAME
-
-# Məhsul siyahısını JSON-dan təmiz mətnə çevirən köməkçi funksiya
-def parse_items(items_str):
-    if not items_str: return ""
-    try:
-        items = json.loads(items_str)
-        if isinstance(items, list):
-            return ", ".join([f"{i.get('item_name', 'Məhsul')} ({i.get('qty', 1)}x)" for i in items])
-        elif isinstance(items, dict):
-            return str(items)
-    except:
-        pass
-    return str(items_str)
+from database import run_query, run_action, get_setting, set_setting
+from utils import get_logical_date, get_shift_range, get_baku_now, log_system
+from auth import admin_confirm_dialog
 
 def render_analytics_page():
-    st.subheader("📊 Analitika və Satış Hesabatları (CFO Paneli)")
+    st.subheader("📊 Analitika və Satışlar")
     
-    today = get_baku_now().date()
-    start_of_month = today.replace(day=1)
+    c_d1, c_d2 = st.columns(2)
+    d1 = c_d1.date_input("Başlanğıc", get_logical_date())
+    d2 = c_d2.date_input("Bitiş", get_logical_date())
     
-    role = st.session_state.get('role', 'staff')
-    current_user = st.session_state.get('user', '')
+    ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
+    ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
     
-    role_filter = ""
-    base_params = {}
-    if role == 'staff':
-        role_filter = " AND cashier = :u"
-        base_params["u"] = current_user
-
-    # --- 1. CFO PANELİ (Sarsılmaz Nəğd/Kart Məntiqi ilə) ---
-    td_params = {"d": today, **base_params}
-    tm_params = {"d": start_of_month, **base_params}
+    query = """
+        SELECT s.*, c.type as cust_type, c.stars as cust_stars 
+        FROM sales s 
+        LEFT JOIN customers c ON s.customer_card_id = c.card_id 
+        WHERE s.created_at BETWEEN :s AND :e 
+        ORDER BY s.created_at DESC
+    """
+    sales = run_query(query, {"s":ts_start, "e":ts_end})
     
-    td_df = run_query(f"SELECT payment_method, SUM(total) as s FROM sales WHERE DATE(created_at) = :d {role_filter} GROUP BY payment_method", td_params)
-    
-    td_sales = 0.0
-    td_cash = 0.0
-    td_card = 0.0
-    
-    if not td_df.empty:
-        for _, r in td_df.iterrows():
-            val = float(r['s']) if pd.notna(r['s']) else 0.0
-            td_sales += val
-            pm = str(r['payment_method']).strip().upper()
-            # Əgər içində KART və ya CARD sözü varsa Kartdır, qalan hər şey Nəğddir! (Sarsılmaz məntiq)
-            if 'KART' in pm or 'CARD' in pm: 
-                td_card += val
-            else: 
-                td_cash += val
-            
-    tm_df = run_query(f"SELECT SUM(total) as s FROM sales WHERE DATE(created_at) >= :d {role_filter}", tm_params)
-    tm_sales = float(tm_df.iloc[0]['s']) if not tm_df.empty and pd.notna(tm_df.iloc[0]['s']) else 0.0
-    
-    if role in ['admin', 'manager']:
-        exp_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND DATE(created_at) >= :d", {"d": start_of_month})
-        tm_expenses = float(exp_df.iloc[0]['s']) if not exp_df.empty and pd.notna(exp_df.iloc[0]['s']) else 0.0
-        net_profit = tm_sales - tm_expenses
-        
-        st.markdown("### 💰 Bu Günün Satışları")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Bu Gün (Ümumi)", f"{td_sales:.2f} ₼")
-        c2.metric("Nəğd Satış", f"{td_cash:.2f} ₼")
-        c3.metric("Kartla Satış", f"{td_card:.2f} ₼")
-        
-        st.markdown("### 📅 Aylıq Göstəricilər")
-        c4, c5, c6 = st.columns(3)
-        c4.metric("Bu Ay (Ümumi Satış)", f"{tm_sales:.2f} ₼")
-        c5.metric("Bu Ay (Xərc)", f"{tm_expenses:.2f} ₼")
-        c6.metric("Xalis Mənfəət", f"{net_profit:.2f} ₼", delta=f"{net_profit:.2f} ₼", delta_color="normal" if net_profit>=0 else "inverse")
-    else:
-        st.markdown(f"### 👤 {current_user.capitalize()}, Sənin Göstəricilərin")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Bu Gün (Ümumi Satışın)", f"{td_sales:.2f} ₼")
-        c2.metric("Nəğd Satışın", f"{td_cash:.2f} ₼")
-        c3.metric("Kartla Satışın", f"{td_card:.2f} ₼")
-
-    st.divider()
-
-    st.markdown("### 🔍 Detallı Axtarış və Performans")
-    filter_col1, filter_col2 = st.columns([2, 1])
-    with filter_col1:
-        date_filter = st.radio("Tarix Aralığı Seçin:", ["Bu Gün", "Bu Ay", "Seçilmiş Tarix Aralığı"], horizontal=True)
-    with filter_col2:
-        if date_filter == "Seçilmiş Tarix Aralığı":
-            d_range = st.date_input("Başlanğıc və Bitiş tarixi seçin", [today, today])
-            if len(d_range) == 2: start_date, end_date = d_range
-            else: start_date, end_date = today, today
-        elif date_filter == "Bu Ay": start_date, end_date = start_of_month, today
-        else: start_date, end_date = today, today
-
-    perf_params = {"sd": start_date, "ed": end_date}
-    if role == 'staff': perf_params["u"] = current_user
-
-    g_col1, g_col2 = st.columns(2)
-    with g_col1:
-        st.markdown("**👥 İşçi Performansı**")
-        staff_df = run_query(f"""
-            SELECT cashier as "Kassir", COUNT(id) as "Sifariş", SUM(total) as "Satış (₼)"
-            FROM sales 
-            WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
-            GROUP BY cashier ORDER BY SUM(total) DESC
-        """, perf_params)
-        if not staff_df.empty: st.dataframe(staff_df, hide_index=True, use_container_width=True)
-        else: st.info("Bu aralıqda satış tapılmadı.")
-            
-    with g_col2:
-        st.markdown("**📈 Satış Trendi**")
-        trend_df = run_query(f"SELECT DATE(created_at) as d, SUM(total) as s FROM sales WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter} GROUP BY DATE(created_at) ORDER BY d", perf_params)
-        if not trend_df.empty and len(trend_df) > 1:
-            fig1 = px.line(trend_df, x='d', y='s', markers=True, line_shape="spline", color_discrete_sequence=["#ffd700"])
-            fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="white"))
-            st.plotly_chart(fig1, use_container_width=True)
-        elif not trend_df.empty and len(trend_df) == 1: st.info(f"Yalnız 1 günlük məlumat var: {trend_df.iloc[0]['s']} ₼")
-        else: st.info("Kifayət qədər məlumat yoxdur.")
-
-    st.divider()
-
-    # --- 4. DETALLI SATIŞLAR CƏDVƏLİ ---
-    st.markdown("### 📝 Detallı Satışlar (Nə Satıldığını Görün)")
-    sales_list_df = run_query(f"""
-        SELECT id, created_at, cashier, items, payment_method, total, discount_amount, note 
-        FROM sales 
-        WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed {role_filter}
-        ORDER BY created_at DESC
-    """, perf_params)
-    
-    if not sales_list_df.empty:
-        # Cədvəli göstərmək üçün kopyasını alırıq
-        display_df = sales_list_df.copy()
-        display_df['items'] = display_df['items'].apply(parse_items)
-        display_df['created_at'] = pd.to_datetime(display_df['created_at']).dt.strftime('%d/%m/%Y %H:%M')
-        display_df = display_df.rename(columns={"id": "Çek №", "created_at": "Tarix", "cashier": "Kassir", "items": "Satılan Mallar", "payment_method": "Ödəniş", "total": "Məbləğ (₼)", "discount_amount": "Endirim", "note": "Qeyd"})
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
-        
-        # ========================================================
-        # 🗑️ ÇEK İPTALI VƏ ANBARA QAYTARMA (YALNIZ ADMIN/MANAGER)
-        # ========================================================
-        if role in ['admin', 'manager']:
-            st.markdown("---")
-            st.markdown("<h4 style='color:#ff4b4b;'>⚠️ Çek İptalı və Geri Qaytarma</h4>", unsafe_allow_html=True)
-            
-            with st.form("delete_sale_form", clear_on_submit=True):
-                del_c1, del_c2, del_c3 = st.columns([1, 2, 1])
-                with del_c1:
-                    sale_ids = ["Seçilməyib"] + sales_list_df['id'].astype(str).tolist()
-                    selected_id = st.selectbox("Silinəcək Çek №:", sale_ids)
-                with del_c2:
-                    reason = st.selectbox("Səbəb:", [
-                        "Test / Yanlış Vuruş (Xammal anbara geri QAYIDACAQ)", 
-                        "Xarab / Zay oldu (Xammal anbara QAYITMAYACAQ)"
-                    ])
-                with del_c3:
-                    st.write("") # Boşluq
-                    submit_del = st.form_submit_button("🗑️ Çeki İptal Et", type="primary", use_container_width=True)
-                
-                if submit_del and selected_id != "Seçilməyib":
-                    # 1. Çekin içindəki malları (JSON) alırıq
-                    target_sale = sales_list_df[sales_list_df['id'] == int(selected_id)].iloc[0]
-                    items_str = target_sale['items']
-                    
-                    # 2. Əgər TEST-dirsə anbara xammalı geri qaytarırıq (Rollback Logic)
-                    if "QAYIDACAQ" in reason and items_str:
-                        try:
-                            items = json.loads(items_str)
-                            for item in items:
-                                m_name = item.get('item_name', '')
-                                qty = float(item.get('qty', 1))
-                                
-                                # Bu məhsulun reseptini tap
-                                rec_df = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name = :m", {"m": m_name})
-                                for _, r_row in rec_df.iterrows():
-                                    ing_name = r_row['ingredient_name']
-                                    req_qty = float(r_row['quantity_required'])
-                                    # İstifadə olunan xammalı hesablayıb anbara (+) edirik
-                                    total_return = req_qty * qty
-                                    run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name = :n", {"q": total_return, "n": ing_name})
-                        except Exception as e:
-                            pass # JSON oxunmasa davam et
-                            
-                    # 3. Çeki cədvəldən tamamilə silirik
-                    run_action("DELETE FROM sales WHERE id = :id", {"id": int(selected_id)})
-                    st.success(f"✅ Çek №{selected_id} uğurla silindi! ({reason})")
-                    time.sleep(1.5)
-                    st.rerun()
-    else:
-        st.warning("Seçilmiş tarix aralığında heç bir detal tapılmadı.")
-
-
-def render_z_report_page():
-    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
-    
-    active_shift = run_query("SELECT * FROM z_reports WHERE shift_end IS NULL ORDER BY shift_start DESC LIMIT 1")
-    
-    if active_shift.empty:
-        st.warning("⚠️ Hazırda aktiv növbə yoxdur.")
-        if st.button("🟢 Yeni Növbəni Başlat", type="primary", use_container_width=True):
-            run_action("INSERT INTO z_reports (shift_start, generated_by) VALUES (:s, :u)", {"s": get_baku_now(), "u": st.session_state.user})
-            st.session_state.z_report_active = True
-            st.success("Yeni növbə başladı! Uğurlar! ☕")
-            time.sleep(1)
-            st.rerun()
-    else:
-        shift_data = active_shift.iloc[0]
-        shift_start_time = pd.to_datetime(shift_data['shift_start'])
-        st.info(f"🟢 **Aktiv Növbə:** Başlama vaxtı: {shift_start_time.strftime('%d/%m/%Y %H:%M')}")
-        
-        orders_df = run_query("SELECT payment_method, SUM(total) as s FROM sales WHERE created_at >= :st GROUP BY payment_method", {"st": shift_start_time})
-        cash_sales = 0.0
-        card_sales = 0.0
-        
-        if not orders_df.empty:
-            for _, r in orders_df.iterrows():
-                val = float(r['s'])
-                pm = str(r['payment_method']).strip().upper()
-                if 'KART' in pm or 'CARD' in pm: card_sales += val
-                else: cash_sales += val
-                
-        total_sales = cash_sales + card_sales
-        expenses_df = run_query("SELECT SUM(amount) as s FROM finance WHERE type='out' AND source='Kassa' AND created_at >= :st", {"st": shift_start_time})
-        shift_expenses = float(expenses_df.iloc[0]['s']) if not expenses_df.empty and pd.notna(expenses_df.iloc[0]['s']) else 0.0
-        
-        expected_cash = cash_sales - shift_expenses
+    if not sales.empty:
+        total_rev = sales['total'].sum()
+        cash_rev = sales[sales['payment_method']=='Cash']['total'].sum()
+        card_rev = sales[sales['payment_method']=='Card']['total'].sum()
+        staff_rev = sales[sales['payment_method']=='Staff']['total'].sum()
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Nəğd Satış", f"{cash_sales:.2f} ₼")
-        c2.metric("Kartla Satış", f"{card_sales:.2f} ₼")
-        c3.metric("Kassadan Xərc", f"{shift_expenses:.2f} ₼")
-        c4.metric("GÖZLƏNİLƏN KASSA", f"{expected_cash:.2f} ₼")
+        c1.metric("Cəmi Satış", f"{total_rev:.2f} ₼")
+        c2.metric("Nağd", f"{cash_rev:.2f} ₼")
+        c3.metric("Kart", f"{card_rev:.2f} ₼")
+        c4.metric("Personal", f"{staff_rev:.2f} ₼")
         
         st.divider()
         
-        st.markdown("### 📋 Bu Növbədəki Satışlar (Nə Satmısınız?)")
-        role = st.session_state.get('role', 'staff')
-        current_user = st.session_state.get('user', '')
+        tab1, tab2 = st.tabs(["📋 Çeklər (Satış Siyahısı)", "☕ Satılan Məhsullar (Detallı)"])
         
-        shift_role_filter = " AND cashier = :u" if role == 'staff' else ""
-        shift_params = {"st": shift_start_time, "u": current_user} if role == 'staff' else {"st": shift_start_time}
-        
-        shift_sales_df = run_query(f"""
-            SELECT id, created_at, cashier, items, payment_method, total 
-            FROM sales 
-            WHERE created_at >= :st {shift_role_filter}
-            ORDER BY created_at DESC
-        """, shift_params)
-        
-        if not shift_sales_df.empty:
-            shift_sales_df['items'] = shift_sales_df['items'].apply(parse_items)
-            shift_sales_df['created_at'] = pd.to_datetime(shift_sales_df['created_at']).dt.strftime('%H:%M')
-            shift_sales_df = shift_sales_df.rename(columns={"id": "Çek №", "created_at": "Saat", "cashier": "Kassir", "items": "Satılan Mallar", "payment_method": "Ödəniş", "total": "Məbləğ (₼)"})
-            st.dataframe(shift_sales_df, hide_index=True, use_container_width=True)
-        else:
-            st.info("Bu növbədə hələ heç nə satılmayıb.")
+        with tab1:
+            st.write("Səhv vurulmuş çeki seçib silə bilərsiniz.")
+            sales_disp = sales.copy()
             
-        st.divider()
-        st.markdown("### 🏁 Növbəni Bağla (Z-Hesabatı Çıxar)")
-        
-        with st.form("z_report_form"):
-            actual_cash = st.number_input("Kassadakı Real Nəğd Pul (₼)", min_value=0.0, step=0.1, value=float(expected_cash))
-            diff = actual_cash - expected_cash
-            st.markdown(f"**Fərq:** {'+ ' if diff > 0 else ''}{diff:.2f} ₼")
+            sales_disp['Müştəri Kodu'] = sales_disp['customer_card_id']
+            sales_disp['Müştəri Tipi'] = sales_disp['cust_type'].fillna('').str.upper()
+            sales_disp['Ulduz'] = sales_disp['cust_stars']
             
-            if st.form_submit_button("🚨 Z-Hesabat Çıxar və Növbəni Bitir", type="primary", use_container_width=True):
-                run_action("UPDATE z_reports SET shift_end = :e, total_sales = :t, cash_sales = :cs, card_sales = :cds, expected_cash = :ec, actual_cash = :ac, difference = :d WHERE id = :id", {"e": get_baku_now(), "t": float(total_sales), "cs": float(cash_sales), "cds": float(card_sales), "ec": float(expected_cash), "ac": float(actual_cash), "d": float(diff), "id": int(shift_data['id'])})
-                run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'İnkassasiya (Növbə Bağlanışı)', :a, 'Kassa', 'Z-Hesabat Çıxarıldı', :u)", {"a": float(expected_cash), "u": str(st.session_state.user)})
-                st.session_state.z_report_active = False
-                st.success("✅ Növbə bağlandı!")
-                time.sleep(2)
-                st.rerun()
+            sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Müştəri Tipi'] = ''
+            sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Ulduz'] = None
+            
+            cols_to_show = ['id', 'created_at', 'items', 'total', 'payment_method', 'cashier', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
+            cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
+            
+            display_df = sales_disp[cols_to_show].copy()
+            display_df.insert(0, "Seç", False)
+            
+            ed_sales = st.data_editor(
+                display_df, 
+                hide_index=True, 
+                column_config={
+                    "Seç": st.column_config.CheckboxColumn(required=True),
+                    "created_at": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
+                    "Ulduz": st.column_config.NumberColumn(format="%d ⭐")
+                }, 
+                disabled=cols_to_show, 
+                use_container_width=True, 
+                key="sales_admin_ed"
+            )
+            
+            sel_sales = ed_sales[ed_sales["Seç"]]
+            sel_s_ids = sel_sales['id'].tolist()
+            
+            if len(sel_s_ids) > 0 and st.session_state.role in ['admin', 'manager']:
+                if st.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
+                    st.session_state.sales_to_delete = sel_s_ids
+                    st.rerun()
 
-    st.divider()
-    with st.expander("📂 Keçmiş Z-Hesabatlar Arxivi"):
-        past_z = run_query("SELECT id, shift_start, shift_end, total_sales, expected_cash, actual_cash, difference, generated_by FROM z_reports WHERE shift_end IS NOT NULL ORDER BY shift_end DESC LIMIT 30")
-        if not past_z.empty:
-            past_z['shift_start'] = pd.to_datetime(past_z['shift_start']).dt.strftime('%d/%m/%Y %H:%M')
-            past_z['shift_end'] = pd.to_datetime(past_z['shift_end']).dt.strftime('%d/%m/%Y %H:%M')
-            st.dataframe(past_z, hide_index=True, use_container_width=True)
+            if st.session_state.get('sales_to_delete'):
+                @st.dialog("⚠️ Satışı Silmə Səbəbi")
+                def del_sale_dialog():
+                    st.warning(f"Diqqət: {len(st.session_state.sales_to_delete)} ədəd satışı silirsiniz.")
+                    reason = st.selectbox("Silinmə Səbəbi:", [
+                        "Test / Sınaq (Xammal Anbara Geri Qaytarılsın)", 
+                        "Səhv Vurulub (Xammal Anbara Geri Qaytarılsın)",
+                        "Zay Məhsul / Dağıldı (Xammal Anbara QAYTARILMASIN)"
+                    ])
+                    note = st.text_input("Əlavə Qeyd (İstəyə bağlı)")
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    if c_btn1.button("Təsdiqlə və Sil", type="primary"):
+                        for i in st.session_state.sales_to_delete:
+                            s_info = run_query("SELECT items, total FROM sales WHERE id=:id", {"id": int(i)})
+                            if not s_info.empty:
+                                i_str = s_info.iloc[0]['items']
+                                t_val = s_info.iloc[0]['total']
+                                log_system(st.session_state.user, f"SİLİNDİ | Səbəb: {reason} | Məbləğ: {t_val} AZN | Məhsullar: {i_str} | Qeyd: {note}")
+                                
+                                # === BİZİM YENİ ANBARA QAYTARMA MƏNTİQİMİZ (ROLLBACK) ===
+                                if "Qaytarılsın" in reason and isinstance(i_str, str) and i_str != "Table Order":
+                                    parts = i_str.split(", ")
+                                    for p in parts:
+                                        if " x" in p:
+                                            try:
+                                                name_part, qty_part = p.rsplit(" x", 1)
+                                                qty = int(qty_part.split()[0])
+                                                
+                                                # Məhsulun reseptini tap və inqrediyentləri anbara (+) et
+                                                rec_df = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name = :m", {"m": name_part})
+                                                for _, r_row in rec_df.iterrows():
+                                                    ing_name = r_row['ingredient_name']
+                                                    req_qty = float(r_row['quantity_required'])
+                                                    total_return = req_qty * qty
+                                                    run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name = :n", {"q": total_return, "n": ing_name})
+                                            except Exception as e:
+                                                pass
+                                # =======================================================
+                                
+                            run_action("DELETE FROM sales WHERE id=:id", {"id":int(i)})
+                        st.session_state.sales_to_delete = None
+                        st.success("Satış silindi və lazım idisə xammal anbara qaytarıldı!")
+                        time.sleep(2)
+                        st.rerun()
+                    if c_btn2.button("Ləğv Et"):
+                        st.session_state.sales_to_delete = None
+                        st.rerun()
+                del_sale_dialog()
+
+        with tab2:
+            st.write("Bu aralıqda nədən neçə ədəd satılıb:")
+            item_counts = {}
+            for items_str in sales['items']:
+                if not isinstance(items_str, str) or items_str == "Table Order": continue
+                parts = items_str.split(", ")
+                for p in parts:
+                    if " x" in p:
+                        try:
+                            name_part, qty_part = p.rsplit(" x", 1)
+                            qty = int(qty_part.split()[0])
+                            item_counts[name_part] = item_counts.get(name_part, 0) + qty
+                        except: pass
+            
+            if item_counts:
+                df_items = pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).sort_values(by='Say', ascending=False)
+                st.dataframe(df_items, hide_index=True, use_container_width=True)
+            else:
+                st.info("Detallı məhsul tapılmadı.")
+    else:
+        st.info("Seçilmiş tarixdə satış yoxdur.")
+
+def render_z_report_page():
+    st.subheader("📊 Z-Hesabat (Növbənin Bağlanması)")
+    
+    log_date_z = get_logical_date()
+    sh_start_z, sh_end_z = get_shift_range(log_date_z)
+    
+    st.info(f"Növbə: {sh_start_z.strftime('%d %b %H:%M')} - {sh_end_z.strftime('%d %b %H:%M')}")
+    
+    user_role = st.session_state.role
+    
+    if user_role == 'staff':
+        # --- YALNIZ İŞÇİYƏ AİD (ŞƏXSİ) HESABAT ---
+        my_sales_df = run_query("SELECT * FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e ORDER BY created_at DESC", 
+                                {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
+        
+        if not my_sales_df.empty:
+            my_total = my_sales_df['total'].sum()
+            my_cash = my_sales_df[my_sales_df['payment_method']=='Cash']['total'].sum()
+            my_card = my_sales_df[my_sales_df['payment_method']=='Card']['total'].sum()
+            
+            st.markdown("### 👤 Mənim Bugünkü Satışlarım")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Cəmi Satışım", f"{my_total:.2f} ₼")
+            c2.metric("Nağd", f"{my_cash:.2f} ₼")
+            c3.metric("Kart", f"{my_card:.2f} ₼")
+            
+            st.divider()
+            tab1, tab2 = st.tabs(["📋 Vurduğum Çeklər", "☕ Satdığım Məhsullar"])
+            
+            with tab1:
+                disp_df = my_sales_df[['id', 'created_at', 'items', 'total', 'payment_method', 'note']].copy()
+                st.dataframe(
+                    disp_df, 
+                    hide_index=True, 
+                    column_config={"created_at": st.column_config.DatetimeColumn("Tarix", format="HH:mm")},
+                    use_container_width=True
+                )
+                
+            with tab2:
+                item_counts = {}
+                for items_str in my_sales_df['items']:
+                    if not isinstance(items_str, str) or items_str == "Table Order": continue
+                    parts = items_str.split(", ")
+                    for p in parts:
+                        if " x" in p:
+                            try:
+                                name_part, qty_part = p.rsplit(" x", 1)
+                                qty = int(qty_part.split()[0])
+                                item_counts[name_part] = item_counts.get(name_part, 0) + qty
+                            except: pass
+                if item_counts:
+                    df_items = pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).sort_values(by='Say', ascending=False)
+                    st.dataframe(df_items, hide_index=True, use_container_width=True)
+                else:
+                    st.info("Detallı məhsul tapılmadı.")
         else:
-            st.info("Keçmiş hesabat tapılmadı.")
+            st.info("Siz bu növbədə hələ satış etməmisiniz.")
+            
+    else:
+        # --- ADMİN / MENECER ÜÇÜN ÜMUMİ HESABAT ---
+        s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+        s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+        s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+        total_sales = float(s_cash) + float(s_card) + float(s_staff)
+        
+        my_sales = run_query("SELECT SUM(total) as s FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
+        
+        f_out = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+        f_in = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+        
+        opening_limit = float(get_setting("cash_limit", "0.0"))
+        expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+        
+        c1, c2 = st.columns(2)
+        c1.metric("CƏMİ SATIŞ", f"{total_sales:.2f} ₼")
+        c1.write(f"💳 Kartla: {float(s_card):.2f} ₼")
+        c1.write(f"💵 Nağd: {float(s_cash):.2f} ₼")
+        c1.write(f"👥 Personal: {float(s_staff):.2f} ₼")
+        
+        c1.markdown(f"<div style='background:#E8F5E9; padding:5px; border-radius:5px; margin-top:5px;'>👤 Sizin vurduğunuz satış: <b>{float(my_sales):.2f} ₼</b></div>", unsafe_allow_html=True)
+        
+        c2.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
+        c2.write(f"Səhər (Açılış): {opening_limit:.2f} ₼")
+        c2.write(f"Kassaya Giriş (+): {float(f_in):.2f} ₼")
+        c2.write(f"Kassadan Çıxış (-): {float(f_out):.2f} ₼")
+        
+        st.divider()
+        
+        if st.button("🔴 Günü Bitir və Sıfırla (Z-Hesabat)", type="primary"):
+            st.session_state.z_report_active = True
+            st.rerun()
+            
+        if st.session_state.z_report_active:
+            @st.dialog("Təsdiqləyirsiniz?")
+            def z_final_d():
+                st.warning("⚠️ Gün bağlanacaq və 'Kassada Olmalıdır' məbləği sabahın yeni limiti olacaq.")
+                if st.button("✅ Bəli, Günü Bitir"):
+                    set_setting("cash_limit", str(expected_cash))
+                    set_setting("last_z_report_time", get_baku_now().isoformat())
+                    st.session_state.z_report_active=False
+                    st.success("GÜN UĞURLA BAĞLANDI! 🌙")
+                    time.sleep(2)
+                    st.rerun()
+            z_final_d()
