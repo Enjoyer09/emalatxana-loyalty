@@ -39,7 +39,6 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     free_cof = min(int((current_stars + coffee_qty) // 10), coffee_qty)
     final_total = 0.0
     
-    # === BİZİM DÜZƏLTDİYİMİZ HƏDİYYƏ KOFE MƏNTİQİ ===
     free_coffees_to_give = free_cof 
     
     for i in cart:
@@ -47,19 +46,15 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         total += line
         
         if i.get('is_coffee'):
-            # Hədiyyə kofe varsa, bu məhsulun pulunu çıxırıq
             if free_coffees_to_give > 0:
-                # Əgər səbətdə 2 dənə eyni kofe varsa, hərəsini tək-tək yoxlamalıyıq
                 free_from_this_item = min(i['qty'], free_coffees_to_give)
                 paid_qty = i['qty'] - free_from_this_item
-                
                 final_total += (paid_qty * i['price']) * (1 - disc_rate)
                 free_coffees_to_give -= free_from_this_item
             else:
                 final_total += (line - (line * disc_rate))
         else: 
             final_total += line
-    # ====================================================
             
     if is_table: 
         final_total += final_total * 0.07
@@ -174,18 +169,37 @@ def render_pos_page():
                 
             c_src, c_btn = st.columns([4,1], vertical_alignment="bottom")
             code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="QR skan et...", key=f"search_input_ta_{st.session_state.search_key_counter}")
+            
             if c_btn.button("🔍", key="search_btn_ta") or code:
-                cid = clean_qr_code(code)
+                # SUPER TƏMİZLƏYİCİ: Linkdən ancaq ID-ni qoparmaq
+                raw_code = str(code).strip()
+                cid = raw_code
+                
+                if "id=" in raw_code:
+                    try:
+                        cid = raw_code.split("id=")[1].split("&")[0]
+                    except:
+                        pass
+                
+                cid = cid.strip()
+                
                 try: 
                     r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                     if not r.empty: 
                         st.session_state.current_customer_ta = r.iloc[0].to_dict()
-                        st.toast(f"✅ Müştəri tapıldı")
+                        st.toast(f"✅ Müştəri tapıldı (ID: {cid})")
+                        st.session_state.search_key_counter += 1 # Xananı sıfırlayırıq ki donmasın!
                         st.rerun()
                     else: 
-                        st.error("Tapılmadı")
-                except: 
-                    pass
+                        st.error(f"⛔ Tapılmadı! Axtarılan ID: '{cid}'")
+                        st.session_state.search_key_counter += 1 # Xananı sıfırlayırıq
+                        time.sleep(2)
+                        st.rerun()
+                except Exception as e: 
+                    st.error(f"Baza xətası: {e}")
+                    st.session_state.search_key_counter += 1
+                    time.sleep(2)
+                    st.rerun()
                 
             cust = st.session_state.current_customer_ta
             if cust: 
@@ -272,7 +286,6 @@ def render_pos_page():
                         
                 try:
                     with conn.session as s:
-                        # Anbardan Çıxış
                         for it in st.session_state.cart_takeaway:
                             recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                             for r in recs:
@@ -286,19 +299,13 @@ def render_pos_page():
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                         if own_cup: final_note += " [Eko Mod]"
                         
-                        # === MÜŞTƏRİ ULDUZLARININ YENİLƏNMƏSİ VƏ SIFIRLANMASI ===
                         if cust:
                             coffee_count_in_cart = sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])
                             new_stars = cust['stars'] + coffee_count_in_cart
-                            
-                            # Hədiyyə kofe verilibsə ulduzları azalt (Hər hədiyyə üçün 10 ulduz silinir)
                             if free > 0:
                                 new_stars -= (free * 10)
-                                if new_stars < 0: new_stars = 0 # Ehtiyat üçün
-                                
-                            # Ulduzları bazada yenilə
+                                if new_stars < 0: new_stars = 0 
                             s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": new_stars, "cid": cust['card_id']})
-                        # ========================================================
                         
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
                         s.commit()
