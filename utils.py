@@ -1,14 +1,23 @@
 import datetime
+import io
+try:
+    import qrcode
+except ImportError:
+    pass
+
 from database import get_setting, run_action
 
 BRAND_NAME = "Füzuli"
 VERSION = "1.0.0"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
+APP_URL = "https://fuzuli.com" 
+
 CARTOON_QUOTES = [
     "Qəhvəsiz bir gün, itirilmiş bir gündür!",
     "Füzulidə hər qurtum bir ilhamdır!",
     "Enerjini topla, günə başla!"
 ]
+
 SUBJECTS = ["Təchizatçı", "İşçi", "Dövlət/Vergi", "İcarədar", "Digər"]
 
 PRESET_CATEGORIES = [
@@ -24,6 +33,24 @@ CAT_ORDER_MAP = {cat: i for i, cat in enumerate([
     "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", 
     "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"
 ])}
+
+def generate_styled_qr(data):
+    try:
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except:
+        return None
 
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
