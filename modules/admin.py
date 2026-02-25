@@ -3,14 +3,62 @@ import pandas as pd
 import time
 import base64
 import json
+import datetime
 from io import BytesIO
 from database import run_query, run_action, get_setting, set_setting, conn
 from auth import admin_confirm_dialog
 from utils import hash_password, image_to_base64, BONUS_RECIPIENTS, DEFAULT_TERMS, ALLOWED_TABLES, get_baku_now
+from sqlalchemy import text
 
 def render_settings_page():
-    st.subheader("⚙️ Ayarlar")
-    with st.expander("🧾 Çek Dizaynı və Logo", expanded=True):
+    st.subheader("⚙️ Sistem və Əməliyyat Ayarları")
+    
+    # --- YENİ ZAMAN, VALYUTA VƏ API AYARLARI TABLARI ---
+    st.markdown("Bu bölmədən proqramın qlobal tənzimləmələrini edə bilərsiniz.")
+    t1, t2, t3 = st.tabs(["🕒 Zaman və Növbə", "💱 Valyuta", "🤖 API İnteqrasiyaları"])
+    
+    with t1:
+        st.info("Z-Hesabatların və Maliyyənin dəqiq işləməsi üçün vacibdir.")
+        c1, c2 = st.columns(2)
+        with c1:
+            current_shift = get_setting("shift_start_time", "08:00")
+            try: current_shift_time = datetime.datetime.strptime(current_shift, "%H:%M").time()
+            except: current_shift_time = datetime.time(8, 0)
+            new_shift = st.time_input("Gün (Növbə) saat neçədə başlayır?", value=current_shift_time)
+            
+        with c2:
+            try: current_offset = int(get_setting("utc_offset", "4"))
+            except: current_offset = 4
+            new_offset = st.number_input("Saat Qurşağı (UTC Offset)", min_value=-12, max_value=14, value=current_offset, help="Bakı üçün 4, İstanbul üçün 3")
+
+        if st.button("💾 Zaman Ayarlarını Yadda Saxla", type="primary"):
+            set_setting("shift_start_time", new_shift.strftime("%H:%M"))
+            set_setting("utc_offset", str(new_offset))
+            st.success("✅ Zaman ayarları uğurla yeniləndi! Saat fərqi aradan qaldırıldı.")
+            time.sleep(1.5); st.rerun()
+
+    with t2:
+        current_currency = get_setting("currency_symbol", "₼")
+        currencies = ["₼ (AZN)", "$ (USD)", "€ (EUR)", "₺ (TRY)"]
+        idx = next((i for i, curr in enumerate(currencies) if current_currency in curr), 0)
+        new_currency = st.selectbox("Əsas Valyuta", currencies, index=idx)
+        
+        if st.button("💾 Valyutanı Yadda Saxla", type="primary"):
+            chosen_symbol = new_currency.split(" ")[0]
+            set_setting("currency_symbol", chosen_symbol)
+            st.success("✅ Valyuta yeniləndi!"); time.sleep(1); st.rerun()
+
+    with t3:
+        api_key = get_setting("gemini_api_key", "")
+        new_key = st.text_input("Google Gemini API Key:", value=api_key, type="password")
+        if st.button("💾 API Açarını Yadda Saxla", type="primary"):
+            set_setting("gemini_api_key", new_key)
+            st.success("✅ API Açarı yadda saxlanıldı!"); time.sleep(1); st.rerun()
+
+    st.markdown("---")
+
+    # --- SƏNİN ORİJİNAL AYARLARIN (TOXUNULMAZ QALDI) ---
+    with st.expander("🧾 Çek Dizaynı və Logo", expanded=False):
         c1, c2 = st.columns([1, 2])
         with c1:
             lg = st.file_uploader("Logo Yüklə", key="logo_uploader")
@@ -26,10 +74,10 @@ def render_settings_page():
             ra = st.text_input("Ünvan", value=get_setting("receipt_address", "Baku"))
             rh = st.text_input("Başlıq", value=get_setting("receipt_header", "Xoş Gəlmisiniz!"))
             rf = st.text_input("Son", value=get_setting("receipt_footer", "Təşəkkürlər!"))
-            if st.button("💾 Yadda Saxla"): 
+            if st.button("💾 Yadda Saxla", key="save_receipt_details"): 
                 set_setting("receipt_store_name", rn); set_setting("receipt_address", ra); set_setting("receipt_header", rh); set_setting("receipt_footer", rf); st.success("OK")
 
-    st.divider(); st.markdown("### 🛠️ Menecer Səlahiyyətləri")
+    st.markdown("### 🛠️ Menecer Səlahiyyətləri")
     col_mp1, col_mp2, col_mp3, col_mp4 = st.columns(4)
     perm_menu = col_mp1.checkbox("✅ Menyu", value=(get_setting("manager_perm_menu", "FALSE") == "TRUE"))
     if col_mp1.button("Yadda Saxla (Menu)", key="save_mgr_menu"): set_setting("manager_perm_menu", "TRUE" if perm_menu else "FALSE"); st.success("OK"); st.rerun()
@@ -63,14 +111,14 @@ def render_settings_page():
         du = st.selectbox("Silinəcək", users['username'].tolist(), key="del_user_sel")
         if st.button("İşçini Sil", key="del_u_btn"): admin_confirm_dialog(f"Sil: {du}?", lambda: run_action("DELETE FROM users WHERE username=:u", {"u":du}))
 
-    with st.expander("🔧 Sistem"):
+    with st.expander("🔧 Sistem və Digər Ayarlar"):
         st_tbl = st.checkbox("Staff Masaları Görsün?", value=(get_setting("staff_show_tables","TRUE")=="TRUE"))
         if st.button("Yadda Saxla (Tables 2)", key="save_staff_tables"): set_setting("staff_show_tables", "TRUE" if st_tbl else "FALSE"); st.rerun()
         test_mode = st.checkbox("Z-Hesabat [TEST MODE]?", value=(get_setting("z_report_test_mode") == "TRUE"))
         if st.button("Yadda Saxla (Test Mode)", key="save_test_mode"): set_setting("z_report_test_mode", "TRUE" if test_mode else "FALSE"); st.success("Dəyişdirildi!"); st.rerun()
         c_lim = st.number_input("Standart Kassa Limiti", value=float(get_setting("cash_limit", "100.0")))
         if st.button("Limiti Yenilə", key="save_limit"): set_setting("cash_limit", str(c_lim)); st.success("Yeniləndi!")
-        rules = st.text_area("Qaydalar", value=get_setting("customer_rules", DEFAULT_TERMS))
+        rules = st.text_area("Qaydalar (Çekdəki alt mətn)", value=get_setting("customer_rules", DEFAULT_TERMS))
         if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
 
 def render_database_page():
@@ -84,7 +132,6 @@ def render_database_page():
             for t in ALLOWED_TABLES:
                  try: 
                      df = run_query(f"SELECT * FROM {t}")
-                     # Tarix formatlarını təmizləyirik ki, JSON problem yaratmasın
                      for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
                          df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
                      db_dump[t] = df.to_dict(orient="records")
@@ -103,17 +150,13 @@ def render_database_page():
                 with conn.session as s:
                     for t, records in data.items():
                         if t in ALLOWED_TABLES and isinstance(records, list):
-                            # Əvvəlcə cədvəli tam təmizləyirik
                             s.execute(text(f"DELETE FROM {t}"))
-                            
-                            # Cədvəl boş deyilsə, yükləyirik
                             if records:
                                 df_restore = pd.DataFrame(records)
                                 df_restore.to_sql(t, conn.engine, if_exists='append', index=False)
                     s.commit()
                 st.success("✅ Baza JSON-dan TAM bərpa olundu!")
-                time.sleep(1.5)
-                st.rerun()
+                time.sleep(1.5); st.rerun()
             except Exception as e: 
                 st.error(f"Xəta baş verdi: {e}")
 
