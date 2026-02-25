@@ -2,15 +2,18 @@ import streamlit as st
 import pandas as pd
 import datetime
 import time
+import io
 import plotly.express as px
+import google.generativeai as genai
+from gtts import gTTS
 from database import run_query, run_action, get_setting, set_setting
 from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 from auth import admin_confirm_dialog
 
 def render_finance_page():
-    st.subheader("💰 Maliyyə Mərkəzi (CFO Paneli)")
+    st.subheader("💰 Maliyyə Mərkəzi (AI CFO Paneli)")
     
-    # === 1. KASSA AÇILIŞI VƏ ÜMUMİ BALANSLAR (Orijinal) ===
+    # === 1. KASSA AÇILIŞI VƏ ÜMUMİ BALANSLAR ===
     with st.expander("🔓 Səhər Kassanı Aç (Opening Balance)"):
         op_bal = st.number_input("Kassada nə qədər pul var? (AZN)", min_value=0.0, step=0.1)
         if st.button("✅ Kassanı Bu Məbləğlə Aç"): 
@@ -116,7 +119,6 @@ def render_finance_page():
     
     if type_filter == "Məxaric (Çıxış)": query += " AND type='out'"
     elif type_filter == "Mədaxil (Giriş)": query += " AND type='in'"
-    
     if src_filter != "Hamısı":
         query += " AND source=:src"
         params["src"] = src_filter
@@ -129,7 +131,6 @@ def render_finance_page():
         expenses_only = fin_df[fin_df['type'] == 'out']
         if not expenses_only.empty:
             exp_grouped = expenses_only.groupby('category')['amount'].sum().reset_index()
-            # Kəsir transferlərini qrafikə qatmırıq ki, analitikanı korlamasın
             exp_grouped = exp_grouped[exp_grouped['category'] != 'Daxili Transfer'] 
             
             if not exp_grouped.empty:
@@ -138,7 +139,7 @@ def render_finance_page():
                 fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
-    # --- AI Düyməsi VƏ Export ---
+    # === 4. BİRBAŞA AI İNTEQRASİYASI (SƏNİN YAZDIĞIN KOD) ===
     action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         if not fin_df.empty:
@@ -146,15 +147,62 @@ def render_finance_page():
             st.download_button("📥 Excel/CSV kimi Yüklə", data=csv, file_name=f"Maliyye_{sd}_{ed}.csv", mime="text/csv", use_container_width=True)
             
     with action_col2:
+        api_key = get_setting("gemini_api_key", "")
         if st.button("🤖 AI Maliyyə Analizi Çıxar", type="primary", use_container_width=True):
             if fin_df.empty:
                 st.warning("Analiz üçün bu aralıqda kifayət qədər məlumat yoxdur.")
+            elif not api_key:
+                st.error("⚠️ AI API Açarı (Gemini Key) tapılmadı! Zəhmət olmasa 'Ayarlar' və ya 'AI Menecer' tabından API açarınızı daxil edin.")
             else:
-                total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
-                total_out = fin_df[fin_df['type'] == 'out']['amount'].sum()
-                st.success("🤖 AI Data Hazırlanır...")
-                time.sleep(1)
-                st.info(f"**AI Menecerin İlkin Baxışı:** \nSeçilmiş aralıqda ümumi mədaxil **{total_in:.2f} ₼**, ümumi məxaric isə **{total_out:.2f} ₼** təşkil edib. Fərq: **{total_in - total_out:.2f} ₼**. Tam hesabat gələcək yenilənmədə API üzərindən PDF formatında generasiya ediləcək.")
+                try:
+                    genai.configure(api_key=api_key)
+                    valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0])
+                    model = genai.GenerativeModel(chosen_model) 
+                    
+                    with st.spinner("🤖 AI maliyyə datalarınızı oxuyur və səsli cavab hazırlayır..."):
+                        # Xərc və gəlirləri toplayıb analiz üçün prompt hazırlayırıq
+                        total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
+                        total_out = fin_df[fin_df['type'] == 'out']['amount'].sum()
+                        
+                        expenses_str = ""
+                        expenses_only = fin_df[fin_df['type'] == 'out']
+                        if not expenses_only.empty:
+                            exp_grouped = expenses_only.groupby('category')['amount'].sum().sort_values(ascending=False)
+                            expenses_str = ", ".join([f"{cat}: {amt:.2f} AZN" for cat, amt in exp_grouped.items() if cat != 'Daxili Transfer'])
+                        
+                        prompt = f"""
+                        Sən 'Füzuli' adlı kofe şopunun baş maliyyəçisisən (CFO).
+                        Aşağıdakı datalar seçilmiş {sd} - {ed} tarixləri arasındakı maliyyə göstəriciləridir.
+                        
+                        - Ümumi Mədaxil (Gəlir): {total_in:.2f} AZN
+                        - Ümumi Məxaric (Xərc): {total_out:.2f} AZN
+                        - Xərc kateqoriyaları: {expenses_str}
+                        
+                        Müdirə qısa, dəqiq və professional maliyyə analizi ver. Vəziyyəti dəyərləndir və 2 cümləlik tövsiyə ver. Cümlələri uzun uzadı deyil, konkret və aydın yaz ki, mən onu səsləndirəcəyəm.
+                        Məsləhətini Azərbaycan dilində yaz.
+                        """
+                        
+                        response = model.generate_content(prompt)
+                        st.success("✅ AI Analizi Tamamlandı!")
+                        
+                        # Səs generasiyası (gTTS)
+                        try:
+                            tts = gTTS(text=response.text, lang='tr')
+                            fp = io.BytesIO()
+                            tts.write_to_fp(fp)
+                            st.audio(fp, format='audio/mp3')
+                        except Exception as audio_e:
+                            st.warning(f"Səs generasiyasında xəta oldu (Amma mətn hazırdır): {audio_e}")
+
+                        st.markdown(f"""
+                        <div style="background: #1e2226; padding: 20px; border-left: 5px solid #ffd700; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
+                            {response.text}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                except Exception as e:
+                    st.error(f"AI Analiz xətası: {e}")
 
     # --- Cədvəl ---
     if not fin_df.empty:
