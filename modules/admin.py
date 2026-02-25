@@ -12,29 +12,48 @@ from sqlalchemy import text
 
 def render_settings_page():
     st.subheader("⚙️ Sistem və Əməliyyat Ayarları")
-    
-    # --- YENİ ZAMAN, VALYUTA VƏ API AYARLARI TABLARI ---
     st.markdown("Bu bölmədən proqramın qlobal tənzimləmələrini edə bilərsiniz.")
+    
     t1, t2, t3 = st.tabs(["🕒 Zaman və Növbə", "💱 Valyuta", "🤖 API İnteqrasiyaları"])
     
     with t1:
-        st.info("Z-Hesabatların və Maliyyənin dəqiq işləməsi üçün vacibdir.")
-        c1, c2 = st.columns(2)
+        st.info("Z-Hesabatların və Maliyyənin dəqiq işləməsi üçün Açılış və Qapanış saatlarını, eləcə də Məkanı seçin.")
+        c1, c2, c3 = st.columns(3)
         with c1:
-            current_shift = get_setting("shift_start_time", "08:00")
-            try: current_shift_time = datetime.datetime.strptime(current_shift, "%H:%M").time()
-            except: current_shift_time = datetime.time(8, 0)
-            new_shift = st.time_input("Gün (Növbə) saat neçədə başlayır?", value=current_shift_time)
+            current_start = get_setting("shift_start_time", "08:00")
+            try: current_start_time = datetime.datetime.strptime(current_start, "%H:%M").time()
+            except: current_start_time = datetime.time(8, 0)
+            new_start = st.time_input("🟢 Açılış Saatı", value=current_start_time)
             
         with c2:
-            try: current_offset = int(get_setting("utc_offset", "4"))
-            except: current_offset = 4
-            new_offset = st.number_input("Saat Qurşağı (UTC Offset)", min_value=-12, max_value=14, value=current_offset, help="Bakı üçün 4, İstanbul üçün 3")
+            current_end = get_setting("shift_end_time", "23:59")
+            try: current_end_time = datetime.datetime.strptime(current_end, "%H:%M").time()
+            except: current_end_time = datetime.time(23, 59)
+            new_end = st.time_input("🔴 Qapanış Saatı", value=current_end_time)
+            
+        with c3:
+            timezones = {
+                "-8": "🇺🇸 Los Angeles (UTC -8)",
+                "-5": "🇺🇸 New York (EST / UTC -5)",
+                "0": "🇬🇧 London (GMT / UTC 0)",
+                "3": "🇹🇷 İstanbul (TRT / UTC +3)",
+                "4": "🇦🇿 Bakı (AZT / UTC +4)",
+                "5": "🇺🇿 Daşkənd (UZT / UTC +5)",
+                "8": "🇨🇳 Pekin (UTC +8)"
+            }
+            current_offset_str = str(get_setting("utc_offset", "4"))
+            if current_offset_str not in timezones:
+                timezones[current_offset_str] = f"Xüsusi (UTC {current_offset_str})"
+            
+            tz_options = list(timezones.keys())
+            tz_index = tz_options.index(current_offset_str)
+            selected_tz_key = st.selectbox("🌍 Saat Qurşağı", options=tz_options, format_func=lambda x: timezones[x], index=tz_index)
 
         if st.button("💾 Zaman Ayarlarını Yadda Saxla", type="primary"):
-            set_setting("shift_start_time", new_shift.strftime("%H:%M"))
-            set_setting("utc_offset", str(new_offset))
-            st.success("✅ Zaman ayarları uğurla yeniləndi! Saat fərqi aradan qaldırıldı.")
+            set_setting("shift_start_time", new_start.strftime("%H:%M"))
+            set_setting("shift_end_time", new_end.strftime("%H:%M"))
+            set_setting("utc_offset", selected_tz_key)
+            st.success("✅ Zaman və saat qurşağı uğurla yeniləndi!")
             time.sleep(1.5); st.rerun()
 
     with t2:
@@ -57,7 +76,6 @@ def render_settings_page():
 
     st.markdown("---")
 
-    # --- SƏNİN ORİJİNAL AYARLARIN (TOXUNULMAZ QALDI) ---
     with st.expander("🧾 Çek Dizaynı və Logo", expanded=False):
         c1, c2 = st.columns([1, 2])
         with c1:
