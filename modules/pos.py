@@ -39,13 +39,27 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     free_cof = min(int((current_stars + coffee_qty) // 10), coffee_qty)
     final_total = 0.0
     
+    # === BİZİM DÜZƏLTDİYİMİZ HƏDİYYƏ KOFE MƏNTİQİ ===
+    free_coffees_to_give = free_cof 
+    
     for i in cart:
         line = i['qty'] * i['price']
         total += line
-        if i.get('is_coffee'): 
-            final_total += (line - (line * disc_rate))
+        
+        if i.get('is_coffee'):
+            # Hədiyyə kofe varsa, bu məhsulun pulunu çıxırıq
+            if free_coffees_to_give > 0:
+                # Əgər səbətdə 2 dənə eyni kofe varsa, hərəsini tək-tək yoxlamalıyıq
+                free_from_this_item = min(i['qty'], free_coffees_to_give)
+                paid_qty = i['qty'] - free_from_this_item
+                
+                final_total += (paid_qty * i['price']) * (1 - disc_rate)
+                free_coffees_to_give -= free_from_this_item
+            else:
+                final_total += (line - (line * disc_rate))
         else: 
             final_total += line
+    # ====================================================
             
     if is_table: 
         final_total += final_total * 0.07
@@ -232,12 +246,15 @@ def render_pos_page():
             own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check")
             
             btn_disabled = True if (man_disc_val > 0 and not disc_note) else False
+            
             if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True, disabled=btn_disabled, key="pay_btn"):
                 if not st.session_state.cart_takeaway: 
                     st.error("Səbət boşdur")
                     st.stop()
+                    
                 final_db_total = final
                 final_note = disc_note
+                
                 if pm == "Personal":
                     start_sh, _ = get_shift_range()
                     used = run_query("SELECT SUM(original_total) as s FROM sales WHERE cashier=:u AND payment_method='Staff' AND created_at >= :d", {"u":st.session_state.user, "d":start_sh}).iloc[0]['s'] or 0.0
@@ -252,8 +269,10 @@ def render_pos_page():
                     else: 
                         final_db_total = 0.00
                         final_note = f"Staff Limit ({used + current_cart_raw_val:.2f}/{staff_limit})"
+                        
                 try:
                     with conn.session as s:
+                        # Anbardan Çıxış
                         for it in st.session_state.cart_takeaway:
                             recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                             for r in recs:
@@ -263,11 +282,27 @@ def render_pos_page():
                                 if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name): 
                                     continue 
                                 s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":ing_name})
+                                
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
-                        if own_cup: 
-                            final_note += " [Eko Mod]"
+                        if own_cup: final_note += " [Eko Mod]"
+                        
+                        # === MÜŞTƏRİ ULDUZLARININ YENİLƏNMƏSİ VƏ SIFIRLANMASI ===
+                        if cust:
+                            coffee_count_in_cart = sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])
+                            new_stars = cust['stars'] + coffee_count_in_cart
+                            
+                            # Hədiyyə kofe verilibsə ulduzları azalt (Hər hədiyyə üçün 10 ulduz silinir)
+                            if free > 0:
+                                new_stars -= (free * 10)
+                                if new_stars < 0: new_stars = 0 # Ehtiyat üçün
+                                
+                            # Ulduzları bazada yenilə
+                            s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": new_stars, "cid": cust['card_id']})
+                        # ========================================================
+                        
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
                         s.commit()
+                        
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
                     st.session_state.show_receipt_popup = True
                     st.session_state.cart_takeaway = []
