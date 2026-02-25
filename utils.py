@@ -2,6 +2,13 @@ import datetime
 from database import get_setting, run_action
 
 BRAND_NAME = "Füzuli"
+VERSION = "1.0.0"
+DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
+CARTOON_QUOTES = [
+    "Qəhvəsiz bir gün, itirilmiş bir gündür!",
+    "Füzulidə hər qurtum bir ilhamdır!",
+    "Enerjini topla, günə başla!"
+]
 SUBJECTS = ["Təchizatçı", "İşçi", "Dövlət/Vergi", "İcarədar", "Digər"]
 
 def get_baku_now():
