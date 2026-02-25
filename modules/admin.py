@@ -8,12 +8,12 @@ from io import BytesIO
 from database import run_query, run_action, get_setting, set_setting, conn
 from auth import admin_confirm_dialog
 from utils import hash_password, image_to_base64, BONUS_RECIPIENTS, DEFAULT_TERMS, ALLOWED_TABLES, get_baku_now
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 
 def render_settings_page():
     st.subheader("⚙️ Sistem və Əməliyyat Ayarları")
-    st.markdown("Bu bölmədən proqramın qlobal tənzimləmələrini edə bilərsiniz.")
     
+    st.markdown("Bu bölmədən proqramın qlobal tənzimləmələrini edə bilərsiniz.")
     t1, t2, t3 = st.tabs(["🕒 Zaman və Növbə", "💱 Valyuta", "🤖 API İnteqrasiyaları"])
     
     with t1:
@@ -140,34 +140,67 @@ def render_settings_page():
         if st.button("Qaydaları Yenilə", key="save_rules"): set_setting("customer_rules", rules); st.success("Yeniləndi")
 
 def render_database_page():
-    st.subheader("💾 Baza İdarəetməsi (JSON Backup)")
-    st.info("Bütün verilənlər bazasını tamamilə JSON faylı kimi endirə və bərpa edə bilərsiniz.")
+    st.subheader("💾 Baza İdarəetməsi (Backup)")
+    st.info("Bütün verilənlər bazasını həm JSON, həm də Excel cədvəli olaraq endirə bilərsiniz.")
     
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("⬇️ FULL BACKUP HAZIRLA (JSON)", key="full_backup_json_btn", type="primary"):
-            db_dump = {}
-            for t in ALLOWED_TABLES:
-                 try: 
-                     df = run_query(f"SELECT * FROM {t}")
-                     for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
-                         df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-                     db_dump[t] = df.to_dict(orient="records")
-                 except: pass
-            
-            json_str = json.dumps(db_dump, indent=4, ensure_ascii=False)
-            file_name = f"fuzuli_backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json"
-            
-            st.download_button("💾 Backup Faylını Endir (.json)", json_str, file_name, "application/json")
-    
+        st.markdown("### ⬇️ Məlumatları Yedəklə (Backup)")
+        if st.button("🔄 Yedəkləmə Fayllarını Hazırla", key="prepare_backup_btn", type="primary"):
+            with st.spinner("Baza analiz edilir və fayllar yazılır..."):
+                inspector = inspect(conn.engine)
+                db_tables = inspector.get_table_names() # Əsl bazadakı cədvəlləri tapırıq!
+                
+                db_dump = {}
+                excel_buffer = BytesIO()
+                
+                # Həm JSON, həm Excel hazırlanır
+                try:
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        for t in db_tables:
+                            try:
+                                df = run_query(f"SELECT * FROM {t}")
+                                for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+                                    df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                                db_dump[t] = df.to_dict(orient="records")
+                                
+                                if not df.empty:
+                                    # Hər cədvəl Excel-də bir vərəq (sheet) olur
+                                    df.to_excel(writer, sheet_name=t[:31], index=False)
+                            except: pass
+                    st.session_state.backup_excel = excel_buffer.getvalue()
+                except Exception as e:
+                    # Əgər serverdə 'openpyxl' yoxdursa, sadəcə JSON verəcək
+                    st.warning("Serverdə Excel modulu (openpyxl) olmadığı üçün sadəcə JSON hazırlana bildi.")
+                    for t in db_tables:
+                        try:
+                            df = run_query(f"SELECT * FROM {t}")
+                            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+                                df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+                            db_dump[t] = df.to_dict(orient="records")
+                        except: pass
+                    st.session_state.backup_excel = None
+                    
+                st.session_state.backup_json = json.dumps(db_dump, indent=4, ensure_ascii=False)
+                st.success("✅ Fayllar hazırdır! Aşağıdan endirə bilərsiniz.")
+
+        if st.session_state.get('backup_json'):
+            st.download_button("📦 JSON Formatında Endir", st.session_state.backup_json, f"fuzuli_backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json", "application/json", use_container_width=True)
+        if st.session_state.get('backup_excel'):
+            st.download_button("📊 EXCEL Formatında Endir", st.session_state.backup_excel, f"fuzuli_backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
     with c2:
-        rf = st.file_uploader("⬆️ Bərpa Et (.json formatı)", type="json")
+        st.markdown("### ⬆️ Bərpa Et (.json)")
+        rf = st.file_uploader("Bərpa üçün JSON faylını yüklə", type="json")
         if rf and st.button("⚠️ Bazanı Bərpa Et (DİQQƏT!)", key="restore_json_btn"):
             try:
                 data = json.load(rf)
+                inspector = inspect(conn.engine)
+                db_tables = inspector.get_table_names()
+                
                 with conn.session as s:
                     for t, records in data.items():
-                        if t in ALLOWED_TABLES and isinstance(records, list):
+                        if t in db_tables and isinstance(records, list):
                             s.execute(text(f"DELETE FROM {t}"))
                             if records:
                                 df_restore = pd.DataFrame(records)
