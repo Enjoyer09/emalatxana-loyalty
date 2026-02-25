@@ -59,10 +59,7 @@ def render_analytics_page():
             display_df = sales_disp[cols_to_show].copy()
             display_df.insert(0, "Seç", False)
             
-            # Admin və Menecerlər üçün redaktə edilə bilən, Staff üçün isə oxunan (readonly) cədvəl
             is_admin = st.session_state.role in ['admin', 'manager']
-            
-            # Redaktə edilə BİLMƏYƏN (kilidli) sütunlar. Digərləri avtomatik açıq olacaq.
             disabled_cols = ['id', 'created_at', 'Müştəri Tipi', 'Ulduz'] if is_admin else cols_to_show
             
             edited_sales = st.data_editor(
@@ -86,16 +83,26 @@ def render_analytics_page():
             
             # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (UPDATE) MƏNTİQİ ---
             if is_admin:
-                # Orijinal data ilə yeni datanı müqayisə edirik (Amma "Seç" sütununu çıxarmaqla!)
-                df_edited_no_sel = edited_sales.drop(columns=['Seç'])
-                df_orig_no_sel = display_df.drop(columns=['Seç'])
+                changed_indices = []
+                # Ancaq bu sütunlarda dəyişiklik olub-olmadığını yoxlayırıq ("Seç" sütununu çıxardaraq)
+                cols_to_check = ['cashier', 'items', 'total', 'payment_method', 'Müştəri Kodu', 'note']
                 
-                diff = df_edited_no_sel.compare(df_orig_no_sel)
-                
-                if not diff.empty:
-                    st.warning("Cədvəldə dəyişikliklər etdiniz. Təsdiqləmək üçün düyməni sıxın.")
+                for idx in display_df.index:
+                    for c in cols_to_check:
+                        if c in display_df.columns:
+                            val_orig = display_df.at[idx, c]
+                            val_new = edited_sales.at[idx, c]
+                            
+                            if pd.isna(val_orig) and pd.isna(val_new): continue
+                            
+                            # Hər iki tərəfi eyni formata (sözə) salıb yoxlayırıq ki, tip fərqi problem yaratmasın
+                            if str(val_orig).strip() != str(val_new).strip():
+                                if idx not in changed_indices:
+                                    changed_indices.append(idx)
+
+                if len(changed_indices) > 0:
+                    st.warning(f"Cədvəldə {len(changed_indices)} sətirdə dəyişiklik etdiniz. Təsdiqləmək üçün düyməni sıxın.")
                     if st.button("💾 Dəyişiklikləri Yadda Saxla", type="primary"):
-                        changed_indices = diff.index
                         for idx in changed_indices:
                             row = edited_sales.loc[idx]
                             run_action("""
@@ -107,8 +114,8 @@ def render_analytics_page():
                                 "i": row['items'], 
                                 "t": float(row['total']), 
                                 "p": row['payment_method'], 
-                                "cc": row['Müştəri Kodu'] if pd.notna(row['Müştəri Kodu']) else None,
-                                "n": row['note'] if pd.notna(row['note']) else None,
+                                "cc": row['Müştəri Kodu'] if pd.notna(row['Müştəri Kodu']) and str(row['Müştəri Kodu']).strip() else None,
+                                "n": row['note'] if pd.notna(row['note']) and str(row['note']).strip() else None,
                                 "id": int(row['id'])
                             })
                             log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {row['id']} | Yeni Kassir: {row['cashier']} | Yeni Məbləğ: {row['total']}")
