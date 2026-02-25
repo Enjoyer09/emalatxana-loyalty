@@ -42,7 +42,7 @@ def render_analytics_page():
         tab1, tab2 = st.tabs(["📋 Çeklər (Satış Siyahısı)", "☕ Satılan Məhsullar (Detallı)"])
         
         with tab1:
-            st.write("Səhv vurulmuş çeki seçib silə bilərsiniz.")
+            st.info("💡 Məsləhət: Səhv vurulmuş çeki silə, yaxud cədvəlin üzərində dəyişiklik (Kassir, Məbləğ, Qeyd və s.) edib yadda saxlaya bilərsiniz.")
             sales_disp = sales.copy()
             
             sales_disp['Müştəri Kodu'] = sales_disp['customer_card_id']
@@ -52,29 +52,73 @@ def render_analytics_page():
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Müştəri Tipi'] = ''
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Ulduz'] = None
             
-            cols_to_show = ['id', 'created_at', 'items', 'total', 'payment_method', 'cashier', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
+            # Cədvəldə görünəcək sütunlar
+            cols_to_show = ['id', 'created_at', 'cashier', 'items', 'total', 'payment_method', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
             cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
             
             display_df = sales_disp[cols_to_show].copy()
             display_df.insert(0, "Seç", False)
             
-            ed_sales = st.data_editor(
+            # Admin və Menecerlər üçün redaktə edilə bilən, Staff üçün isə oxunan (readonly) cədvəl
+            is_admin = st.session_state.role in ['admin', 'manager']
+            
+            # Redaktə edilə BİLMƏYƏN (kilidli) sütunlar. Digərləri avtomatik açıq olacaq.
+            disabled_cols = ['id', 'created_at', 'Müştəri Tipi', 'Ulduz'] if is_admin else cols_to_show
+            
+            edited_sales = st.data_editor(
                 display_df, 
                 hide_index=True, 
                 column_config={
                     "Seç": st.column_config.CheckboxColumn(required=True),
-                    "created_at": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
-                    "Ulduz": st.column_config.NumberColumn(format="%d ⭐")
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "created_at": st.column_config.DatetimeColumn("Tarix", format="DD.MM.YYYY HH:mm", disabled=True),
+                    "cashier": st.column_config.TextColumn("Kassir (Kim Satıb)"),
+                    "items": st.column_config.TextColumn("Məhsullar (Nə Satılıb)"),
+                    "total": st.column_config.NumberColumn("Məbləğ", format="%.2f ₼"),
+                    "payment_method": st.column_config.SelectboxColumn("Ödəniş Növü", options=["Cash", "Card", "Staff"]),
+                    "note": st.column_config.TextColumn("Qeyd"),
+                    "Ulduz": st.column_config.NumberColumn(format="%d ⭐", disabled=True)
                 }, 
-                disabled=cols_to_show, 
+                disabled=disabled_cols, 
                 use_container_width=True, 
                 key="sales_admin_ed"
             )
             
-            sel_sales = ed_sales[ed_sales["Seç"]]
+            # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (UPDATE) MƏNTİQİ ---
+            if is_admin:
+                # Orijinal data ilə yeni datanı müqayisə edirik
+                diff = edited_sales.compare(display_df)
+                if not diff.empty:
+                    st.warning("Cədvəldə dəyişikliklər etdiniz. Təsdiqləmək üçün düyməni sıxın.")
+                    if st.button("💾 Dəyişiklikləri Yadda Saxla", type="primary"):
+                        # Dəyişdirilmiş sətirləri tapıb bazaya (UPDATE) yazırıq
+                        changed_indices = diff.index
+                        for idx in changed_indices:
+                            row = edited_sales.loc[idx]
+                            run_action("""
+                                UPDATE sales 
+                                SET cashier=:c, items=:i, total=:t, payment_method=:p, customer_card_id=:cc, note=:n 
+                                WHERE id=:id
+                            """, {
+                                "c": row['cashier'], 
+                                "i": row['items'], 
+                                "t": float(row['total']), 
+                                "p": row['payment_method'], 
+                                "cc": row['Müştəri Kodu'] if pd.notna(row['Müştəri Kodu']) else None,
+                                "n": row['note'] if pd.notna(row['note']) else None,
+                                "id": int(row['id'])
+                            })
+                            log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {row['id']} | Yeni Kassir: {row['cashier']} | Yeni Məbləğ: {row['total']}")
+                        
+                        st.success("✅ Dəyişikliklər uğurla yadda saxlanıldı!")
+                        time.sleep(1.5)
+                        st.rerun()
+
+            # --- 2. SİLİNMƏ (DELETE) MƏNTİQİ (Sənin orijinal kodun) ---
+            sel_sales = edited_sales[edited_sales["Seç"]]
             sel_s_ids = sel_sales['id'].tolist()
             
-            if len(sel_s_ids) > 0 and st.session_state.role in ['admin', 'manager']:
+            if len(sel_s_ids) > 0 and is_admin:
                 if st.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
                     st.session_state.sales_to_delete = sel_s_ids
                     st.rerun()
@@ -99,7 +143,7 @@ def render_analytics_page():
                                 t_val = s_info.iloc[0]['total']
                                 log_system(st.session_state.user, f"SİLİNDİ | Səbəb: {reason} | Məbləğ: {t_val} AZN | Məhsullar: {i_str} | Qeyd: {note}")
                                 
-                                # === BİZİM YENİ ANBARA QAYTARMA MƏNTİQİMİZ (ROLLBACK) ===
+                                # Anbara qaytarma (Rollback)
                                 if "Qaytarılsın" in reason and isinstance(i_str, str) and i_str != "Table Order":
                                     parts = i_str.split(", ")
                                     for p in parts:
@@ -107,8 +151,6 @@ def render_analytics_page():
                                             try:
                                                 name_part, qty_part = p.rsplit(" x", 1)
                                                 qty = int(qty_part.split()[0])
-                                                
-                                                # Məhsulun reseptini tap və inqrediyentləri anbara (+) et
                                                 rec_df = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name = :m", {"m": name_part})
                                                 for _, r_row in rec_df.iterrows():
                                                     ing_name = r_row['ingredient_name']
@@ -117,7 +159,6 @@ def render_analytics_page():
                                                     run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name = :n", {"q": total_return, "n": ing_name})
                                             except Exception as e:
                                                 pass
-                                # =======================================================
                                 
                             run_action("DELETE FROM sales WHERE id=:id", {"id":int(i)})
                         st.session_state.sales_to_delete = None
@@ -162,7 +203,6 @@ def render_z_report_page():
     user_role = st.session_state.role
     
     if user_role == 'staff':
-        # --- YALNIZ İŞÇİYƏ AİD (ŞƏXSİ) HESABAT ---
         my_sales_df = run_query("SELECT * FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e ORDER BY created_at DESC", 
                                 {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
         
@@ -210,7 +250,6 @@ def render_z_report_page():
             st.info("Siz bu növbədə hələ satış etməmisiniz.")
             
     else:
-        # --- ADMİN / MENECER ÜÇÜN ÜMUMİ HESABAT ---
         s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
         s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
         s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
