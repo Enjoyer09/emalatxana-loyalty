@@ -1,7 +1,7 @@
 import datetime
 from database import get_setting, run_action
 
-BRAND_NAME = "Füzuli"
+BRAND_NAME = "iRonWaves POS"
 VERSION = "1.0.0"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
 CARTOON_QUOTES = [
@@ -10,6 +10,13 @@ CARTOON_QUOTES = [
     "Enerjini topla, günə başla!"
 ]
 SUBJECTS = ["Təchizatçı", "İşçi", "Dövlət/Vergi", "İcarədar", "Digər"]
+
+CAT_ORDER_MAP = {cat: i for i, cat in enumerate([
+    "Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", 
+    "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", 
+    "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", 
+    "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"
+])}
 
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
