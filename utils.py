@@ -1,11 +1,9 @@
 import datetime
 from database import get_setting, run_action
 
-# Qlobal dəyişənlər
 BRAND_NAME = "Füzuli"
 SUBJECTS = ["Təchizatçı", "İşçi", "Dövlət/Vergi", "İcarədar", "Digər"]
 
-# 1. HƏMİŞƏ DÜZGÜN SAAT (Serverdən asılı deyil, Ayarlara baxır)
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
     try:
@@ -17,7 +15,6 @@ def get_baku_now():
     real_local_time = utc_now + datetime.timedelta(hours=offset_hours)
     return real_local_time
 
-# 2. MƏNTİQİ GÜN (Növbənin başlama saatına görə günü tapır)
 def get_logical_date():
     now = get_baku_now()
     
@@ -27,12 +24,10 @@ def get_logical_date():
     except:
         start_hour = 8
 
-    # Əgər saat 08:00-dan tezdirsə, deməli hələ dünənki növbə davam edir
     if now.hour < start_hour:
         return (now - datetime.timedelta(days=1)).date()
     return now.date()
 
-# 3. NÖVBƏNİN TAM ARALIĞI (Z-Hesabat üçün)
 def get_shift_range(logical_date=None):
     if not logical_date:
         logical_date = get_logical_date()
@@ -48,7 +43,6 @@ def get_shift_range(logical_date=None):
     
     return shift_start, shift_end
 
-# Əlavə köməkçi funksiyalar (QR və Log)
 def clean_qr_code(code):
     if not code: return ""
     return str(code).strip()
@@ -59,3 +53,29 @@ def log_system(user, action):
                    {"u": str(user), "a": str(action), "t": get_baku_now()})
     except:
         pass
+
+def hash_password(password):
+    try:
+        from werkzeug.security import generate_password_hash
+        return generate_password_hash(password)
+    except:
+        return password
+
+def verify_password(plain_password, hashed_password):
+    if plain_password == hashed_password:
+        return True
+    
+    if str(hashed_password).startswith("pbkdf2:"):
+        try:
+            from werkzeug.security import check_password_hash
+            return check_password_hash(hashed_password, plain_password)
+        except:
+            pass
+            
+    try:
+        import bcrypt
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except:
+        pass
+        
+    return False
