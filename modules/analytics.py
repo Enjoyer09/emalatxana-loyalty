@@ -42,7 +42,7 @@ def render_analytics_page():
         tab1, tab2 = st.tabs(["📋 Çeklər (Satış Siyahısı)", "☕ Satılan Məhsullar (Detallı)"])
         
         with tab1:
-            st.info("💡 Məsləhət: Cədvəlin üzərində dəyişiklik (Kassir, Məbləğ, Endirim və s.) edib yadda saxlaya və ya qutunu seçib silə bilərsiniz.")
+            st.info("💡 Məsləhət: Xananın üzərinə 2 dəfə klikləyin, dəyişdirib ENTER basın. Yadda saxlama düyməsi anında çıxacaq.")
             sales_disp = sales.copy()
             
             # Endirim sütunu bazada yoxdursa, problem yaratmasın deyə sıfır olaraq təyin edirik
@@ -85,23 +85,26 @@ def render_analytics_page():
                 key="sales_admin_ed"
             )
             
-            # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (STREAMLIT SESSION STATE İLƏ) ---
+            # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (SAF PANDAS MƏNTİQİ İLƏ) ---
             if is_admin:
-                # Birbaşa "beyinə" (session_state) baxırıq
-                edits = st.session_state.get("sales_admin_ed", {}).get("edited_rows", {})
-                real_edits_indices = []
+                # Ancaq bu sütunları müqayisə edəcəyik (Seç qutusu burda yoxdur!)
+                editable_cols = ['cashier', 'items', 'total', 'payment_method', 'Müştəri Kodu', 'note']
+                if 'discount' in sales_disp.columns:
+                    editable_cols.append('discount')
+
+                # Hər iki cədvəlin (orijinal və redaktə olunmuş) ancaq yoxlanılacaq sütunlarını götürüb mətnə çeviririk
+                orig_check = display_df[editable_cols].fillna('').astype(str).replace(r'\.0$', '', regex=True)
+                edit_check = edited_sales[editable_cols].fillna('').astype(str).replace(r'\.0$', '', regex=True)
                 
-                # Əgər "Seç" qutusundan BAŞQA nəsə dəyişibsə, bunu real dəyişiklik kimi qəbul et:
-                for row_idx_str, changes in edits.items():
-                    if any(k != "Seç" for k in changes.keys()):
-                        real_edits_indices.append(int(row_idx_str))
-                        
-                if len(real_edits_indices) > 0:
-                    st.warning(f"Cədvəldə {len(real_edits_indices)} sətirdə dəyişiklik etdiniz. Təsdiqləmək üçün düyməni sıxın.")
-                    
+                # Fərqli olan sətirləri tapırıq (True / False massivi)
+                diff_mask = (orig_check != edit_check).any(axis=1)
+                changed_indices = display_df.index[diff_mask].tolist()
+
+                if len(changed_indices) > 0:
+                    st.warning(f"Cədvəldə {len(changed_indices)} sətirdə dəyişiklik etdiniz. Təsdiqləmək üçün düyməni sıxın.")
                     if st.button("💾 Dəyişiklikləri Yadda Saxla", type="primary"):
-                        for idx in real_edits_indices:
-                            row = edited_sales.iloc[idx]
+                        for idx in changed_indices:
+                            row = edited_sales.loc[idx]
                             real_id = int(row['id'])
                             
                             params = {
@@ -116,7 +119,6 @@ def render_analytics_page():
                             
                             update_q = "UPDATE sales SET cashier=:c, items=:i, total=:t, payment_method=:p, customer_card_id=:cc, note=:n"
                             
-                            # Endirim sütunu bazada varsa, onu da yenilə
                             if 'discount' in sales.columns:
                                 update_q += ", discount=:d"
                                 params["d"] = float(row['discount']) if pd.notna(row['discount']) else 0.0
@@ -125,15 +127,11 @@ def render_analytics_page():
                             
                             try:
                                 run_action(update_q, params)
-                            except Exception as e:
-                                # Köhnə bazalar üçün ehtiyat plan (əgər discount sütunu hələ yaradılmayıbsa)
+                            except:
                                 fallback_q = "UPDATE sales SET cashier=:c, items=:i, total=:t, payment_method=:p, customer_card_id=:cc, note=:n WHERE id=:id"
                                 run_action(fallback_q, params)
                                 
-                            log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {real_id} | Yeni Məbləğ: {row['total']}")
-                        
-                        # ƏN VACİB HİSSƏ: Cədvəlin yaddaşını zorla təmizləyirik ki, donmasın!
-                        del st.session_state["sales_admin_ed"]
+                            log_system(st.session_state.user, f"SATIŞ REDAKTƏ EDİLDİ | ID: {real_id} | Yeni Kassir: {row['cashier']} | Yeni Məbləğ: {row['total']}")
                         
                         st.success("✅ Dəyişikliklər uğurla yadda saxlanıldı!")
                         time.sleep(1.5)
