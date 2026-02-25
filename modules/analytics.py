@@ -86,12 +86,15 @@ def render_analytics_page():
             
             # --- 1. DƏYİŞİKLİKLƏRİ YADDA SAXLA (UPDATE) MƏNTİQİ ---
             if is_admin:
-                # Orijinal data ilə yeni datanı müqayisə edirik
-                diff = edited_sales.compare(display_df)
+                # Orijinal data ilə yeni datanı müqayisə edirik (Amma "Seç" sütununu çıxarmaqla!)
+                df_edited_no_sel = edited_sales.drop(columns=['Seç'])
+                df_orig_no_sel = display_df.drop(columns=['Seç'])
+                
+                diff = df_edited_no_sel.compare(df_orig_no_sel)
+                
                 if not diff.empty:
                     st.warning("Cədvəldə dəyişikliklər etdiniz. Təsdiqləmək üçün düyməni sıxın.")
                     if st.button("💾 Dəyişiklikləri Yadda Saxla", type="primary"):
-                        # Dəyişdirilmiş sətirləri tapıb bazaya (UPDATE) yazırıq
                         changed_indices = diff.index
                         for idx in changed_indices:
                             row = edited_sales.loc[idx]
@@ -114,7 +117,7 @@ def render_analytics_page():
                         time.sleep(1.5)
                         st.rerun()
 
-            # --- 2. SİLİNMƏ (DELETE) MƏNTİQİ (Sənin orijinal kodun) ---
+            # --- 2. SİLİNMƏ (DELETE) MƏNTİQİ ---
             sel_sales = edited_sales[edited_sales["Seç"]]
             sel_s_ids = sel_sales['id'].tolist()
             
