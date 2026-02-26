@@ -214,28 +214,3 @@ def render_finance_page():
         st.dataframe(disp_df[['id', 'created_at', 'type', 'category', 'amount', 'source', 'subject', 'description', 'created_by']], hide_index=True, use_container_width=True)
     else:
         st.info("Seçilmiş filtrlərə uyğun məlumat tapılmadı.")
-def render_finance_page():
-    st.subheader("💰 Maliyyə Mərkəzi (AI CFO Paneli)")
-    
-    # ========================================================
-    # 🛠️ BİR DƏFƏLİK VAXT DÜZƏLDİCİ (BUNU İSTİFADƏDƏN SONRA SİL)
-    # ========================================================
-    if st.session_state.role == 'admin':
-        with st.expander("🛠️ KÖHNƏ DATALARIN VAXTINI DÜZƏLT (+4 SAAT)"):
-            st.warning("DİQQƏT: Bu düyməyə SƏDƏCƏ 1 DƏFƏ basın! (Bütün köhnə maliyyə əməliyyatlarının saatını 4 saat irəli çəkəcək)")
-            if st.button("🚀 Vaxtları +4 Saat İrəli Çək", type="primary"):
-                with st.spinner("Keçmişə səyahət edilib vaxtlar düzəldilir..."):
-                    df = run_query("SELECT id, created_at FROM finance")
-                    count = 0
-                    for _, r in df.iterrows():
-                        if pd.notna(r['created_at']):
-                            # Köhnə vaxtı oxu, üstünə 4 saat gəl
-                            old_dt = pd.to_datetime(r['created_at'])
-                            new_dt = old_dt + datetime.timedelta(hours=4)
-                            # Yenilənmiş vaxtı bazaya yaz
-                            run_action("UPDATE finance SET created_at=:t WHERE id=:id", {"t": new_dt, "id": r['id']})
-                            count += 1
-                    st.success(f"Təbriklər! Cəmi {count} əməliyyatın saatı uğurla Bakı vaxtına gətirildi! ✅")
-                    time.sleep(3)
-                    st.rerun()
-    # ========================================================
