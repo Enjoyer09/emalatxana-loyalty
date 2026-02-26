@@ -310,6 +310,19 @@ def render_pos_page():
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
                         s.commit()
                         
+                        # --- GİZLİ SENSOR: SATIŞI LOQA YAZMAQ ---
+                        from utils import log_system
+                        log_msg = f"SATIŞ VURULDU | Məbləğ: {final_db_total:.2f} AZN | Metod: {pm}"
+                        if man_disc_val > 0:
+                            log_msg += f" | ⚠️ ENDİRİM: {man_disc_val}% Səbəb: {disc_note}"
+                        if free > 0:
+                            log_msg += f" | 🎁 {free} Kofe Hədiyyə Verildi"
+                        if pm == "Personal":
+                            log_msg += f" | ⚠️ STAFF (İŞÇİ) LİMİTİNDƏN ÇIXILDI"
+                        
+                        log_system(st.session_state.user, log_msg)
+                        # ----------------------------------------
+                        
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
                     st.session_state.show_receipt_popup = True
                     st.session_state.cart_takeaway = []
