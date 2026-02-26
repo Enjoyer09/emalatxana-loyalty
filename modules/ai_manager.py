@@ -37,11 +37,10 @@ def render_ai_page():
         st.error(f"Sistem konfiqurasiyasında xəta: {e}")
         return
     
-    # Səhifəni 2 Taba (Bölməyə) ayırırıq: Biri Biznes/Satış üçündür, digəri Təhlükəsizlik (Audit) üçün
     tab_biz, tab_sec = st.tabs(["📊 Biznes və Satış Analizi", "🕵️‍♂️ Təhlükəsizlik və Sistem Auditi"])
     
     # ==========================================
-    # 1. BİZNES VƏ SATIŞ ANALİZİ (Köhnə kodun inkişaf etmiş forması)
+    # 1. BİZNES VƏ SATIŞ ANALİZİ
     # ==========================================
     with tab_biz:
         st.markdown("### 📈 Nəyi Analiz Edək?")
@@ -127,11 +126,11 @@ def render_ai_page():
                         st.error(f"Xəta baş verdi. Detal: {e}")
 
     # ==========================================
-    # 2. TƏHLÜKƏSİZLİK VƏ SİSTEM AUDİTİ (YENİ NÜVƏ SƏVİYYƏSİ)
+    # 2. TƏHLÜKƏSİZLİK VƏ SİSTEM AUDİTİ (QAYDALARI BİLƏN MÜFƏTTİŞ)
     # ==========================================
     with tab_sec:
         st.markdown("### 🕵️‍♂️ Sistem Loqları və Anomaliya Ovu")
-        st.info("AI Baş Müfəttiş arxa plandakı bütün hərəkətləri (silinmələr, dəyişikliklər, kassa hərəkətləri) oxuyur və sənə şübhəli vəziyyətləri məruzə edir.")
+        st.info("AI Baş Müfəttiş arxa plandakı bütün hərəkətləri oxuyur və sənə şübhəli vəziyyətləri məruzə edir.")
         
         c3, c4 = st.columns(2)
         audit_d1 = c3.date_input("Başlanğıc Tarixi", get_logical_date(), key="audit_d1")
@@ -144,28 +143,27 @@ def render_ai_page():
                 t_s = datetime.datetime.combine(audit_d1, datetime.time(0,0))
                 t_e = datetime.datetime.combine(audit_d2, datetime.time(23,59))
                 
-                # 1. Bütün Loqları (gələcəkdə yaradacağımız logs cədvəlindən) çəkirik
-                # Hələlik logs cədvəli boş və ya yoxdursa, digər kritik hərəkətləri oxuyuruq
                 logs_df = pd.DataFrame()
                 try:
-                    logs_df = run_query("SELECT user, action, created_at FROM logs WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC LIMIT 200", {"s":t_s, "e":t_e})
+                    logs_df = run_query("SELECT \"user\", action, created_at FROM logs WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC LIMIT 200", {"s":t_s, "e":t_e})
                 except:
-                    pass # Logs cədvəli hələ yoxdursa və ya boşdursa, xəta verməsin
+                    pass 
                 
-                # 2. Endirimli satışları çəkirik (Şübhəli ola bilər)
                 disc_sales = run_query("SELECT cashier, items, discount_amount, total, note, created_at FROM sales WHERE discount_amount > 0 AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
-                
-                # 3. Kassadan çıxışları (pul qaçırmaq ehtimalı) çəkirik
                 cash_outs = run_query("SELECT category, amount, description, created_by, created_at FROM finance WHERE type='out' AND source='Kassa' AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
                 
-                # Məlumatları mətnə çeviririk ki, Gemini oxuya bilsin
                 logs_str = "Hələlik sistem səviyyəli klik loqları yoxdur." if logs_df.empty else "\n".join([f"[{r['created_at']}] {r['user']}: {r['action']}" for _, r in logs_df.iterrows()])
                 disc_str = "Bu aralıqda endirimli satış yoxdur." if disc_sales.empty else "\n".join([f"[{r['created_at']}] {r['cashier']} | Total: {r['total']}AZN | Endirim: {r['discount_amount']}AZN | Səbəb: {r['note']}" for _, r in disc_sales.iterrows()])
                 outs_str = "Bu aralıqda kassadan pul çıxışı yoxdur." if cash_outs.empty else "\n".join([f"[{r['created_at']}] {r['created_by']} | {r['amount']}AZN çıxardı | Səbəb: {r['category']} - {r['description']}" for _, r in cash_outs.iterrows()])
                 
+                # --- YENİ VƏ DAHA AĞILLI PROMPT ---
                 sys_prompt = f"""
                 Sən 'Füzuli' kofe şopunun 'AI Baş Müfəttişisən' (Security & Audit Manager). Sənin işin verilmiş sistem loqlarını və əməliyyatları oxuyaraq anomaliyaları, şübhəli hərəkətləri (oğurluq, səlahiyyətdən sui-istifadə, qayda pozuntusu) tapmaq və rəhbərə dəqiq hərbi məruzə formatında hesabat verməkdir.
                 
+                🚨 DİQQƏT - RƏSMİ BİZNES QAYDALARI (BUNLARI POZUNTU SAYMA):
+                1. "İkram" (Complimentary) və ya 100% endirim: Bizim ərazidəki polis, təmizlik işçiləri və xüsusi qonaqlar üçün 100% pulsuz ("Staff" metodu ilə) xidmət göstərmək qanunidir və təsdiqlənmişdir! Əgər səbəb qismində "Ikram", "Polis", "Təmizlikçi" və ya "Staff" yazılıbsa, BUNU ŞÜBHƏLİ HƏRƏKƏT SAYMA!
+                2. Səbəbsiz və İzahatsız Endirimlər: Yalnız heç bir qeyd yazılmayan və ya mənası olmayan, işçilərin özbaşınca vurduğu 50%-100% endirimləri şübhəli kimi məruzə et.
+
                 TARİX ARALIĞI: {audit_d1} - {audit_d2}
                 
                 --- SİSTEM LOQLARI (HƏRƏKƏTLƏR) ---
@@ -177,7 +175,7 @@ def render_ai_page():
                 --- KASSADAN PUL ÇIXIŞLARI (MƏXARİC) ---
                 {outs_str[:1500]}
                 
-                RƏHBƏRİN SUALI/TƏLƏBİ: {audit_q if audit_q.strip() else 'Mövcud məlumatları incələ və əgər hər hansı bir silinmə, böyük endirim və ya şübhəli hərəkət varsa, mənə məruzə et. Hər şey normaldırsa, sadəcə qısa bir asayiş hesabatı ver.'}
+                RƏHBƏRİN SUALI/TƏLƏBİ: {audit_q if audit_q.strip() else 'Mövcud məlumatları incələ və əgər hər hansı bir silinmə, böyük endirim və ya şübhəli hərəkət varsa (Biznes Qaydalarını nəzərə alaraq), mənə məruzə et. Hər şey normaldırsa, sadəcə qısa bir asayiş hesabatı ver.'}
                 
                 DİQQƏT: Cavabın çox konkret, peşəkar və Azərbaycan dilində olmalıdır. Lazımsız cümlələr qurma. Şübhəli bir şey tapmasan, uydurma, sadəcə "Hər şey qaydasındadır" de.
                 """
@@ -187,8 +185,8 @@ def render_ai_page():
                     st.success("🚨 Audit Tamamlandı!")
                     
                     st.markdown(f"""
-                    <div style="background: #1e1e1e; padding: 20px; border-left: 5px solid #ff4b4b; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
-                        <h4 style="color:#ff4b4b; margin-top:0;">📋 MÜFƏTTİŞİN MƏRUZƏSİ</h4>
+                    <div style="background: #1e1e1e; padding: 20px; border-left: 5px solid #28a745; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
+                        <h4 style="color:#28a745; margin-top:0;">📋 MÜFƏTTİŞİN MƏRUZƏSİ</h4>
                         {audit_res.text}
                     </div>
                     """, unsafe_allow_html=True)
