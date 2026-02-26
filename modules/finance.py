@@ -26,7 +26,8 @@ def render_finance_page():
         cond = "AND created_at >= :d AND created_at < :e"; params = {"d":shift_start, "e":shift_end}
     else:
         last_z = get_setting("last_z_report_time")
-        last_z_dt = datetime.datetime.fromisoformat(last_z) if last_z else datetime.datetime.now() - datetime.timedelta(days=365)
+        # BURADA DA BAKU VAXTINI NƏZƏRƏ ALIRIQ
+        last_z_dt = datetime.datetime.fromisoformat(last_z) if last_z else get_baku_now() - datetime.timedelta(days=365)
         cond = "AND created_at > :d"; params = {"d":last_z_dt}
 
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", params).iloc[0]['s'] or 0.0
@@ -61,8 +62,10 @@ def render_finance_page():
                 f_desc = st.text_input("Qeyd")
                 if st.form_submit_button("Təsdiqlə"):
                     db_type = 'out' if "Məxaric" in f_type else 'in'
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject) VALUES (:t, :c, :a, :s, :d, :u, :sb)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user, "sb":f_subj})
-                    if db_type == 'out': run_action("INSERT INTO expenses (amount, reason, spender, source) VALUES (:a, :r, :s, :src)", {"a":f_amt, "r":f"{f_subj} - {f_desc}", "s":st.session_state.user, "src":f_source})
+                    # BURADA BÜTÜN ƏMƏLİYYATLARA ZORLA get_baku_now() VERİRİK!
+                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user, "sb":f_subj, "time":get_baku_now()})
+                    if db_type == 'out': 
+                        run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (:a, :r, :s, :src, :time)", {"a":f_amt, "r":f"{f_subj} - {f_desc}", "s":st.session_state.user, "src":f_source, "time":get_baku_now()})
                     st.success("Yazıldı!"); time.sleep(1); st.rerun()
 
         with t_tr:
@@ -74,12 +77,13 @@ def render_finance_page():
                 t_desc = st.text_input("Açıqlama", "Nağdlaşdırma / Kəsirin bərpası")
                 if st.form_submit_button("Transferi Təsdiqlə"):
                     user_u = st.session_state.user
+                    # TRANSFERLƏRDƏ DƏ BAKU VAXTI!
                     if "Bank Kartından" in t_dir:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u)", {"a":t_amt, "d":t_desc + " (Kassaya)", "u":user_u})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Daxili Transfer', :a, 'Kassa', :d, :u)", {"a":t_amt, "d":t_desc + " (Kartdan)", "u":user_u})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kassaya)", "u":user_u, "time":get_baku_now()})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kartdan)", "u":user_u, "time":get_baku_now()})
                     else:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Daxili Transfer', :a, 'Kassa', :d, :u)", {"a":t_amt, "d":t_desc + " (Karta)", "u":user_u})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('in', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u)", {"a":t_amt, "d":t_desc + " (Kassadan)", "u":user_u})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Karta)", "u":user_u, "time":get_baku_now()})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kassadan)", "u":user_u, "time":get_baku_now()})
                     st.success("Transfer Uğurla İcra Edildi!"); time.sleep(1); st.rerun()
 
     # === 3. AĞILLI FİLTRLƏR VƏ CFO ANALİZATORU ===
@@ -161,7 +165,6 @@ def render_finance_page():
                     model = genai.GenerativeModel(chosen_model) 
                     
                     with st.spinner("🤖 AI maliyyə datalarınızı oxuyur və səsli cavab hazırlayır..."):
-                        # Xərc və gəlirləri toplayıb analiz üçün prompt hazırlayırıq
                         total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
                         total_out = fin_df[fin_df['type'] == 'out']['amount'].sum()
                         
@@ -186,7 +189,6 @@ def render_finance_page():
                         response = model.generate_content(prompt)
                         st.success("✅ AI Analizi Tamamlandı!")
                         
-                        # Səs generasiyası (gTTS)
                         try:
                             tts = gTTS(text=response.text, lang='tr')
                             fp = io.BytesIO()
