@@ -10,9 +10,9 @@ from database import get_setting, run_action
 
 # --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
-VERSION = "1.0.0"
+VERSION = "1.0 RC"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
-APP_URL = "https://ironwaves.store" 
+APP_URL = "https://emalatxana.ironwaves.store" 
 
 CARTOON_QUOTES = [
     "Qəhvəsiz bir gün, itirilmiş bir gündür!",
