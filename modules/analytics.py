@@ -281,10 +281,10 @@ def render_z_report_page():
         # --- ÇEVİK MAAŞ/AVANS ÖDƏNİŞ BLOKU ---
         with st.expander("💸 GÜNLÜK MAAŞ VƏ AVANS ÖDƏNİŞİ"):
             with st.form("pay_salary_form", clear_on_submit=True):
-                st.write("Günü bağlamadan əvvəl işçilərə verilən maaşı/avansı burdan ödəyə bilərsiniz.")
+                st.write("Günü bağlamadan əvvəl Staffa verilən maaşı/avansı burdan ödəyə bilərsiniz.")
                 emp_list = run_query("SELECT username FROM users")['username'].tolist()
                 c_emp, c_amt, c_src = st.columns(3)
-                p_emp = c_emp.selectbox("İşçi", emp_list)
+                p_emp = c_emp.selectbox("Staff", emp_list)
                 p_amt = c_amt.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0)
                 p_src = c_src.selectbox("Ödəniş Mənbəyi", ["Kassa", "Bank Kartı", "Seyf"])
                 
@@ -294,12 +294,12 @@ def render_z_report_page():
                     if p_amt > 0:
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş / Avans', :a, :s, :n, :u)", 
                                    {"a":p_amt, "s":p_src, "n":f"{p_emp} - {p_note}", "u":st.session_state.user})
-                        log_system(st.session_state.user, f"MAAŞ ÖDƏNİŞİ | İşçi: {p_emp} | Məbləğ: {p_amt} AZN | Mənbə: {p_src}")
+                        log_system(st.session_state.user, f"MAAŞ ÖDƏNİŞİ | Staff: {p_emp} | Məbləğ: {p_amt} AZN | Mənbə: {p_src}")
                         
                         if p_src == "Kassa":
-                            st.success(f"✅ {p_emp} üçün {p_amt} AZN maaş KASSADAN çıxıldı! 'Kassada olmalıdır' məbləği azaldıldı.")
+                            st.success(f"✅ {p_emp} adlı Staff üçün {p_amt} AZN maaş KASSADAN çıxıldı! 'Kassada olmalıdır' məbləği azaldıldı.")
                         else:
-                            st.success(f"✅ {p_emp} üçün {p_amt} AZN maaş {p_src} hesabından çıxıldı! (Z-Hesabata təsir etmədi, xərcə yazıldı)")
+                            st.success(f"✅ {p_emp} adlı Staff üçün {p_amt} AZN maaş {p_src} hesabından çıxıldı! (Z-Hesabata təsir etmədi, xərcə yazıldı)")
                         
                         time.sleep(2.5)
                         st.rerun()
