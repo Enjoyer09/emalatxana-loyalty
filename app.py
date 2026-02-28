@@ -29,8 +29,6 @@ st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initia
 # ==========================================================
 params = st.query_params
 if "id" in params:
-    # Əgər URL-də 'id' varsa, deməli bu müştəridir və QR oxudub.
-    # Dərhal Müştəri Mobil Menyusunu aç və proqramın qalan (admin) hissəsini dayandır!
     render_customer_app(params.get("id"))
     st.stop()
 # ==========================================================
@@ -104,7 +102,7 @@ st.markdown("""
     div[role="radiogroup"] > label p { color: #ffffff !important; font-weight: 800 !important; font-size: 15px !important; font-family: 'Jura', sans-serif !important; margin: 0 !important; display: block !important;}
     div[role="radiogroup"] > label:hover { background: var(--metal-btn-hover) !important; transform: translateY(-2px); }
     
-    /* AKTİV SƏHİFƏNİN VİZUAL QABARDILMASI (ZƏMANƏTLİ CSS) */
+    /* AKTİV SƏHİFƏNİN VİZUAL QABARDILMASI */
     div[role="radiogroup"] label:has(input:checked),
     div[role="radiogroup"] label[data-checked="true"],
     div[role="radiogroup"] label[aria-checked="true"] { 
@@ -144,7 +142,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Sənin öz ÇEK funksiyaların (Qısaldılmışdı, yerinə qoydum ki xəta verməsin)
 def get_receipt_html_string(cart, total):
     return "<div>Çek HTML...</div>"
 
@@ -214,10 +211,37 @@ else:
     role = st.session_state.role
     tabs_list = []
     if role in ['admin', 'manager', 'staff']: tabs_list.append("🏃‍♂️ AL-APAR")
-    show_tables_staff = get_setting("staff_show_tables", "TRUE") == "TRUE"; show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
+    show_tables_staff = get_setting("staff_show_tables", "TRUE") == "TRUE"
+    show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
     if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): tabs_list.append("🍽️ MASALAR")
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
     if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
     if role == 'manager':
-         if get_setting("manager_perm_menu", "FALSE") == "TRUE": tabs_list.append("📋 Menyu")
-         if get_setting("manager_perm_recipes", "
+        if get_setting("manager_perm_menu", "FALSE") == "TRUE": tabs_list.append("📋 Menyu")
+        if get_setting("manager_perm_recipes", "FALSE") == "TRUE": tabs_list.append("📜 Resept")
+    if role == 'admin':
+        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
+    
+    tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
+
+    if "current_tab" not in st.session_state: st.session_state.current_tab = tabs_list[0]
+    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
+    if selected_tab != st.session_state.current_tab: st.session_state.current_tab = selected_tab
+
+    if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
+    elif selected_tab == "🍽️ MASALAR": render_tables_page()
+    elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
+    elif selected_tab == "📦 Anbar": render_inventory_page()
+    elif selected_tab == "💰 Maliyyə": render_finance_page()
+    elif selected_tab == "📊 Analitika": render_analytics_page()
+    elif selected_tab == "👥 CRM": render_crm_page()
+    elif selected_tab == "🤖 AI Menecer": render_ai_page()
+    elif selected_tab == "📋 Menyu": render_menu_page()
+    elif selected_tab == "📜 Resept": render_recipe_page()
+    elif selected_tab == "📝 Qeydlər": render_notes_page()
+    elif selected_tab == "⚙️ Ayarlar": render_settings_page()
+    elif selected_tab == "💾 Baza": render_database_page()
+    elif selected_tab == "QR": render_qr_page()
+    elif selected_tab == "📜 Loglar": render_logs_page()
+
+    st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
