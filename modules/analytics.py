@@ -61,7 +61,6 @@ def render_analytics_page():
             display_df = sales_disp[cols_to_show].copy()
             display_df.insert(0, "Seç", False)
             
-            # Cədvəl ancaq oxumaq və "Seç"mək üçündür
             edited_sales = st.data_editor(
                 display_df, 
                 hide_index=True, 
@@ -86,19 +85,16 @@ def render_analytics_page():
             if is_admin:
                 col_btn1, col_btn2 = st.columns(2)
                 
-                # --- 1. DÜZƏLİŞ MƏNTİQİ (PƏNCƏRƏ İLƏ) ---
                 if len(sel_s_ids) == 1:
                     if col_btn1.button("✏️ Düzəliş", type="secondary"):
                         st.session_state.sale_edit_id = int(sel_s_ids[0])
                         st.rerun()
                         
-                # --- 2. SİLİNMƏ MƏNTİQİ ---
                 if len(sel_s_ids) > 0:
                     if col_btn2.button(f"🗑️ Seçilən {len(sel_s_ids)} Satışı Sil", type="primary"):
                         st.session_state.sales_to_delete = sel_s_ids
                         st.rerun()
 
-            # --- DÜZƏLİŞ PƏNCƏRƏSİ ---
             if st.session_state.get('sale_edit_id'):
                 s_res = run_query("SELECT * FROM sales WHERE id=:id", {"id": st.session_state.sale_edit_id})
                 if not s_res.empty:
@@ -151,7 +147,6 @@ def render_analytics_page():
                                 st.rerun()
                     edit_sale_dialog(s_row)
 
-            # --- SİLMƏ PƏNCƏRƏSİ ---
             if st.session_state.get('sales_to_delete'):
                 @st.dialog("⚠️ Satışı Silmə Səbəbi")
                 def del_sale_dialog():
@@ -292,8 +287,8 @@ def render_z_report_page():
                 
                 if st.form_submit_button("💰 Ödənişi Təsdiqlə", type="primary"):
                     if p_amt > 0:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by) VALUES ('out', 'Maaş / Avans', :a, :s, :n, :u)", 
-                                   {"a":p_amt, "s":p_src, "n":f"{p_emp} - {p_note}", "u":st.session_state.user})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Maaş / Avans', :a, :s, :n, :u, :time)", 
+                                   {"a":p_amt, "s":p_src, "n":f"{p_emp} - {p_note}", "u":st.session_state.user, "time":get_baku_now()})
                         log_system(st.session_state.user, f"MAAŞ ÖDƏNİŞİ | Staff: {p_emp} | Məbləğ: {p_amt} AZN | Mənbə: {p_src}")
                         
                         if p_src == "Kassa":
@@ -334,6 +329,33 @@ def render_z_report_page():
         c2.write(f"Kassadan Çıxış (-): {float(f_out):.2f} ₼")
         
         st.divider()
+
+        # =======================================================
+        # YENİ BLOK: Z-HESABATDA OFİSİANTLARIN BÖLGÜSÜ
+        # =======================================================
+        waiter_sales = run_query("SELECT cashier, SUM(total) as total_amount FROM sales WHERE created_at>=:d AND created_at<:e GROUP BY cashier", {"d":sh_start_z, "e":sh_end_z})
+        service_fee_pct = float(get_setting("service_fee_percent", "0.0"))
+
+        if not waiter_sales.empty:
+            st.markdown("### 👨‍🍳 Ofisiantlar (Servis və Saf Məbləğ)")
+            c_w1, c_w2 = st.columns(2)
+            idx = 0
+            for _, row in waiter_sales.iterrows():
+                w_total = float(row['total_amount'])
+                # Tərsinə riyaziyyat: Saf = Total / (1 + faiz)
+                w_saf = w_total / (1 + (service_fee_pct / 100.0)) if service_fee_pct > 0 else w_total
+                w_servis = w_total - w_saf
+                
+                with (c_w1 if idx % 2 == 0 else c_w2):
+                    with st.container(border=True):
+                        st.markdown(f"**Məsul:** {row['cashier']}")
+                        st.write(f"💵 Saf məbləğ: **{w_saf:.2f} ₼**")
+                        if service_fee_pct > 0:
+                            st.write(f"🍽️ Servis haqqı ({service_fee_pct}%): **{w_servis:.2f} ₼**")
+                        st.write(f"💰 Cəmi ödəniş: **{w_total:.2f} ₼**")
+                idx += 1
+        st.divider()
+        # =======================================================
         
         if st.button("🔴 Günü Bitir və Sıfırla (Z-Hesabat)", type="primary"):
             st.session_state.z_report_active = True
