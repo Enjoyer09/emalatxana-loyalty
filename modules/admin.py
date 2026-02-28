@@ -5,13 +5,13 @@ import time
 from database import run_query, run_action, get_setting, set_setting
 from utils import log_system
 
-def render_admin_page():
-    st.subheader("🛠️ İdarəetmə Paneli (Admin)")
+def render_settings_page():
+    st.subheader("⚙️ Ayarlar və İdarəetmə")
     
-    tab_settings, tab_users = st.tabs(["⚙️ Ümumi Ayarlar", "👥 İstifadəçilər"])
+    tab_settings, tab_users = st.tabs(["🍽️ Restoran Ayarları", "👥 İstifadəçilər"])
     
     with tab_settings:
-        st.markdown("### 🍽️ Restoran Ayarları")
+        st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
         
         current_fee = float(get_setting("service_fee_percent", "0.0"))
         st.info("💡 Əgər müştəridən servis haqqı alınırsa (məsələn, 7%), bura qeyd edin. Ləğv etmək və ya gizlətmək üçün 0 yazın.")
@@ -22,7 +22,7 @@ def render_admin_page():
             set_setting("service_fee_percent", str(new_fee))
             log_system(st.session_state.user, f"AYARLAR DƏYİŞDİRİLDİ | Yeni Servis Haqqı: {new_fee}%")
             st.success(f"✅ Servis haqqı {new_fee}% olaraq təyin edildi!")
-            time.sleep(1)
+            time.sleep(1.5)
             st.rerun()
             
     with tab_users:
@@ -54,3 +54,40 @@ def render_admin_page():
                         st.error(f"Xəta: Bu ad artıq mövcuddur. ({e})")
                 else:
                     st.warning("Ad və şifrə mütləqdir!")
+
+def render_database_page():
+    st.subheader("🗄️ Baza İdarəetməsi")
+    st.info("Sistem məlumatlarının ehtiyat nüsxəsi və təmizlənməsi.")
+    
+    if st.button("⚠️ Köhnə Loqları Təmizlə (30 gündən əvvəlki)"):
+        run_action("DELETE FROM logs WHERE created_at < NOW() - INTERVAL '30 days'")
+        log_system(st.session_state.user, "Köhnə loqlar təmizləndi.")
+        st.success("Təmizləndi!")
+
+def render_logs_page():
+    st.subheader("🕵️‍♂️ Sistem Loqları (Real-Time Sensor)")
+    logs = run_query("SELECT * FROM logs ORDER BY created_at DESC LIMIT 200")
+    if not logs.empty:
+        st.dataframe(logs, use_container_width=True, hide_index=True)
+    else:
+        st.info("Hələ heç bir hərəkət qeydə alınmayıb.")
+
+def render_notes_page():
+    st.subheader("📝 Admin Qeydləri")
+    with st.form("new_note", clear_on_submit=True):
+        title = st.text_input("Başlıq")
+        note = st.text_area("Qeyd")
+        if st.form_submit_button("Yadda Saxla"):
+            if title and note:
+                run_action("INSERT INTO admin_notes (title, note) VALUES (:t, :n)", {"t": title, "n": note})
+                st.success("Qeyd əlavə edildi!")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.warning("Xanaları doldurun.")
+            
+    notes = run_query("SELECT * FROM admin_notes ORDER BY created_at DESC")
+    if not notes.empty:
+        for _, r in notes.iterrows():
+            with st.expander(f"📅 {r['created_at'].strftime('%d.%m.%Y %H:%M') if pd.notna(r['created_at']) else ''} - {r['title']}"):
+                st.write(r['note'])
