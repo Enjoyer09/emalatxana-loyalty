@@ -1,6 +1,6 @@
 import streamlit as st
 from sqlalchemy import text
-from database import run_query, run_action, conn
+from database import run_query, run_action, conn, get_setting
 from utils import clean_qr_code, get_baku_now, get_shift_range
 import time
 
@@ -15,6 +15,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     total = 0.0
     disc_rate = 0.0
     current_stars = 0
+    service_fee_pct = float(get_setting("service_fee_percent", "0.0")) / 100.0
     
     if manual_discount_percent > 0:
         disc_rate = manual_discount_percent / 100.0
@@ -23,8 +24,8 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
             line = i['qty'] * i['price']
             total += line
             final_total += (line - (line * disc_rate))
-        if is_table: 
-            final_total += final_total * 0.07
+        if is_table and service_fee_pct > 0: 
+            final_total += final_total * service_fee_pct
         return total, final_total, disc_rate, 0, 0, 0, False
         
     if customer:
@@ -56,8 +57,8 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         else: 
             final_total += line
             
-    if is_table: 
-        final_total += final_total * 0.07
+    if is_table and service_fee_pct > 0: 
+        final_total += final_total * service_fee_pct
         
     return total, final_total, disc_rate, free_cof, 0, 0, False
 
@@ -171,7 +172,6 @@ def render_pos_page():
             code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="QR skan et...", key=f"search_input_ta_{st.session_state.search_key_counter}")
             
             if c_btn.button("🔍", key="search_btn_ta") or code:
-                # SUPER TƏMİZLƏYİCİ: Linkdən ancaq ID-ni qoparmaq
                 raw_code = str(code).strip()
                 cid = raw_code
                 
@@ -188,11 +188,11 @@ def render_pos_page():
                     if not r.empty: 
                         st.session_state.current_customer_ta = r.iloc[0].to_dict()
                         st.toast(f"✅ Müştəri tapıldı (ID: {cid})")
-                        st.session_state.search_key_counter += 1 # Xananı sıfırlayırıq ki donmasın!
+                        st.session_state.search_key_counter += 1
                         st.rerun()
                     else: 
                         st.error(f"⛔ Tapılmadı! Axtarılan ID: '{cid}'")
-                        st.session_state.search_key_counter += 1 # Xananı sıfırlayırıq
+                        st.session_state.search_key_counter += 1
                         time.sleep(2)
                         st.rerun()
                 except Exception as e: 
@@ -213,8 +213,10 @@ def render_pos_page():
                 disc_note = st.text_input("Səbəb (Məcburi!)", placeholder="Endirim səbəbini yazın...", key="disc_reason_inp")
                 if not disc_note: st.warning("Səbəb mütləqdir!")
                 
+            is_table_order = st.checkbox("🍽️ Masada (Servis Haqqı Hesablanacaq)", key="table_service_check")
+                
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, manual_discount_percent=man_disc_val)
+            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val)
             
             if not st.session_state.cart_takeaway:
                 st.markdown("<p style='text-align:center; color:#6c7a87; margin-top:30px; font-size:20px;'>Səbət boşdur</p>", unsafe_allow_html=True)
@@ -310,7 +312,6 @@ def render_pos_page():
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, note, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:n, :tip)"), {"i":items_str,"t":final_db_total,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "n":final_note, "tip":card_tips})
                         s.commit()
                         
-                        # --- GİZLİ SENSOR: SATIŞI LOQA YAZMAQ ---
                         from utils import log_system
                         log_msg = f"SATIŞ VURULDU | Məbləğ: {final_db_total:.2f} AZN | Metod: {pm}"
                         if man_disc_val > 0:
@@ -321,7 +322,6 @@ def render_pos_page():
                             log_msg += f" | ⚠️ STAFF (İŞÇİ) LİMİTİNDƏN ÇIXILDI"
                         
                         log_system(st.session_state.user, log_msg)
-                        # ----------------------------------------
                         
                     st.session_state.last_receipt_data = {'cart':st.session_state.cart_takeaway.copy(), 'total':final_db_total, 'email':cust['email'] if cust else None}
                     st.session_state.show_receipt_popup = True
