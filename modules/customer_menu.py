@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-from database import run_query
+from database import run_query, get_setting
 import datetime
 from utils import get_baku_now
+import google.generativeai as genai
 
 # --- 1. POP-UP (DİALOQ) PƏNCƏRƏLƏRİ ---
 
@@ -53,15 +54,62 @@ def show_promos_dialog():
     else:
         st.info("Hazırda aktiv kampaniya yoxdur.")
 
-@st.dialog("🤖 AI Barista & Rəy")
-def show_coming_soon_dialog():
+@st.dialog("🤖 AI Barista")
+def show_ai_barista_dialog():
+    st.markdown("<h4 style='text-align:center; color:#2A4B2D; font-weight:900;'>Nə içmək istədiyinizi bilmirsiniz?</h4>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#666; font-size:13px;'>Əhvalınızı və ya istəyinizi yazın, mən sizin üçün menyumuzdan ən ideal içkini seçim!</p>", unsafe_allow_html=True)
+    
+    user_prompt = st.text_input("Məsələn:", placeholder="Yuxuluyam, mənə şirin və soyuq nəsə lazımdır...")
+    
+    if st.button("Mənə Kofe Seç 🪄", type="primary", use_container_width=True):
+        if user_prompt:
+            with st.spinner("AI Barista menyunu yoxlayır..."):
+                api_key = get_setting("gemini_api_key", "")
+                if not api_key:
+                    st.error("⚠️ AI Barista yatıb. Zəhmət olmasa admin paneldən API Key daxil edin.")
+                    return
+                
+                try:
+                    # Menyunu bazadan çəkirik ki, AI ancaq mövcud malları təklif etsin
+                    menu_df = run_query("SELECT item_name, price, category FROM menu WHERE is_active=TRUE")
+                    if menu_df.empty:
+                        menu_text = "Menyuda heç nə yoxdur."
+                    else:
+                        menu_text = ", ".join([f"{row['item_name']} ({row['price']} AZN)" for _, row in menu_df.iterrows()])
+
+                    sys_prompt = f"""Sən 'Emalatkhana' kofe şopunun peşəkar, səmimi və enerjili AI Baristasısan. 
+Sənin xüsusi tərzin var. Müştərilərlə çox mehriban və səmimi danışırsan.
+Bizim AKTİV MENYUMUZ budur: {menu_text}
+
+Müştərinin istəyi: '{user_prompt}'
+
+Sənin vəzifən: Müştərinin istəyinə və əhvalına ən uyğun olan YALNIZ 1 VƏ YA 2 MƏHSULU bizim menyudan tapmaq və ona təklif etməkdir. 
+Mütləq seçdiyin məhsulun qiymətini qeyd et. 
+Cümlələrin çox qısa (maksimum 3-4 cümlə), şirin və emojilərlə dolu olsun. Sonda 'Kassaya yaxınlaşıb sifariş verə bilərsiniz!' yaz.
+Əgər müştərinin istədiyi şey menyuda yoxdursa, menyumuzdan ən yaxın alternativi təklif et."""
+
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    ai_reply = model.generate_content(sys_prompt).text
+                    
+                    st.markdown(f"""
+                    <div style="background:#FAF5EF; padding:15px; border-radius:15px; border:2px solid #E88D48; margin-top:15px; box-shadow:0 4px 10px rgba(232, 141, 72, 0.2);">
+                        <h4 style="color:#E88D48; margin:0 0 10px 0; font-weight:900;">🤖 Sizin Üçün Təklifim:</h4>
+                        <p style="color:#2A4B2D; font-size:15px; font-weight:700; margin:0; line-height:1.5;">{ai_reply}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Xəta baş verdi: {e}")
+        else:
+            st.warning("Zəhmət olmasa nəsə yazın.")
+
+@st.dialog("💬 Rəy Bildir")
+def show_feedback_dialog():
     st.markdown("<h3 style='text-align:center; color:#E88D48;'>Tezliklə! 🚀</h3>", unsafe_allow_html=True)
     st.write("Bu funksiya növbəti yenilənmədə aktiv olacaq. Bizimlə qaldığınız üçün təşəkkürlər!")
 
-
 # --- 2. ƏSAS EKRAN (DASHBOARD) ---
 def render_customer_app(customer_id=None):
-    # CSS DİZAYNI: Şəkildəki kimi təmiz fon, yuvarlaq kənarlar və spesifik düymələr
     st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap');
@@ -90,7 +138,6 @@ def render_customer_app(customer_id=None):
     border: 1px solid #f0f0f0;
 }
 
-/* Düymələrin Stilini Dəyişmək */
 button[kind="primary"] {
     background-color: #E88D48 !important;
     border: none !important;
@@ -131,13 +178,12 @@ button[kind="secondary"] p { font-size: 14px !important; }
     remaining = 10 - current_progress
     svg_fill = current_progress * 10
     
-    # Dinamik Salamlaşma (Şəkildəki kimi)
     hour = get_baku_now().hour
     if 5 <= hour < 12: greeting = "Sabahınız xeyir! Kofe vaxtıdır ☕"
     elif 12 <= hour < 18: greeting = "Günortanız xeyir! Günə enerji qatın ☀️"
     else: greeting = "Axşamınız xeyir! Rahatlamaq vaxtıdır 🌙"
 
-    # 1. NARINCI HEADER (HERO BG)
+    # 1. NARINCI HEADER
     st.markdown(f"""
     <div class="hero-bg">
         <h2 style="text-align:center; color:#ffffff; font-weight:900; margin:0; font-size:22px;">EMALATKHANA POS</h2>
@@ -145,7 +191,7 @@ button[kind="secondary"] p { font-size: 14px !important; }
     </div>
     """, unsafe_allow_html=True)
 
-    # 2. AĞ KLUB KARTI (OVERLAP) - Şəkildəki FÜZULİ CLUB bloku
+    # 2. AĞ KLUB KARTI
     badge_color = "#3498db" if c_type == "GOLDEN" else "#e74c3c" if c_type == "PLATINUM" else "#9b59b6" if c_type == "ELITE" else "#95a5a6"
     
     st.markdown(f"""
@@ -170,25 +216,25 @@ button[kind="secondary"] p { font-size: 14px !important; }
     </div>
     """, unsafe_allow_html=True)
 
-    # 3. QR KOD DÜYMƏSİ (Şəkildəki narıncı düymə)
+    # 3. QR KOD DÜYMƏSİ
     st.markdown("<div style='padding: 0 20px;'>", unsafe_allow_html=True)
     if st.button("⏹ MƏNİM QR KODUM", type="primary", use_container_width=True):
         show_qr_dialog(customer_id)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 4. 4-LÜ GRID DÜYMƏLƏR (Menyu, AI Barista, Təkliflər, Rəy Bildir)
+    # 4. 4-LÜ GRID DÜYMƏLƏR
     st.markdown("<div style='padding: 15px 20px;'>", unsafe_allow_html=True)
     
     r1_col1, r1_col2 = st.columns(2)
     with r1_col1:
         if st.button("📋 Menyu", use_container_width=True): show_menu_dialog()
     with r1_col2:
-        if st.button("🤖 AI Barista", use_container_width=True): show_coming_soon_dialog()
+        if st.button("🤖 AI Barista", use_container_width=True): show_ai_barista_dialog()
         
     r2_col1, r2_col2 = st.columns(2)
     with r2_col1:
         if st.button("🎁 Təkliflər", use_container_width=True): show_promos_dialog()
     with r2_col2:
-        if st.button("💬 Rəy Bildir", use_container_width=True): show_coming_soon_dialog()
+        if st.button("💬 Rəy Bildir", use_container_width=True): show_feedback_dialog()
 
     st.markdown("</div>", unsafe_allow_html=True)
