@@ -165,8 +165,9 @@ def render_pos_page():
         with st.container(border=True):
             st.markdown(f"### 🛒 Səbət {st.session_state.active_cart_id}")
             
-            if 'search_key_counter' not in st.session_state: 
-                st.session_state.search_key_counter = 0
+            if 'search_key_counter' not in st.session_state: st.session_state.search_key_counter = 0
+            if 'camp_disc' not in st.session_state: st.session_state.camp_disc = 0
+            if 'camp_note' not in st.session_state: st.session_state.camp_note = ""
                 
             c_src, c_btn = st.columns([4,1], vertical_alignment="bottom")
             code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="QR skan et...", key=f"search_input_ta_{st.session_state.search_key_counter}")
@@ -174,20 +175,14 @@ def render_pos_page():
             if c_btn.button("🔍", key="search_btn_ta") or code:
                 raw_code = str(code).strip()
                 cid = raw_code
-                
                 if "id=" in raw_code:
-                    try:
-                        cid = raw_code.split("id=")[1].split("&")[0]
-                    except:
-                        pass
-                
+                    try: cid = raw_code.split("id=")[1].split("&")[0]
+                    except: pass
                 cid = cid.strip()
-                
                 try: 
                     r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                     if not r.empty: 
                         st.session_state.current_customer_ta = r.iloc[0].to_dict()
-                        st.toast(f"✅ Müştəri tapıldı (ID: {cid})")
                         st.session_state.search_key_counter += 1
                         st.rerun()
                     else: 
@@ -207,16 +202,40 @@ def render_pos_page():
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
                 c_del.button("❌", key="clear_cust", on_click=clear_customer_data_callback)
                 
-            man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50], index=0, key="manual_disc_sel", label_visibility="collapsed")
+                # --- AĞILLI KAMPANİYA DÜYMƏLƏRİ (QR Skan Ediləndə Çıxır) ---
+                try:
+                    camps = run_query("SELECT title, discount_pct FROM campaigns WHERE is_active=TRUE AND discount_pct > 0")
+                    if not camps.empty:
+                        st.markdown("<p style='font-size:12px; color:#888; margin-bottom:5px;'>🎁 Kassir Üçün Təkliflər (Tıkla və Tətbiq Et):</p>", unsafe_allow_html=True)
+                        camp_cols = st.columns(len(camps))
+                        for idx, c_row in camps.iterrows():
+                            if camp_cols[idx % len(camp_cols)].button(f"🔥 {c_row['title']} (-{c_row['discount_pct']}%)", key=f"camp_apply_{idx}", use_container_width=True):
+                                st.session_state.camp_disc = int(c_row['discount_pct'])
+                                st.session_state.camp_note = f"Kampaniya: {c_row['title']}"
+                                st.rerun()
+                except: pass
+                
+            man_disc_val = st.selectbox("Endirim (%)", [0, 10, 20, 30, 40, 50, 100], index=0, key="manual_disc_sel", label_visibility="collapsed")
+            
             disc_note = ""
-            if man_disc_val > 0: 
+            active_disc = man_disc_val
+            
+            if st.session_state.camp_disc > 0:
+                active_disc = st.session_state.camp_disc
+                disc_note = st.session_state.camp_note
+                st.info(f"✅ {disc_note} ({active_disc}%) tətbiq edildi!")
+                if st.button("Ləğv Et", key="cancel_camp_btn"):
+                    st.session_state.camp_disc = 0
+                    st.session_state.camp_note = ""
+                    st.rerun()
+            elif active_disc > 0:
                 disc_note = st.text_input("Səbəb (Məcburi!)", placeholder="Endirim səbəbini yazın...", key="disc_reason_inp")
                 if not disc_note: st.warning("Səbəb mütləqdir!")
                 
             is_table_order = st.checkbox("🍽️ Masada (Servis Haqqı Hesablanacaq)", key="table_service_check")
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val)
+            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=active_disc)
             
             if not st.session_state.cart_takeaway:
                 st.markdown("<p style='text-align:center; color:#6c7a87; margin-top:30px; font-size:20px;'>Səbət boşdur</p>", unsafe_allow_html=True)
@@ -228,14 +247,11 @@ def render_pos_page():
                     with c_btn_col:
                         btn_min, btn_plus = st.columns(2)
                         if btn_min.button("➖", key=f"dec_{i}"): 
-                             if item['qty'] > 1: 
-                                 item['qty'] -= 1
-                             else: 
-                                 st.session_state.cart_takeaway.pop(i)
+                             if item['qty'] > 1: item['qty'] -= 1
+                             else: st.session_state.cart_takeaway.pop(i)
                              st.rerun()
                         if btn_plus.button("➕", key=f"inc_{i}"): 
-                            item['qty'] += 1
-                            st.rerun()
+                            item['qty'] += 1; st.rerun()
                             
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
             st.markdown(f"<h1 style='text-align:center; font-family:Jura; color:var(--accent-gold); font-size: 56px; font-weight:900; text-shadow: 0 0 10px rgba(255,215,0,0.3); margin:0;'>{final:.2f} ₼</h1>", unsafe_allow_html=True)
@@ -257,16 +273,14 @@ def render_pos_page():
                     
             pm = st.radio("Metod", ["Nəğd", "Kart", "Personal"], horizontal=True, label_visibility="collapsed")
             card_tips = 0.0
-            if pm == "Kart": 
-                card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="tips_inp")
+            if pm == "Kart": card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="tips_inp")
             own_cup = st.checkbox("🥡 Öz Stəkanı / Eko", key="eco_mode_check")
             
-            btn_disabled = True if (man_disc_val > 0 and not disc_note) else False
+            btn_disabled = True if (active_disc > 0 and not disc_note) else False
             
             if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True, disabled=btn_disabled, key="pay_btn"):
                 if not st.session_state.cart_takeaway: 
-                    st.error("Səbət boşdur")
-                    st.stop()
+                    st.error("Səbət boşdur"); st.stop()
                     
                 final_db_total = final
                 final_note = disc_note
@@ -294,8 +308,7 @@ def render_pos_page():
                                 ing_name = r[0]
                                 ing_info = s.execute(text("SELECT category FROM ingredients WHERE name=:n"), {"n":ing_name}).fetchone()
                                 ing_cat = ing_info[0] if (ing_info and ing_info[0]) else ""
-                                if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name): 
-                                    continue 
+                                if own_cup and ("Qablaşdırma" in ing_cat or "Stəkan" in ing_name or "Qapaq" in ing_name): continue 
                                 s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n AND stock_qty >= :q"), {"q":float(r[1])*it['qty'], "n":ing_name})
                                 
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
@@ -314,12 +327,9 @@ def render_pos_page():
                         
                         from utils import log_system
                         log_msg = f"SATIŞ VURULDU | Məbləğ: {final_db_total:.2f} AZN | Metod: {pm}"
-                        if man_disc_val > 0:
-                            log_msg += f" | ⚠️ ENDİRİM: {man_disc_val}% Səbəb: {disc_note}"
-                        if free > 0:
-                            log_msg += f" | 🎁 {free} Kofe Hədiyyə Verildi"
-                        if pm == "Personal":
-                            log_msg += f" | ⚠️ STAFF (İŞÇİ) LİMİTİNDƏN ÇIXILDI"
+                        if active_disc > 0: log_msg += f" | ⚠️ ENDİRİM: {active_disc}% Səbəb: {disc_note}"
+                        if free > 0: log_msg += f" | 🎁 {free} Kofe Hədiyyə Verildi"
+                        if pm == "Personal": log_msg += f" | ⚠️ STAFF (İŞÇİ) LİMİTİNDƏN ÇIXILDI"
                         
                         log_system(st.session_state.user, log_msg)
                         
@@ -327,6 +337,8 @@ def render_pos_page():
                     st.session_state.show_receipt_popup = True
                     st.session_state.cart_takeaway = []
                     st.session_state.current_customer_ta = None
+                    st.session_state.camp_disc = 0
+                    st.session_state.camp_note = ""
                     st.session_state.multi_carts[st.session_state.active_cart_id] = {'cart': [], 'customer': None}
                     st.session_state.calc_received = 0.0
                     st.session_state.search_key_counter += 1
