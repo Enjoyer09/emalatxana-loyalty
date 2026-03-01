@@ -4,17 +4,16 @@ from database import run_query
 import datetime
 
 def render_customer_app(customer_id=None):
-    # 📱 1. TIM HORTONS STİLİ MÜKƏMMƏL DİZAYN (CSS)
+    # 📱 1. EMALATKHANA STİLİ MÜKƏMMƏL DİZAYN (CSS)
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap');
         
-        /* Streamlit standartlarını silirik */
         .stApp { background: #f8f9fa !important; font-family: 'Nunito', sans-serif !important; color: #111 !important; }
         #MainMenu, header, footer { display: none !important; }
         .block-container { padding: 0 !important; max-width: 100%; padding-bottom: 90px !important; }
         
-        /* TIM HORTONS QIRMIZI BAŞLIQ VƏ DAİRƏVİ QRAFİK */
+        /* EMALATKHANA QIRMIZI BAŞLIQ */
         .tims-header {
             background-color: #c8102e;
             color: #ffffff;
@@ -28,7 +27,7 @@ def render_customer_app(customer_id=None):
             position: relative;
         }
         
-        /* Tims Kampaniya Kartları */
+        /* Dinamik Kampaniya Kartları */
         .tims-promo {
             background: #ffffff;
             border-radius: 15px;
@@ -38,27 +37,21 @@ def render_customer_app(customer_id=None):
             border: 1px solid #edf2f7;
         }
         .tims-promo-img {
-            height: 140px;
-            width: 100%;
-            background-size: cover;
-            background-position: center;
+            height: 140px; width: 100%;
+            background-size: cover; background-position: center; background-color: #f0f0f0;
             display: flex; align-items: flex-end; justify-content: flex-end; padding: 10px;
         }
         .tims-promo-content { padding: 15px; }
         .tims-promo-title { font-size: 18px; font-weight: 800; color: #2d3748; margin: 0; }
         .tims-promo-desc { font-size: 14px; color: #718096; margin: 5px 0 0 0; }
         
-        /* Alt Menyu Kimi Görünən Tablar */
+        /* Alt Menyu Tabları */
         div[data-testid="stTabs"] { padding: 0 10px; margin-top: 15px; }
         div[data-testid="stTabs"] button {
-            font-size: 15px !important;
-            font-weight: 800 !important;
-            color: #a0aec0 !important;
-            padding-bottom: 10px !important;
+            font-size: 15px !important; font-weight: 800 !important; color: #a0aec0 !important; padding-bottom: 10px !important;
         }
         div[data-testid="stTabs"] button[aria-selected="true"] {
-            color: #c8102e !important;
-            border-bottom: 3px solid #c8102e !important;
+            color: #c8102e !important; border-bottom: 3px solid #c8102e !important;
         }
 
         /* Uçan Səbət */
@@ -76,7 +69,6 @@ def render_customer_app(customer_id=None):
         st.error("⚠️ QR Kod oxunmadı.")
         return
 
-    # 🗄️ BAZADAN MƏLUMAT ÇƏKİRİK
     c_df = run_query("SELECT * FROM customers WHERE card_id=:id", {"id": customer_id})
     if c_df.empty:
         st.error("⚠️ Müştəri tapılmadı.")
@@ -85,19 +77,18 @@ def render_customer_app(customer_id=None):
     cust_data = c_df.iloc[0].to_dict()
     stars = cust_data.get('stars', 0)
     
-    # Riyaziyyat
     free_coffees = int(stars // 10)
     current_progress = int(stars % 10)
     remaining = 10 - current_progress
-    svg_fill = current_progress * 10  # 100 üzerinden faiz
+    svg_fill = current_progress * 10
 
     # ==========================================
-    # 🔴 1. TIM HORTONS HERO SECTION (Mükəmməl SVG ilə)
+    # 🔴 1. EMALATKHANA REWARDS HERO SECTION
     # ==========================================
     st.markdown(f"""
     <div class="tims-header">
         <div style="flex: 1;">
-            <p style="margin:0; font-size:14px; font-weight:700; color:rgba(255,255,255,0.8);">Füzuli™ Rewards</p>
+            <p style="margin:0; font-size:14px; font-weight:900; color:rgba(255,255,255,0.9);">Emalatkhana Rewards</p>
             <h2 style="margin:5px 0 0 0; font-size:16px; font-weight:400; line-height:1.4;">
                 Növbəti hədiyyə üçün <br><b>{remaining} sifariş</b> qaldı!
             </h2>
@@ -109,7 +100,7 @@ def render_customer_app(customer_id=None):
         <div style="position:relative; width:90px; height:90px; margin-left:10px;">
             <svg viewBox="0 0 36 36" style="width:90px; height:90px; transform: rotate(-90deg);">
                 <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2.5"/>
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="{svg_fill}, 100" />
+                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="{svg_fill}, 100" />
             </svg>
             <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;">
                 <span style="font-size:26px; font-weight:900; line-height:1; color:#ffffff;">{current_progress}</span>
@@ -128,41 +119,38 @@ def render_customer_app(customer_id=None):
         """, unsafe_allow_html=True)
 
     # ==========================================
-    # 2. TABS (Home, QR, Sifariş)
+    # 2. TABS
     # ==========================================
-    t_home, t_qr, t_menu = st.tabs(["🏠 Ana Səhifə", "📱 Scan & Pay", "☕ Sifariş Et"])
+    t_home, t_qr, t_menu = st.tabs(["🏠 Təkliflər", "📱 Scan & Pay", "☕ Menyu"])
 
-    # --- TAB 1: KAMPANİYALAR (Ana Səhifə) ---
+    # --- TAB 1: KAMPANİYALAR (Dinamik) ---
     with t_home:
         st.markdown("<h3 style='margin: 10px 0 0 20px; font-weight:900; color:#111; font-size:20px;'>Günün Təklifləri</h3>", unsafe_allow_html=True)
         
-        # Kart 1
-        st.markdown("""
-        <div class="tims-promo">
-            <div class="tims-promo-img" style="background-image: url('https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=600');">
-                <div style="background:#c8102e; color:#fff; padding:5px 10px; border-radius:8px; font-weight:bold; font-size:12px;">Yeni!</div>
-            </div>
-            <div class="tims-promo-content">
-                <h4 class="tims-promo-title">Karamel Makiyato</h4>
-                <p class="tims-promo-desc">Şirin karamel və tünd espressonun mükəmməl balansı. İndi dadına baxın.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Kart 2
-        st.markdown("""
-        <div class="tims-promo">
-            <div class="tims-promo-img" style="background-image: url('https://images.unsplash.com/photo-1623366302587-b26ef7dfa15f?auto=format&fit=crop&q=80&w=600');">
-                <div style="background:#000; color:#fff; padding:5px 10px; border-radius:8px; font-weight:bold; font-size:12px;">Kombo 6 ₼</div>
-            </div>
-            <div class="tims-promo-content">
-                <h4 class="tims-promo-title">Səhər Kombosu</h4>
-                <p class="tims-promo-desc">İstənilən kofe və isti kruasanla günə enerjili başlayın.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        try:
+            campaigns = run_query("SELECT * FROM campaigns WHERE is_active=TRUE ORDER BY id DESC")
+            if not campaigns.empty:
+                for _, camp in campaigns.iterrows():
+                    bg_img = camp['img_url'] if camp['img_url'] else "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=600"
+                    badge_html = f"<div style='background:#c8102e; color:#fff; padding:5px 10px; border-radius:8px; font-weight:bold; font-size:12px;'>{camp['badge']}</div>" if camp['badge'] else ""
+                    
+                    st.markdown(f"""
+                    <div class="tims-promo">
+                        <div class="tims-promo-img" style="background-image: url('{bg_img}');">
+                            {badge_html}
+                        </div>
+                        <div class="tims-promo-content">
+                            <h4 class="tims-promo-title">{camp['title']}</h4>
+                            <p class="tims-promo-desc">{camp['description']}</p>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Hazırda aktiv kampaniya yoxdur. Yeniliklər üçün izləmədə qalın!")
+        except Exception as e:
+            st.info("Kampaniyalar yüklənir...")
 
-    # --- TAB 2: MÜŞTƏRİ QR KODU ---
+    # --- TAB 2: QR KOD ---
     with t_qr:
         st.markdown("""
         <div style="background:#ffffff; margin:20px; border-radius:20px; padding:30px 20px; text-align:center; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7;">
@@ -182,8 +170,7 @@ def render_customer_app(customer_id=None):
         """, unsafe_allow_html=True)
 
     # --- TAB 3: MENYU VƏ SƏBƏT ---
-    if 'cust_cart' not in st.session_state:
-        st.session_state.cust_cart = {}
+    if 'cust_cart' not in st.session_state: st.session_state.cust_cart = {}
 
     with t_menu:
         menu_df = run_query("SELECT id, item_name, price, category FROM menu WHERE is_active=TRUE")
@@ -192,9 +179,7 @@ def render_customer_app(customer_id=None):
         else:
             cats = ["HAMISI"] + sorted(menu_df['category'].dropna().unique().tolist())
             selected_cat = st.radio("Kateqoriyalar", cats, horizontal=True, label_visibility="collapsed")
-            
-            if selected_cat != "HAMISI":
-                menu_df = menu_df[menu_df['category'] == selected_cat]
+            if selected_cat != "HAMISI": menu_df = menu_df[menu_df['category'] == selected_cat]
 
             st.markdown("<hr style='margin: 10px 0; border-color:#edf2f7;'>", unsafe_allow_html=True)
 
@@ -210,21 +195,17 @@ def render_customer_app(customer_id=None):
                     qty = st.session_state.cust_cart.get(i_id, {}).get('qty', 0)
                     if qty == 0:
                         if st.button("➕", key=f"add_{i_id}", use_container_width=True):
-                            st.session_state.cust_cart[i_id] = {'name': i_name, 'price': i_price, 'qty': 1}
-                            st.rerun()
+                            st.session_state.cust_cart[i_id] = {'name': i_name, 'price': i_price, 'qty': 1}; st.rerun()
                     else:
                         b1, b2, b3 = st.columns([1,1,1])
                         if b1.button("➖", key=f"dec_{i_id}"):
                             st.session_state.cust_cart[i_id]['qty'] -= 1
-                            if st.session_state.cust_cart[i_id]['qty'] == 0:
-                                del st.session_state.cust_cart[i_id]
+                            if st.session_state.cust_cart[i_id]['qty'] == 0: del st.session_state.cust_cart[i_id]
                             st.rerun()
                         b2.markdown(f"<div style='text-align:center; padding-top:5px; font-weight:900; color:#111;'>{qty}</div>", unsafe_allow_html=True)
                         if b3.button("➕", key=f"inc_{i_id}"):
-                            st.session_state.cust_cart[i_id]['qty'] += 1
-                            st.rerun()
+                            st.session_state.cust_cart[i_id]['qty'] += 1; st.rerun()
 
-            # TIM HORTONS STİLİ UÇAN SƏBƏT
             total_qty = sum([v['qty'] for v in st.session_state.cust_cart.values()])
             total_price = sum([v['qty'] * v['price'] for v in st.session_state.cust_cart.values()])
 
