@@ -63,33 +63,36 @@ def show_ai_barista_dialog():
     
     if st.button("Mənə Kofe Seç 🪄", type="primary", use_container_width=True):
         if user_prompt:
-            with st.spinner("AI Barista menyunu yoxlayır..."):
+            with st.spinner("AI Barista düşünür..."):
                 api_key = get_setting("gemini_api_key", "")
                 if not api_key:
                     st.error("⚠️ AI Barista yatıb. Zəhmət olmasa admin paneldən API Key daxil edin.")
                     return
                 
                 try:
-                    # Menyunu bazadan çəkirik ki, AI ancaq mövcud malları təklif etsin
                     menu_df = run_query("SELECT item_name, price, category FROM menu WHERE is_active=TRUE")
                     if menu_df.empty:
                         menu_text = "Menyuda heç nə yoxdur."
                     else:
                         menu_text = ", ".join([f"{row['item_name']} ({row['price']} AZN)" for _, row in menu_df.iterrows()])
 
-                    sys_prompt = f"""Sən 'Emalatkhana' kofe şopunun peşəkar, səmimi və enerjili AI Baristasısan. 
-Sənin xüsusi tərzin var. Müştərilərlə çox mehriban və səmimi danışırsan.
+                    sys_prompt = f"""Sən 'Emalatkhana' kofe şopunun peşəkar və səmimi AI Baristasısan. 
 Bizim AKTİV MENYUMUZ budur: {menu_text}
 
 Müştərinin istəyi: '{user_prompt}'
 
-Sənin vəzifən: Müştərinin istəyinə və əhvalına ən uyğun olan YALNIZ 1 VƏ YA 2 MƏHSULU bizim menyudan tapmaq və ona təklif etməkdir. 
-Mütləq seçdiyin məhsulun qiymətini qeyd et. 
-Cümlələrin çox qısa (maksimum 3-4 cümlə), şirin və emojilərlə dolu olsun. Sonda 'Kassaya yaxınlaşıb sifariş verə bilərsiniz!' yaz.
-Əgər müştərinin istədiyi şey menyuda yoxdursa, menyumuzdan ən yaxın alternativi təklif et."""
+Vəzifən: Müştərinin istəyinə ən uyğun olan YALNIZ 1 VƏ YA 2 MƏHSULU bizim menyudan tap və təklif et. Qiymətləri mütləq yaz.
+Çox qısa (3-4 cümlə), şirin və emojilərlə cavab ver. Sonda 'Kassaya yaxınlaşıb sifariş verə bilərsiniz!' yaz."""
 
+                    # --- AĞILLI MODEL SEÇİMİ (XƏTANIN HƏLLİ BURA ƏLAVƏ EDİLDİ) ---
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    
+                    # 'flash' olanı tapırıq, yoxdursa 'gemini-pro', və "models/" prefiksini mütləq silirik
+                    chosen_model = next((m for m in valid_models if 'flash' in m.lower()), 'gemini-pro')
+                    chosen_model = chosen_model.replace("models/", "") 
+                    
+                    model = genai.GenerativeModel(chosen_model)
                     ai_reply = model.generate_content(sys_prompt).text
                     
                     st.markdown(f"""
@@ -117,7 +120,6 @@ def render_customer_app(customer_id=None):
 #MainMenu, header, footer { display: none !important; }
 .block-container { padding: 0 !important; max-width: 100%; padding-bottom: 50px !important; }
 
-/* Narıncı Arxa Plan (Hero) */
 .hero-bg {
     background: linear-gradient(135deg, #F09A55 0%, #E88D48 100%);
     padding: 40px 20px 80px 20px;
@@ -125,7 +127,6 @@ def render_customer_app(customer_id=None):
     border-bottom-right-radius: 30px;
 }
 
-/* Ağ Klub Kartı (Overlap) */
 .club-card {
     background: #ffffff;
     border-radius: 20px;
@@ -183,7 +184,6 @@ button[kind="secondary"] p { font-size: 14px !important; }
     elif 12 <= hour < 18: greeting = "Günortanız xeyir! Günə enerji qatın ☀️"
     else: greeting = "Axşamınız xeyir! Rahatlamaq vaxtıdır 🌙"
 
-    # 1. NARINCI HEADER
     st.markdown(f"""
     <div class="hero-bg">
         <h2 style="text-align:center; color:#ffffff; font-weight:900; margin:0; font-size:22px;">EMALATKHANA POS</h2>
@@ -191,7 +191,6 @@ button[kind="secondary"] p { font-size: 14px !important; }
     </div>
     """, unsafe_allow_html=True)
 
-    # 2. AĞ KLUB KARTI
     badge_color = "#3498db" if c_type == "GOLDEN" else "#e74c3c" if c_type == "PLATINUM" else "#9b59b6" if c_type == "ELITE" else "#95a5a6"
     
     st.markdown(f"""
@@ -216,13 +215,11 @@ button[kind="secondary"] p { font-size: 14px !important; }
     </div>
     """, unsafe_allow_html=True)
 
-    # 3. QR KOD DÜYMƏSİ
     st.markdown("<div style='padding: 0 20px;'>", unsafe_allow_html=True)
     if st.button("⏹ MƏNİM QR KODUM", type="primary", use_container_width=True):
         show_qr_dialog(customer_id)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # 4. 4-LÜ GRID DÜYMƏLƏR
     st.markdown("<div style='padding: 15px 20px;'>", unsafe_allow_html=True)
     
     r1_col1, r1_col2 = st.columns(2)
