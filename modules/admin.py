@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import bcrypt
 import time
+import json
+import datetime
 from database import run_query, run_action, get_setting, set_setting
-from utils import log_system
+from utils import log_system, get_baku_now
 
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
@@ -14,10 +16,18 @@ def render_settings_page():
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
         current_fee = float(get_setting("service_fee_percent", "0.0"))
         new_fee = st.number_input("Servis Haqqı (%)", min_value=0.0, max_value=100.0, step=1.0, value=current_fee)
+        
+        st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
+        c1, c2 = st.columns(2)
+        s_time = c1.text_input("Növbə Başlanğıcı (HH:mm)", get_setting("shift_start_time", "08:00"))
+        u_offset = c2.text_input("Bakı Saatı Offset (UTC+)", get_setting("utc_offset", "4"))
+        
         if st.button("💾 Ayarları Yadda Saxla", type="primary"):
             set_setting("service_fee_percent", str(new_fee))
-            log_system(st.session_state.user, f"AYARLAR DƏYİŞDİRİLDİ | Yeni Servis Haqqı: {new_fee}%")
-            st.success(f"✅ Servis haqqı {new_fee}% olaraq təyin edildi!")
+            set_setting("shift_start_time", s_time)
+            set_setting("utc_offset", u_offset)
+            log_system(st.session_state.user, f"AYARLAR DƏYİŞDİRİLDİ | Servis: {new_fee}%, Növbə: {s_time}")
+            st.success("✅ Ayarlar uğurla yadda saxlanıldı!")
             time.sleep(1.5)
             st.rerun()
             
@@ -25,6 +35,7 @@ def render_settings_page():
         st.markdown("### 👥 İstifadəçi İdarəetməsi")
         users_df = run_query("SELECT username, role, last_seen FROM users")
         st.dataframe(users_df, use_container_width=True, hide_index=True)
+        
         st.divider()
         st.markdown("#### ➕ Yeni İstifadəçi Yarat")
         with st.form("new_user_form", clear_on_submit=True):
@@ -44,62 +55,126 @@ def render_settings_page():
                     except Exception as e:
                         st.error("Bu ad artıq mövcuddur.")
 
+        st.divider()
+        st.markdown("#### ✏️ İstifadəçi Düzəliş və ya Silmə")
+        if not users_df.empty:
+            sel_user = st.selectbox("İstifadəçi seçin", users_df['username'].tolist(), key="sel_user_edit")
+            col_pwd, col_del = st.columns(2)
+            
+            new_pwd_edit = col_pwd.text_input("Yeni Şifrə (Dəyişmək üçün daxil edin)", type="password")
+            if col_pwd.button("🔐 Şifrəni Yenilə", use_container_width=True):
+                if new_pwd_edit:
+                    hashed_new = bcrypt.hashpw(new_pwd_edit.encode(), bcrypt.gensalt()).decode()
+                    run_action("UPDATE users SET password=:p WHERE username=:u", {"p": hashed_new, "u": sel_user})
+                    log_system(st.session_state.user, f"İSTİFADƏÇİ ŞİFRƏSİ DƏYİŞDİ: {sel_user}")
+                    st.success(f"✅ {sel_user} üçün şifrə yeniləndi!")
+                else:
+                    st.warning("Şifrə daxil edin!")
+
+            if col_del.button("🗑️ İstifadəçini Sil", type="primary", use_container_width=True):
+                if sel_user == "admin" or sel_user == st.session_state.user:
+                    st.error("Admini və ya özünüzü silə bilməzsiniz!")
+                else:
+                    run_action("DELETE FROM users WHERE username=:u", {"u": sel_user})
+                    log_system(st.session_state.user, f"İSTİFADƏÇİ SİLİNDİ: {sel_user}")
+                    st.success(f"❌ {sel_user} sistemdən silindi!")
+                    time.sleep(1)
+                    st.rerun()
+
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı (Kampaniyalar)")
-        st.info("Buradan əlavə etdiyiniz kampaniyalar həm müştərinin tətbiqində görünəcək, həm də ofisiantın (POS) ekranında avtomatik tətbiq olunacaq düymə yaradacaq.")
-        
         with st.form("new_campaign_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             c_title = c1.text_input("Başlıq (Məs: Səhər Kombosu)")
             c_badge = c2.text_input("Etiket (Məs: Yeni!, -50%)")
-            c_desc = st.text_input("Açıqlama (Məs: İstənilən kofe və kruasan...)")
-            c_img = st.text_input("Şəkil URL-i (İnternetdən link)")
-            
+            c_desc = st.text_input("Açıqlama")
+            c_img = st.text_input("Şəkil URL-i")
             c3, c4 = st.columns(2)
-            c_promo = c3.text_input("Promo Kod (Məs: ENDIRIM20)")
-            c_disc = c4.number_input("Endirim Faizi % (POS-da avtomatik kəsiləcək)", 0, 100, 0)
-            
+            c_promo = c3.text_input("Promo Kod")
+            c_disc = c4.number_input("Endirim Faizi %", 0, 100, 0)
             if st.form_submit_button("📢 Kampaniyanı Yayımla", type="primary"):
                 if c_title:
                     run_action("INSERT INTO campaigns (title, description, img_url, badge, promo_code, discount_pct) VALUES (:t, :d, :i, :b, :p, :dp)", 
                                {"t":c_title, "d":c_desc, "i":c_img, "b":c_badge, "p":c_promo, "dp":c_disc})
-                    st.success("Kampaniya tətbiqə və POS-a əlavə edildi!")
-                    time.sleep(1.5)
-                    st.rerun()
-                else:
-                    st.warning("Başlıq mütləqdir!")
-                    
+                    st.success("Kampaniya əlavə edildi!")
+                    time.sleep(1.5); st.rerun()
+        
         st.markdown("#### 🗑️ Aktiv Kampaniyalar")
         camp_df = run_query("SELECT * FROM campaigns ORDER BY id DESC")
         if not camp_df.empty:
             for _, row in camp_df.iterrows():
                 cc1, cc2 = st.columns([4, 1])
-                disc_info = f"(-{row['discount_pct']}%)" if row['discount_pct'] > 0 else ""
-                cc1.markdown(f"**{row['title']}** {disc_info} - {row['promo_code']}")
+                cc1.markdown(f"**{row['title']}** (-{row['discount_pct']}%)")
                 if cc2.button("Sil", key=f"del_camp_{row['id']}"):
                     run_action("DELETE FROM campaigns WHERE id=:id", {"id": int(row['id'])})
                     st.rerun()
-        else:
-            st.write("Aktiv kampaniya yoxdur.")
 
 def render_database_page():
     st.subheader("🗄️ Baza İdarəetməsi")
-    if st.button("⚠️ Köhnə Loqları Təmizlə (30 gündən əvvəlki)"):
-        run_action("DELETE FROM logs WHERE created_at < NOW() - INTERVAL '30 days'")
-        st.success("Təmizləndi!")
+    
+    col_clean, col_empty = st.columns([2, 2])
+    with col_clean:
+        st.info("🕒 30 Günlük Loq Sistemi: Bazanın dolmaması üçün köhnə hərəkət tarixçəsini təmizləyir.")
+        if st.button("⚠️ 30 gündən köhnə loqları təmizlə", use_container_width=True):
+            run_action("DELETE FROM logs WHERE created_at < NOW() - INTERVAL '30 days'")
+            st.success("Köhnə loqlar təmizləndi!")
+
+    st.divider()
+    st.markdown("### 💾 JSON Backup & Restore")
+    
+    c_back, c_rest = st.columns(2)
+    
+    with c_back:
+        st.markdown("#### 📥 Backup")
+        if st.button("Bazanı JSON kimi çıxar", use_container_width=True):
+            tables = ["users", "menu", "ingredients", "recipes", "campaigns", "settings", "customers"]
+            backup_data = {}
+            for t in tables:
+                try: backup_data[t] = run_query(f"SELECT * FROM {t}").to_dict(orient="records")
+                except: pass
+            
+            json_str = json.dumps(backup_data, default=str)
+            st.download_button(
+                label="📄 JSON Faylını Endir",
+                data=json_str,
+                file_name=f"emalatxana_backup_{datetime.date.today()}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+
+    with c_rest:
+        st.markdown("#### 📤 Restore")
+        uploaded_json = st.file_uploader("Restore üçün JSON faylı seçin", type="json")
+        if st.button("Bazanı Fayldan Bərpa Et", type="primary", use_container_width=True) and uploaded_json:
+            data = json.load(uploaded_json)
+            for tbl, recs in data.items():
+                if recs:
+                    run_action(f"TRUNCATE TABLE {tbl} CASCADE")
+                    for r in recs:
+                        cols = ", ".join(r.keys())
+                        vals = ":" + ", :".join(r.keys())
+                        run_action(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})", r)
+            st.success("✅ Baza uğurla bərpa edildi!")
+            time.sleep(2); st.rerun()
 
 def render_logs_page():
-    st.subheader("🕵️‍♂️ Sistem Loqları (Real-Time Sensor)")
-    logs = run_query("SELECT * FROM logs ORDER BY created_at DESC LIMIT 200")
-    if not logs.empty: st.dataframe(logs, use_container_width=True, hide_index=True)
+    st.subheader("🕵️‍♂️ Sistem Loqları")
+    logs = run_query("SELECT * FROM logs ORDER BY created_at DESC LIMIT 500")
+    if not logs.empty:
+        st.dataframe(logs, use_container_width=True, hide_index=True)
+    else:
+        st.info("Hələlik loq yoxdur.")
 
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
     with st.form("new_note", clear_on_submit=True):
         title = st.text_input("Başlıq"); note = st.text_area("Qeyd")
         if st.form_submit_button("Yadda Saxla"):
-            if title and note: run_action("INSERT INTO admin_notes (title, note) VALUES (:t, :n)", {"t": title, "n": note}); st.rerun()
+            if title and note: 
+                run_action("INSERT INTO admin_notes (title, note) VALUES (:t, :n)", {"t": title, "n": note})
+                st.rerun()
     notes = run_query("SELECT * FROM admin_notes ORDER BY created_at DESC")
     if not notes.empty:
         for _, r in notes.iterrows():
-            with st.expander(f"📅 {r['created_at'].strftime('%d.%m.%Y %H:%M')} - {r['title']}"): st.write(r['note'])
+            with st.expander(f"📅 {r['created_at'].strftime('%d.%m.%Y %H:%M')} - {r['title']}"): 
+                st.write(r['note'])
