@@ -10,7 +10,7 @@ from database import get_setting, run_action
 
 # --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
-VERSION = "1.0 RC"
+VERSION = "1.2 (Full Patch)"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
 APP_URL = "https://emalatxana.ironwaves.store" 
 
@@ -65,9 +65,10 @@ def generate_styled_qr(data):
     except:
         return None
 
-# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (YENİLƏNİB) ---
+# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (BAKI VAXTI ÜÇÜN YENİLƏNİB) ---
 
 def get_baku_now():
+    # Offset-i bazadan oxuyuruq, yoxdursa default 4 saat (Bakı)
     offset_str = get_setting("utc_offset", "4")
     try:
         offset_hours = int(offset_str)
@@ -81,6 +82,7 @@ def get_baku_now():
 def get_logical_date():
     now = get_baku_now()
     
+    # Növbə başlama saatını bazadan oxuyuruq
     shift_start_str = get_setting("shift_start_time", "08:00")
     try:
         start_hour = int(shift_start_str.split(':')[0])
@@ -95,6 +97,7 @@ def get_shift_range(logical_date=None):
     if not logical_date:
         logical_date = get_logical_date()
         
+    # Növbə açılış və bağlanış vaxtlarını bazadan oxuyuruq
     shift_start_str = get_setting("shift_start_time", "08:00")
     shift_end_str = get_setting("shift_end_time", "23:59")
     
@@ -111,7 +114,7 @@ def get_shift_range(logical_date=None):
     shift_start = datetime.datetime.combine(logical_date, datetime.time(start_hour, start_min))
     shift_end = datetime.datetime.combine(logical_date, datetime.time(end_hour, end_min))
     
-    # Məntiq: Qapanış saatı açılışdan kiçikdirsə (məs: gecə 02:00-da qapanış), deməli gün ertəsi günə keçir
+    # Əgər bağlanış saatı açılışdan kiçikdirsə (gecə qapanış), ertəsi günə keçir
     if shift_end <= shift_start:
         shift_end += datetime.timedelta(days=1)
     
@@ -132,21 +135,14 @@ def log_system(user, action):
 
 def hash_password(password):
     try:
-        from werkzeug.security import generate_password_hash
-        return generate_password_hash(password)
+        import bcrypt
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode()
     except:
         return password
 
 def verify_password(plain_password, hashed_password):
     if plain_password == hashed_password:
         return True
-    
-    if str(hashed_password).startswith("pbkdf2:"):
-        try:
-            from werkzeug.security import check_password_hash
-            return check_password_hash(hashed_password, plain_password)
-        except:
-            pass
             
     try:
         import bcrypt
