@@ -18,15 +18,17 @@ def render_settings_page():
         new_fee = st.number_input("Servis Haqqı (%)", min_value=0.0, max_value=100.0, step=1.0, value=current_fee)
         
         st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
-        c1, c2 = st.columns(2)
-        s_time = c1.text_input("Növbə Başlanğıcı (HH:mm)", get_setting("shift_start_time", "08:00"))
-        u_offset = c2.text_input("Bakı Saatı Offset (UTC+)", get_setting("utc_offset", "4"))
+        c1, c2, c3 = st.columns(3)
+        s_start = c1.text_input("Növbə Başlanğıcı (HH:mm)", get_setting("shift_start_time", "08:00"))
+        s_end = c2.text_input("Növbə Bitməsi (HH:mm)", get_setting("shift_end_time", "23:59"))
+        u_offset = c3.text_input("Bakı Saatı Offset (UTC+)", get_setting("utc_offset", "4"))
         
         if st.button("💾 Ayarları Yadda Saxla", type="primary"):
             set_setting("service_fee_percent", str(new_fee))
-            set_setting("shift_start_time", s_time)
+            set_setting("shift_start_time", s_start)
+            set_setting("shift_end_time", s_end)
             set_setting("utc_offset", u_offset)
-            log_system(st.session_state.user, f"AYARLAR DƏYİŞDİRİLDİ | Servis: {new_fee}%, Növbə: {s_time}")
+            log_system(st.session_state.user, f"AYARLAR DƏYİŞDİRİLDİ | Servis: {new_fee}%, Növbə: {s_start}-{s_end}")
             st.success("✅ Ayarlar uğurla yadda saxlanıldı!")
             time.sleep(1.5)
             st.rerun()
@@ -56,12 +58,12 @@ def render_settings_page():
                         st.error("Bu ad artıq mövcuddur.")
 
         st.divider()
-        st.markdown("#### ✏️ İstifadəçi Düzəliş və ya Silmə")
+        st.markdown("#### ✏️ İstifadəçi Redaktəsi və Silmə")
         if not users_df.empty:
             sel_user = st.selectbox("İstifadəçi seçin", users_df['username'].tolist(), key="sel_user_edit")
             col_pwd, col_del = st.columns(2)
             
-            new_pwd_edit = col_pwd.text_input("Yeni Şifrə (Dəyişmək üçün daxil edin)", type="password")
+            new_pwd_edit = col_pwd.text_input("Yeni Şifrə (Dəyişmək üçün)", type="password")
             if col_pwd.button("🔐 Şifrəni Yenilə", use_container_width=True):
                 if new_pwd_edit:
                     hashed_new = bcrypt.hashpw(new_pwd_edit.encode(), bcrypt.gensalt()).decode()
@@ -69,7 +71,7 @@ def render_settings_page():
                     log_system(st.session_state.user, f"İSTİFADƏÇİ ŞİFRƏSİ DƏYİŞDİ: {sel_user}")
                     st.success(f"✅ {sel_user} üçün şifrə yeniləndi!")
                 else:
-                    st.warning("Şifrə daxil edin!")
+                    st.warning("Yeni şifrəni daxil edin!")
 
             if col_del.button("🗑️ İstifadəçini Sil", type="primary", use_container_width=True):
                 if sel_user == "admin" or sel_user == st.session_state.user:
@@ -112,7 +114,7 @@ def render_settings_page():
 def render_database_page():
     st.subheader("🗄️ Baza İdarəetməsi")
     
-    col_clean, col_empty = st.columns([2, 2])
+    col_clean, col_db = st.columns(2)
     with col_clean:
         st.info("🕒 30 Günlük Loq Sistemi: Bazanın dolmaması üçün köhnə hərəkət tarixçəsini təmizləyir.")
         if st.button("⚠️ 30 gündən köhnə loqları təmizlə", use_container_width=True):
@@ -121,7 +123,6 @@ def render_database_page():
 
     st.divider()
     st.markdown("### 💾 JSON Backup & Restore")
-    
     c_back, c_rest = st.columns(2)
     
     with c_back:
@@ -132,15 +133,8 @@ def render_database_page():
             for t in tables:
                 try: backup_data[t] = run_query(f"SELECT * FROM {t}").to_dict(orient="records")
                 except: pass
-            
             json_str = json.dumps(backup_data, default=str)
-            st.download_button(
-                label="📄 JSON Faylını Endir",
-                data=json_str,
-                file_name=f"emalatxana_backup_{datetime.date.today()}.json",
-                mime="application/json",
-                use_container_width=True
-            )
+            st.download_button(label="📄 JSON Faylını Endir", data=json_str, file_name=f"emalatxana_backup_{datetime.date.today()}.json", mime="application/json", use_container_width=True)
 
     with c_rest:
         st.markdown("#### 📤 Restore")
@@ -162,8 +156,6 @@ def render_logs_page():
     logs = run_query("SELECT * FROM logs ORDER BY created_at DESC LIMIT 500")
     if not logs.empty:
         st.dataframe(logs, use_container_width=True, hide_index=True)
-    else:
-        st.info("Hələlik loq yoxdur.")
 
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
