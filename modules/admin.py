@@ -18,10 +18,21 @@ def render_settings_page():
         new_fee = st.number_input("Servis Haqqı (%)", min_value=0.0, max_value=100.0, step=1.0, value=current_fee)
         
         st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
+        
+        # Saat siyahısını yaradırıq (00:00 - 23:30 arası)
+        time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
+        
         c1, c2, c3 = st.columns(3)
-        s_start = c1.text_input("Növbə Başlanğıcı (HH:mm)", get_setting("shift_start_time", "08:00"))
-        s_end = c2.text_input("Növbə Bitməsi (HH:mm)", get_setting("shift_end_time", "23:59"))
-        u_offset = c3.text_input("Bakı Saatı Offset (UTC+)", get_setting("utc_offset", "4"))
+        
+        # Mövcud ayarları bazadan çəkirik
+        current_start = get_setting("shift_start_time", "08:00")
+        current_end = get_setting("shift_end_time", "23:59")
+        current_offset = get_setting("utc_offset", "4")
+
+        # Dropdown (Selectbox) vasitəsilə saat seçimi
+        s_start = c1.selectbox("Növbə Başlanğıcı", time_options, index=time_options.index(current_start) if current_start in time_options else 16)
+        s_end = c2.selectbox("Növbə Bitməsi", time_options + ["23:59"], index=(time_options + ["23:59"]).index(current_end) if current_end in (time_options + ["23:59"]) else len(time_options))
+        u_offset = c3.selectbox("Bakı Saatı Offset (UTC+)", ["3", "4", "5"], index=1)
         
         if st.button("💾 Ayarları Yadda Saxla", type="primary"):
             set_setting("service_fee_percent", str(new_fee))
