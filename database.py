@@ -28,7 +28,9 @@ def run_action(q, p=None):
     return True
 
 def get_setting(key, default=""):
-    try: return run_query("SELECT value FROM settings WHERE key=:k", {"k":key}).iloc[0]['value']
+    try: 
+        res = run_query("SELECT value FROM settings WHERE key=:k", {"k":key})
+        return res.iloc[0]['value'] if not res.empty else default
     except: return default
 
 def set_setting(key, value): 
@@ -38,45 +40,56 @@ def set_setting(key, value):
 def ensure_schema():
     if not conn: return False
     with conn.session as s:
+        # --- ƏSAS CƏDVƏLLƏR ---
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, tip_amount DECIMAL(10,2) DEFAULT 0, is_test BOOLEAN DEFAULT FALSE);"))
+        
+        # Sales cədvəli (Net gəlir üçün sütunlar əlavə edilə bilər)
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS sales (
+                id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, 
+                cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+                customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, 
+                discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, 
+                tip_amount DECIMAL(10,2) DEFAULT 0, is_test BOOLEAN DEFAULT FALSE
+            );
+        """))
+        
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP, failed_attempts INTEGER DEFAULT 0, locked_until TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_activity TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, subject TEXT, is_test BOOLEAN DEFAULT FALSE);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS promo_codes (id SERIAL PRIMARY KEY, code TEXT UNIQUE, discount_percent INTEGER, valid_until DATE, assigned_user_id TEXT, is_used BOOLEAN DEFAULT FALSE);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS customer_coupons (id SERIAL PRIMARY KEY, card_id TEXT, coupon_type TEXT, is_used BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY, card_id TEXT, message TEXT, is_read BOOLEAN DEFAULT FALSE, attached_coupon TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS system_logs (id SERIAL PRIMARY KEY, username TEXT, action TEXT, customer_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, title TEXT, amount DECIMAL(10,2) DEFAULT 0);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         
-        s.execute(text("CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, total_price NUMERIC, payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_by TEXT);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS order_items (id SERIAL PRIMARY KEY, order_id INTEGER, item_name TEXT, quantity NUMERIC, price NUMERIC);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS z_reports (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, total_sales NUMERIC, cash_sales NUMERIC, card_sales NUMERIC, expected_cash NUMERIC, actual_cash NUMERIC, difference NUMERIC, generated_by TEXT);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS shift_handovers (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, handed_by TEXT, received_by TEXT, expected_cash DECIMAL(10,2), actual_cash DECIMAL(10,2), difference DECIMAL(10,2), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        # Finance cədvəli (Maliyyə hərəkətləri)
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS finance (
+                id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), 
+                source TEXT, description TEXT, created_by TEXT, 
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, subject TEXT, is_test BOOLEAN DEFAULT FALSE
+            );
+        """))
+        
+        s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, \"user\" TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
 
-        try: 
-            with s.begin_nested():
-                s.execute(text("ALTER TABLE sales ADD COLUMN is_test BOOLEAN DEFAULT FALSE;"))
-        except: 
-            pass
-        
-        try: 
-            with s.begin_nested():
-                s.execute(text("ALTER TABLE finance ADD COLUMN is_test BOOLEAN DEFAULT FALSE;"))
-        except: 
-            pass
+        # --- YENİLƏMƏLƏR (PATCHES) ---
+        # Sütun yoxlamaları (Xəta verməməsi üçün try-except daxilində)
+        columns_to_add = [
+            ("sales", "is_test", "BOOLEAN DEFAULT FALSE"),
+            ("finance", "is_test", "BOOLEAN DEFAULT FALSE"),
+            ("sales", "bank_fee", "DECIMAL(10,2) DEFAULT 0"), # Bank komissiyasını Analitika üçün saxlamaq
+            ("sales", "net_total", "DECIMAL(10,2) DEFAULT 0") # Xalis məbləği Analitika üçün saxlamaq
+        ]
 
+        for table, col, dtype in columns_to_add:
+            try:
+                with s.begin_nested():
+                    s.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {dtype};"))
+            except:
+                pass
+
+        # İlkin tənzimləmələr
         s.execute(text("INSERT INTO settings (key, value) VALUES ('current_shift_status', 'Closed') ON CONFLICT DO NOTHING;"))
 
+        # Admin istifadəçisi yarat
         try:
             with s.begin_nested():
                 p_hash = bcrypt.hashpw(os.environ.get("ADMIN_PASS", "admin123").encode(), bcrypt.gensalt()).decode()
