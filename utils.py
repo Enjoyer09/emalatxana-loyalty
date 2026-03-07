@@ -10,7 +10,7 @@ except ImportError:
 
 from database import get_setting, run_action, run_query
 
-# --- SİSTEM KONSTANTLARI ---
+# --- SİSTEM KONSTANTLARI (TAM QORUNUR) ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
 VERSION = "1.2 (Full Patch)"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
@@ -85,11 +85,11 @@ def get_shift_range(logical_date=None):
     if shift_end <= shift_start: shift_end += datetime.timedelta(days=1)
     return shift_start, shift_end
 
-# --- YENİ SHIFT (NÖVBƏ) İDARƏETMƏ FUNKSİYALARI ---
+# --- SHIFT STATUS FUNKSİYALARI ---
 def get_shift_status():
     try:
-        shift = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
-        return {row['key']: row['value'] for _, row in shift.iterrows()}
+        res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
+        return {row['key']: row['value'] for _, row in res.iterrows()}
     except: return {'current_shift_status': 'Closed'}
 
 def open_shift(user):
@@ -102,14 +102,8 @@ def close_shift(user):
     run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
     log_system(user, "NÖVBƏ BAĞLANDI")
 
-def clean_qr_code(code):
-    if not code: return ""
-    if "id=" in str(code): return str(code).split("id=")[1].split("&")[0]
-    return str(code).strip()
-
 def log_system(user, action):
-    try:
-        run_action("INSERT INTO system_logs (username, action) VALUES (:u, :a)", {"u": str(user), "a": str(action)})
+    try: run_action("INSERT INTO system_logs (username, action) VALUES (:u, :a)", {"u": str(user), "a": str(action)})
     except: pass
 
 def verify_password(plain, hashed):
