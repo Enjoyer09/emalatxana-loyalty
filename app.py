@@ -23,7 +23,7 @@ from modules.customer_menu import render_customer_app
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================================
-# 🕒 YENİ: SHIFT POPUP DIALOGS (Sabina və Samir üçün)
+# 🕒 YENİ: SHIFT POPUP DIALOGS 
 # ==========================================================
 @st.dialog("🕒 Növbə İdarəetməsi")
 def shift_modal(mode):
@@ -51,7 +51,7 @@ if "id" in params:
     st.stop()
 
 # ==========================================================
-# 💾 BÜTÜN SESSIYA STATE-LƏRİ (QORUNUR)
+# 💾 BÜTÜN SESSIYA STATE-LƏRİ (TAM QORUNUR)
 # ==========================================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
@@ -194,19 +194,25 @@ else:
     tabs_list = ["🏃‍♂️ AL-APAR"]
     if role == 'admin' or get_setting("staff_show_tables", "TRUE") == "TRUE": tabs_list.append("🍽️ MASALAR")
     tabs_list.append("📊 Z-Hesabat")
-    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "🤖 AI Menecer", "📋 Menyu", "📜 Resept", "⚙️ Ayarlar"])
+    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "🤖 AI Menecer", "📋 Menyu", "📜 Resept", "⚙️ Ayarlar", "💾 Baza", "QR", "🕵️ Loglar", "📝 Qeydlər"])
     
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
     selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed")
 
+    # SƏHİFƏ RENDERLƏRİ
     if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
     elif selected_tab == "📦 Anbar": render_inventory_page()
     elif selected_tab == "💰 Maliyyə": render_finance_page()
+    elif selected_tab == "📊 Analitika": render_analytics_page()
     elif selected_tab == "🤖 AI Menecer": render_ai_page()
     elif selected_tab == "📋 Menyu": render_menu_page()
     elif selected_tab == "📜 Resept": render_recipe_page()
     elif selected_tab == "⚙️ Ayarlar": render_settings_page()
+    elif selected_tab == "💾 Baza": render_database_page()
+    elif selected_tab == "QR": render_qr_page()
+    elif selected_tab == "🕵️ Loglar": render_logs_page()
+    elif selected_tab == "📝 Qeydlər": render_notes_page()
 
     st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
