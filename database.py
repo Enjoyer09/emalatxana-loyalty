@@ -58,13 +58,14 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, title TEXT, amount DECIMAL(10,2) DEFAULT 0);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         
-        # BİZİM YENİ ƏLAVƏ ETDİYİMİZ CƏDVƏLLƏR VƏ TƏHLÜKƏSİZLİK LOQLARI ÜÇÜN NÜVƏ CƏDVƏLİ
+        # BİZİM YENİ ƏLAVƏ ETDİYİMİZ CƏDVƏLLƏR
         s.execute(text("CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, total_price NUMERIC, payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_by TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS order_items (id SERIAL PRIMARY KEY, order_id INTEGER, item_name TEXT, quantity NUMERIC, price NUMERIC);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS z_reports (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, total_sales NUMERIC, cash_sales NUMERIC, card_sales NUMERIC, expected_cash NUMERIC, actual_cash NUMERIC, difference NUMERIC, generated_by TEXT);"))
-        
-        # === QARA QUTU CƏDVƏLİ ===
         s.execute(text("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, \"user\" TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+
+        # SHIFT STATUSUNUN İLKİN AYARI (TEK SƏTİRLİK ƏLAVƏ)
+        s.execute(text("INSERT INTO settings (key, value) VALUES ('current_shift_status', 'Closed') ON CONFLICT DO NOTHING;"))
 
         try:
             p_hash = bcrypt.hashpw(os.environ.get("ADMIN_PASS", "admin123").encode(), bcrypt.gensalt()).decode()
