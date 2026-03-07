@@ -26,13 +26,18 @@ def render_analytics_page():
     sales = run_query(query, {"s":ts_start, "e":ts_end})
     
     if not sales.empty:
-        total_rev = sales['total'].sum()
-        cash_rev = sales[sales['payment_method']=='Cash']['total'].sum()
-        card_rev = sales[sales['payment_method']=='Card']['total'].sum()
-        staff_rev = sales[sales['payment_method']=='Staff']['total'].sum()
+        if 'is_test' not in sales.columns:
+            sales['is_test'] = False
+            
+        real_sales = sales[sales['is_test'] != True]
+        
+        total_rev = real_sales['total'].sum()
+        cash_rev = real_sales[real_sales['payment_method']=='Cash']['total'].sum()
+        card_rev = real_sales[real_sales['payment_method']=='Card']['total'].sum()
+        staff_rev = real_sales[real_sales['payment_method']=='Staff']['total'].sum()
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Cəmi Satış", f"{total_rev:.2f} ₼")
+        c1.metric("Cəmi Satış (Real)", f"{total_rev:.2f} ₼")
         c2.metric("Nağd", f"{cash_rev:.2f} ₼")
         c3.metric("Kart", f"{card_rev:.2f} ₼")
         c4.metric("Personal", f"{staff_rev:.2f} ₼")
@@ -51,11 +56,12 @@ def render_analytics_page():
             sales_disp['Müştəri Kodu'] = sales_disp['customer_card_id']
             sales_disp['Müştəri Tipi'] = sales_disp['cust_type'].fillna('').str.upper()
             sales_disp['Ulduz'] = sales_disp['cust_stars']
+            sales_disp['Test?'] = sales_disp['is_test'].apply(lambda x: '🧪 Bəli' if x else '')
             
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Müştəri Tipi'] = ''
             sales_disp.loc[sales_disp['Müştəri Kodu'].isna() | (sales_disp['Müştəri Kodu'] == ''), 'Ulduz'] = None
             
-            cols_to_show = ['id', 'created_at', 'cashier', 'items', 'total', 'discount', 'payment_method', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
+            cols_to_show = ['id', 'created_at', 'cashier', 'items', 'total', 'discount', 'payment_method', 'Test?', 'Müştəri Kodu', 'Müştəri Tipi', 'Ulduz', 'note']
             cols_to_show = [c for c in cols_to_show if c in sales_disp.columns]
             
             display_df = sales_disp[cols_to_show].copy()
@@ -194,9 +200,9 @@ def render_analytics_page():
                 del_sale_dialog()
 
         with tab2:
-            st.write("Bu aralıqda nədən neçə ədəd satılıb:")
+            st.write("Bu aralıqda nədən neçə ədəd satılıb (Yalnız Real Satışlar):")
             item_counts = {}
-            for items_str in sales['items']:
+            for items_str in real_sales['items']:
                 if not isinstance(items_str, str) or items_str == "Table Order": continue
                 parts = items_str.split(", ")
                 for p in parts:
@@ -216,7 +222,7 @@ def render_analytics_page():
         st.info("Seçilmiş tarixdə satış yoxdur.")
 
 def render_z_report_page():
-    st.subheader("📊 Z-Hesabat (Növbənin Bağlanması)")
+    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi (X/Z)")
     
     log_date_z = get_logical_date()
     sh_start_z, sh_end_z = get_shift_range(log_date_z)
@@ -225,8 +231,23 @@ def render_z_report_page():
     
     user_role = st.session_state.role
     
+    q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+    params = {"d":sh_start_z, "e":sh_end_z}
+
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {q_cond}", params).iloc[0]['s'] or 0.0
+    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {q_cond}", params).iloc[0]['s'] or 0.0
+    s_staff = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' {q_cond}", params).iloc[0]['s'] or 0.0
+    total_sales = float(s_cash) + float(s_card) + float(s_staff)
+    
+    f_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+    f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {f_cond}", params).iloc[0]['s'] or 0.0
+    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' {f_cond}", params).iloc[0]['s'] or 0.0
+    
+    opening_limit = float(get_setting("cash_limit", "0.0"))
+    expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+
     if user_role == 'staff':
-        my_sales_df = run_query("SELECT * FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e ORDER BY created_at DESC", 
+        my_sales_df = run_query(f"SELECT * FROM sales WHERE cashier=:u {q_cond} ORDER BY created_at DESC", 
                                 {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
         
         if not my_sales_df.empty:
@@ -234,7 +255,7 @@ def render_z_report_page():
             my_cash = my_sales_df[my_sales_df['payment_method']=='Cash']['total'].sum()
             my_card = my_sales_df[my_sales_df['payment_method']=='Card']['total'].sum()
             
-            st.markdown("### 👤 Mənim Bugünkü Satışlarım")
+            st.markdown("### 👤 Mənim Bugünkü Satışlarım (Real)")
             c1, c2, c3 = st.columns(3)
             c1.metric("Cəmi Satışım", f"{my_total:.2f} ₼")
             c2.metric("Nağd", f"{my_cash:.2f} ₼")
@@ -270,7 +291,7 @@ def render_z_report_page():
                 else:
                     st.info("Detallı məhsul tapılmadı.")
         else:
-            st.info("Siz bu növbədə hələ satış etməmisiniz.")
+            st.info("Siz bu növbədə hələ real satış etməmisiniz.")
             
     else:
         # --- ÇEVİK MAAŞ/AVANS ÖDƏNİŞ BLOKU ---
@@ -302,18 +323,7 @@ def render_z_report_page():
                         st.warning("Məbləğ daxil edin!")
         # ----------------------------------------
         
-        s_cash = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
-        s_card = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
-        s_staff = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Staff' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
-        total_sales = float(s_cash) + float(s_card) + float(s_staff)
-        
-        my_sales = run_query("SELECT SUM(total) as s FROM sales WHERE cashier=:u AND created_at>=:d AND created_at<:e", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
-        
-        f_out = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
-        f_in = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND created_at>=:d AND created_at<:e", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
-        
-        opening_limit = float(get_setting("cash_limit", "0.0"))
-        expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+        my_sales_admin = run_query(f"SELECT SUM(total) as s FROM sales WHERE cashier=:u {q_cond}", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z}).iloc[0]['s'] or 0.0
         
         c1, c2 = st.columns(2)
         c1.metric("CƏMİ SATIŞ", f"{total_sales:.2f} ₼")
@@ -321,7 +331,7 @@ def render_z_report_page():
         c1.write(f"💵 Nağd: {float(s_cash):.2f} ₼")
         c1.write(f"👥 Personal: {float(s_staff):.2f} ₼")
         
-        c1.markdown(f"<div style='background:#E8F5E9; padding:5px; border-radius:5px; margin-top:5px;'>👤 Sizin vurduğunuz satış: <b>{float(my_sales):.2f} ₼</b></div>", unsafe_allow_html=True)
+        c1.markdown(f"<div style='background:#E8F5E9; padding:5px; border-radius:5px; margin-top:5px; color:black;'>👤 Sizin vurduğunuz satış: <b>{float(my_sales_admin):.2f} ₼</b></div>", unsafe_allow_html=True)
         
         c2.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
         c2.write(f"Səhər (Açılış): {opening_limit:.2f} ₼")
@@ -333,7 +343,7 @@ def render_z_report_page():
         # =======================================================
         # YENİ BLOK: Z-HESABATDA OFİSİANTLARIN BÖLGÜSÜ
         # =======================================================
-        waiter_sales = run_query("SELECT cashier, SUM(total) as total_amount FROM sales WHERE created_at>=:d AND created_at<:e GROUP BY cashier", {"d":sh_start_z, "e":sh_end_z})
+        waiter_sales = run_query(f"SELECT cashier, SUM(total) as total_amount FROM sales WHERE created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) GROUP BY cashier", params)
         service_fee_pct = float(get_setting("service_fee_percent", "0.0"))
 
         if not waiter_sales.empty:
@@ -342,7 +352,6 @@ def render_z_report_page():
             idx = 0
             for _, row in waiter_sales.iterrows():
                 w_total = float(row['total_amount'])
-                # Tərsinə riyaziyyat: Saf = Total / (1 + faiz)
                 w_saf = w_total / (1 + (service_fee_pct / 100.0)) if service_fee_pct > 0 else w_total
                 w_servis = w_total - w_saf
                 
@@ -356,20 +365,64 @@ def render_z_report_page():
                 idx += 1
         st.divider()
         # =======================================================
-        
-        if st.button("🔴 Günü Bitir və Sıfırla (Z-Hesabat)", type="primary"):
-            st.session_state.z_report_active = True
-            st.rerun()
+
+    # =======================================================
+    # HESABAT DÜYMƏLƏRİ VƏ DİALOQLAR (Hər kəs görə bilər)
+    # =======================================================
+    col_x, col_z = st.columns(2)
+    
+    # --- 1. X-HESABAT (NÖVBƏ TƏHVİLİ) ---
+    if col_x.button("🤝 Növbəni Təhvil Ver (X-Hesabat)", use_container_width=True):
+        @st.dialog("🤝 Növbəni Təhvil Ver (X-Hesabat)")
+        def x_report_dialog():
+            st.info(f"Obyekti bağlamırsınız, sadəcə kassanı təhvil verirsiniz.\n\nKassada olmalıdır: **{expected_cash:.2f} AZN**")
             
-        if st.session_state.z_report_active:
-            @st.dialog("Təsdiqləyirsiniz?")
-            def z_final_d():
-                st.warning("⚠️ Gün bağlanacaq və 'Kassada Olmalıdır' məbləği sabahın yeni limiti olacaq.")
-                if st.button("✅ Bəli, Günü Bitir"):
-                    set_setting("cash_limit", str(expected_cash))
-                    set_setting("last_z_report_time", get_baku_now().isoformat())
-                    st.session_state.z_report_active=False
-                    st.success("GÜN UĞURLA BAĞLANDI! 🌙")
-                    time.sleep(2)
-                    st.rerun()
-            z_final_d()
+            actual_cash = st.number_input("Kassadakı Faktiki Sayılan Pul (AZN)", min_value=0.0, step=0.1, value=float(expected_cash))
+            
+            users_df = run_query("SELECT username FROM users WHERE username != :u", {"u": st.session_state.user})
+            user_list = users_df['username'].tolist() if not users_df.empty else ["Admin"]
+            received_by = st.selectbox("Təhvil Alan İşçi:", user_list)
+            
+            if st.button("✅ Kassanı Təhvil Ver", type="primary"):
+                diff = actual_cash - expected_cash
+                run_action("INSERT INTO shift_handovers (shift_start, shift_end, handed_by, received_by, expected_cash, actual_cash, difference, created_at) VALUES (:ss, :se, :hb, :rb, :ec, :ac, :df, :now)",
+                           {"ss": sh_start_z, "se": get_baku_now(), "hb": st.session_state.user, "rb": received_by, "ec": expected_cash, "ac": actual_cash, "df": diff, "now": get_baku_now()})
+                log_system(st.session_state.user, f"X-HESABAT: Təhvil verildi -> {received_by}. Kassa: {actual_cash} AZN (Fərq: {diff})")
+                
+                st.success(f"Növbə uğurla {received_by} adlı işçiyə təhvil verildi!")
+                time.sleep(2)
+                st.rerun()
+        x_report_dialog()
+        
+    # --- 2. Z-HESABAT (GÜNÜN BAĞLANIŞI) ---
+    if col_z.button("🔴 Günü Bitir və Sıfırla (Z-Hesabat)", type="primary", use_container_width=True):
+        st.session_state.z_report_active = True
+        st.rerun()
+        
+    if st.session_state.get('z_report_active'):
+        @st.dialog("Təsdiqləyirsiniz?")
+        def z_final_d():
+            st.warning("⚠️ Gün bağlanacaq, məlumatlar arxivlənəcək və sistem yeni günə sıfırlanacaq.")
+            st.write(f"📊 Ümumi Satış (Real): **{total_sales:.2f} AZN**")
+            st.write(f"💵 Kassada Olmalıdır: **{expected_cash:.2f} AZN**")
+            
+            actual_cash_z = st.number_input("Kassada qalan FAKTİKİ pul (Sabahkı Açılış Balansı)", min_value=0.0, step=0.1, value=float(expected_cash))
+            
+            if st.button("✅ Bəli, Günü Bitir"):
+                diff_z = actual_cash_z - expected_cash
+                
+                # Z-Hesabat Arxivi
+                run_action("INSERT INTO z_reports (shift_start, shift_end, total_sales, cash_sales, card_sales, expected_cash, actual_cash, difference, generated_by) VALUES (:ss, :se, :ts, :cs, :crs, :ec, :ac, :df, :gb)",
+                           {"ss": sh_start_z, "se": get_baku_now(), "ts": total_sales, "cs": float(s_cash), "crs": float(s_card), "ec": expected_cash, "ac": actual_cash_z, "df": diff_z, "gb": st.session_state.user})
+                
+                # Yeni limitləri təyin edirik
+                set_setting("cash_limit", str(actual_cash_z))
+                set_setting("last_z_report_time", get_baku_now().isoformat())
+                
+                st.session_state.z_report_active = False
+                log_system(st.session_state.user, f"Z-HESABAT: Gün bağlandı. Yekun kassa: {actual_cash_z} AZN")
+                
+                st.success("GÜN UĞURLA BAĞLANDI! 🌙 Yeni günə hazırlaşılır...")
+                time.sleep(2.5)
+                st.rerun()
+        z_final_d()
