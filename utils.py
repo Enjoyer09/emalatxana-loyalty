@@ -56,7 +56,7 @@ def generate_styled_qr(data):
         return buf.getvalue()
     except: return None
 
-# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (BAKI VAXTI) ---
+# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI ---
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
     try: offset_hours = int(offset_str)
@@ -85,7 +85,7 @@ def get_shift_range(logical_date=None):
     if shift_end <= shift_start: shift_end += datetime.timedelta(days=1)
     return shift_start, shift_end
 
-# --- SHIFT STATUS FUNKSİYALARI ---
+# --- YENİ FUNKSİYALAR (SHIFT) ---
 def get_shift_status():
     try:
         res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
@@ -101,6 +101,11 @@ def open_shift(user):
 def close_shift(user):
     run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
     log_system(user, "NÖVBƏ BAĞLANDI")
+
+def clean_qr_code(code):
+    if not code: return ""
+    if "id=" in str(code): return str(code).split("id=")[1].split("&")[0]
+    return str(code).strip()
 
 def log_system(user, action):
     try: run_action("INSERT INTO system_logs (username, action) VALUES (:u, :a)", {"u": str(user), "a": str(action)})
