@@ -3,6 +3,8 @@ from sqlalchemy import text
 from database import run_query, run_action, conn, get_setting
 from utils import clean_qr_code, get_baku_now, get_shift_range, log_system
 import time
+import os
+import bcrypt
 
 # ==========================================================
 # 🖨️ ÇAP SİSTEMİ (PRINT.JS İNTEQRASİYASI - TOXUNULMAZ)
@@ -10,8 +12,10 @@ import time
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt, cust_email=None):
     # Termal printer (58mm/80mm) üçün optimallaşdırılmış dizayn
+    test_badge = "<p style='text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px;'>*** TEST REJİMİ ***</p>" if st.session_state.get('test_mode') else ""
     receipt_html = f"""
     <div id="receipt_area" style="width: 280px; padding: 10px; font-family: 'Courier New', monospace; color: black; background: white; border: 1px solid #eee;">
+        {test_badge}
         <h2 style="text-align: center; margin-bottom: 5px; font-weight: bold;">EMALATKHANA</h2>
         <p style="text-align: center; margin-top: 0; font-size: 12px;">{get_baku_now().strftime('%d.%m.%Y %H:%M')}</p>
         <p style="text-align: center; font-size: 11px; margin-bottom: 5px;">Kassir: {st.session_state.user}</p>
@@ -43,7 +47,7 @@ def add_to_cart(cart, item):
     cart.append(item)
 
 # ==========================================================
-# 🧠 AĞILLI HESABLAMA (YENİ: ECO-MODE VƏ QR-KRUASAN DAXİL)
+# 🧠 AĞILLI HESABLAMA (ECO-MODE VƏ QR-KRUASAN DAXİL)
 # ==========================================================
 def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0, is_eco_cup=False):
     total = 0.0
@@ -51,7 +55,6 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     current_stars = 0
     service_fee_pct = float(get_setting("service_fee_percent", "0.0")) / 100.0
     
-    # 🥐 QR KRUASAN: Müştəri QR skan edərsə və endirim QR kodda (secret_token) varsa
     has_croissant_promo = False
     if customer and "CROISSANT50" in str(customer.get('secret_token', '')):
         has_croissant_promo = True
@@ -84,7 +87,6 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     for i in cart:
         item_price = i['price']
         
-        # QR Kampaniyası ilə Kruasan Endirimi
         if has_croissant_promo and ("kruasan" in i['item_name'].lower() or "croissant" in i['item_name'].lower()):
             item_price = item_price * 0.5 
             
@@ -106,7 +108,6 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     if is_table and service_fee_pct > 0: 
         final_total += final_total * service_fee_pct
     
-    # 🍃 ECO-STAKAN MODULU: Öz stakanı ilə gələnlərə əlavə endirim
     if is_eco_cup:
         final_total = final_total * 0.95 
         
@@ -180,8 +181,22 @@ def render_menu(cart, key):
             i += 1
 
 def render_pos_page():
+    if st.session_state.get('show_test_auth'):
+        @st.dialog("🔐 Admin Təsdiqi (Test Rejimi)")
+        def test_auth_dialog():
+            pin = st.text_input("Şifrə:", type="password")
+            if st.button("Təsdiqlə", type="primary"):
+                r = run_query("SELECT password FROM users WHERE username='admin'")
+                db_hash = r.iloc[0]['password'] if not r.empty else ""
+                if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
+                    st.session_state.test_mode = True
+                    st.session_state.show_test_auth = False
+                    st.rerun()
+                else: st.error("Səhv şifrə!")
+        test_auth_dialog()
+
     # 🛒 MULTI-CART Naviqasiyası
-    c_carts = st.columns([1, 1, 1, 3])
+    c_carts = st.columns([1, 1, 1, 2, 1])
     for cid in [1, 2, 3]:
         count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
         btn_type = "primary" if cid == st.session_state.active_cart_id else "secondary"
@@ -194,16 +209,33 @@ def render_pos_page():
             t_amt = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0, value=st.session_state.tip_input_val, key="tip_standalone_inp")
             if st.button("💳 Karta Vur", key="tip_only_btn", type="primary"):
                 if t_amt > 0:
-                    try:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
-                        st.success(f"✅ {t_amt} AZN Tip qeyd olundu!")
+                    if st.session_state.get('test_mode'):
+                        st.success(f"🧪 [TEST] {t_amt} AZN Tip qeyd olundu (Bazaya yazılmadı)!")
                         st.session_state.tip_input_val = 0.0
                         time.sleep(1); st.rerun()
-                    except Exception as e: st.error(f"Xəta: {e}")
+                    else:
+                        try:
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
+                            st.success(f"✅ {t_amt} AZN Tip qeyd olundu!")
+                            st.session_state.tip_input_val = 0.0
+                            time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Xəta: {e}")
 
-    # 🍃 ECO-STAKAN MODULU: Staff və müştərilər üçün öz stakanı seçimi
+    with c_carts[4]:
+        if st.session_state.get('test_mode'):
+            if st.button("🧪 Test: ON", type="primary", use_container_width=True):
+                st.session_state.test_mode = False
+                st.rerun()
+        else:
+            if st.button("🧪 Test: OFF", type="secondary", use_container_width=True):
+                st.session_state.show_test_auth = True
+                st.rerun()
+
+    # 🍃 ECO-STAKAN MODULU
     st.markdown("---")
+    if st.session_state.get('test_mode'):
+        st.warning("⚠️ Hazırda TEST rejimindəsiniz. Satışlar bazada (is_test=True) yazılacaq, anbar və z-hesabata təsir etməyəcək.")
     eco_mode = st.toggle("🍃 Eco-Stakan Modulu (Müştəri öz stakanı ilə gəlib)", key="eco_toggle_pos")
     
     c_menu, c_cart = st.columns([2.5, 1.2])
@@ -241,10 +273,9 @@ def render_pos_page():
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
             
-            # Ümumi Hesablama (YENİ Parametr: is_eco_cup)
+            # Ümumi Hesablama 
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val, is_eco_cup=eco_mode)
             
-            # Səbət elementləri
             if not st.session_state.cart_takeaway:
                 st.markdown("<p style='text-align:center; color:#888; margin-top:20px;'>Səbət boşdur</p>", unsafe_allow_html=True)
             else:
@@ -266,11 +297,10 @@ def render_pos_page():
             if is_ikram: st.success("🎁 İKRAM")
             elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
             
-            # Ödəniş Metodu
             pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed")
             
             # ==========================================================
-            # 🛑 STAFF LİMİT VƏ MAYA DƏYƏRİ HESABLANMASI (TAM DƏQİQ)
+            # 🛑 STAFF LİMİT VƏ MAYA DƏYƏRİ HESABLANMASI
             # ==========================================================
             if pm == "Staff":
                 staff_total_limit = 6.0 
@@ -278,17 +308,14 @@ def render_pos_page():
                 
                 for it in st.session_state.cart_takeaway:
                     if it.get('is_coffee'):
-                        # Kofe olduqda vitrin (satış) qiyməti hesablanır
                         staff_consumed += (it['qty'] * it['price'])
                     else:
-                        # Kofe deyilsə (şirniyyat və s.), məhsulun MAYA DƏYƏRİ arxa fondan (DB) oxunur
                         cost_q = "SELECT SUM(r.quantity_required * i.unit_cost) as cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = :m"
                         try:
                             c_df = run_query(cost_q, {"m": it['item_name']})
                             i_cost = float(c_df.iloc[0]['cost']) if not c_df.empty and c_df.iloc[0]['cost'] is not None else 0.0
                         except:
                             i_cost = 0.0
-                        
                         staff_consumed += (it['qty'] * i_cost)
 
                 if staff_consumed > staff_total_limit:
@@ -304,28 +331,33 @@ def render_pos_page():
             if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True, key="pay_btn"):
                 if not st.session_state.cart_takeaway: st.error("Səbət boşdur"); st.stop()
                     
+                is_test_mode = st.session_state.get('test_mode', False)
                 try:
                     with conn.session as s:
-                        # 1. Anbar Çıxışı
-                        for it in st.session_state.cart_takeaway:
-                            recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
-                            for r in recs:
-                                s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"), {"q":float(r[1])*it['qty'], "n":r[0]})
+                        if not is_test_mode:
+                            # 1. Anbar Çıxışı Yalnız Real Satışda
+                            for it in st.session_state.cart_takeaway:
+                                recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
+                                for r in recs:
+                                    s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"), {"q":float(r[1])*it['qty'], "n":r[0]})
                                 
-                        # 2. Satış Loqu
+                        # 2. Satış Loqu (is_test bayrağı ilə)
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
-                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip)"), 
-                                  {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips})
+                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip, :tst)"), 
+                                  {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode})
                         
-                        # 3. Ulduz Yenilənməsi
-                        if cust:
-                            new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
-                            s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": max(0, new_stars), "cid": cust['card_id']})
+                        if not is_test_mode:
+                            # 3. Ulduz Yenilənməsi Yalnız Real Satışda
+                            if cust:
+                                new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
+                                s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": max(0, new_stars), "cid": cust['card_id']})
                         
                         s.commit()
-                        log_system(st.session_state.user, f"SATIŞ: {final:.2f} AZN ({pm})")
+                        if is_test_mode:
+                            log_system(st.session_state.user, f"🧪 TEST SATIŞ: {final:.2f} AZN ({pm})")
+                        else:
+                            log_system(st.session_state.user, f"SATIŞ: {final:.2f} AZN ({pm})")
                     
-                    # 🧾 ÇAP ÜÇÜN MƏLUMAT VƏ POP-UP
                     st.session_state.last_receipt_data = {'cart': st.session_state.cart_takeaway.copy(), 'total': final}
                     st.session_state.show_receipt_popup = True
                     st.session_state.cart_takeaway = []
@@ -334,6 +366,5 @@ def render_pos_page():
                     st.rerun()
                 except Exception as e: st.error(f"Baza xətası: {e}")
 
-    # Ödənişdən sonra Çek Dialoqunu göstər
     if st.session_state.get('show_receipt_popup'):
         show_receipt_dialog(st.session_state.last_receipt_data['cart'], st.session_state.last_receipt_data['total'])
