@@ -5,7 +5,7 @@ from utils import clean_qr_code, get_baku_now, get_shift_range, log_system
 import time
 
 # ==========================================================
-# 🖨️ ÇAP SİSTEMİ (PRINT.JS İNTEQRASİYASI)
+# 🖨️ ÇAP SİSTEMİ (PRINT.JS İNTEQRASİYASI - TOXUNULMAZ)
 # ==========================================================
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt, cust_email=None):
@@ -43,16 +43,18 @@ def add_to_cart(cart, item):
     cart.append(item)
 
 # ==========================================================
-# 🧠 AĞILLI HESABLAMA (KOMBO KAMPANİYA DAXİL)
+# 🧠 AĞILLI HESABLAMA (YENİ: ECO-MODE VƏ QR-KRUASAN DAXİL)
 # ==========================================================
-def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0):
+def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0, is_eco_cup=False):
     total = 0.0
     disc_rate = 0.0
     current_stars = 0
     service_fee_pct = float(get_setting("service_fee_percent", "0.0")) / 100.0
     
-    # KOMBO Yoxlaması: Səbətdə kofe varsa, Kruasana (və ya Croissant) 50% endirim tətbiq et
-    has_coffee = any(i.get('is_coffee') for i in cart)
+    # 🥐 QR KRUASAN: Müştəri QR skan edərsə və endirim QR kodda (secret_token) varsa
+    has_croissant_promo = False
+    if customer and "CROISSANT50" in str(customer.get('secret_token', '')):
+        has_croissant_promo = True
     
     if manual_discount_percent > 0:
         disc_rate = manual_discount_percent / 100.0
@@ -80,13 +82,14 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     free_coffees_to_give = free_cof 
     
     for i in cart:
-        # Kombo Endirim yoxlaması (Məhsulun adına görə)
         item_price = i['price']
-        if has_coffee and ("kruasan" in i['item_name'].lower() or "croissant" in i['item_name'].lower()):
-            item_price = item_price * 0.5 # 50% Endirim
+        
+        # QR Kampaniyası ilə Kruasan Endirimi
+        if has_croissant_promo and ("kruasan" in i['item_name'].lower() or "croissant" in i['item_name'].lower()):
+            item_price = item_price * 0.5 
             
         line_original = i['qty'] * i['price']
-        line_after_combo = i['qty'] * item_price
+        line_after_discount = i['qty'] * item_price
         total += line_original
         
         if i.get('is_coffee'):
@@ -96,12 +99,16 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
                 final_total += (paid_qty * item_price) * (1 - disc_rate)
                 free_coffees_to_give -= free_from_this_item
             else:
-                final_total += (line_after_combo - (line_after_combo * disc_rate))
+                final_total += (line_after_discount - (line_after_discount * disc_rate))
         else: 
-            final_total += (line_after_combo - (line_after_combo * disc_rate))
+            final_total += (line_after_discount - (line_after_discount * disc_rate))
             
     if is_table and service_fee_pct > 0: 
         final_total += final_total * service_fee_pct
+    
+    # 🍃 ECO-STAKAN MODULU: Öz stakanı ilə gələnlərə əlavə endirim
+    if is_eco_cup:
+        final_total = final_total * 0.95 
         
     return total, final_total, disc_rate, free_cof, 0, 0, False
 
@@ -195,7 +202,9 @@ def render_pos_page():
                         time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
 
-    st.divider()
+    # 🍃 ECO-STAKAN MODULU: Staff və müştərilər üçün öz stakanı seçimi
+    st.markdown("---")
+    eco_mode = st.toggle("🍃 Eco-Stakan Modulu (Müştəri öz stakanı ilə gəlib)", key="eco_toggle_pos")
     
     c_menu, c_cart = st.columns([2.5, 1.2])
     
@@ -232,8 +241,8 @@ def render_pos_page():
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
             
-            # Ümumi Hesablama
-            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val)
+            # Ümumi Hesablama (YENİ Parametr: is_eco_cup)
+            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val, is_eco_cup=eco_mode)
             
             # Səbət elementləri
             if not st.session_state.cart_takeaway:
@@ -259,6 +268,17 @@ def render_pos_page():
             
             # Ödəniş Metodu
             pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed")
+            
+            # 🛑 STAFF LİMİT YOXLAMASI (Kofe: 6 AZN, Digər: Maya dəyəri xəbərdarlığı)
+            if pm == "Staff":
+                has_coffee = any(i.get('is_coffee') for i in st.session_state.cart_takeaway)
+                if has_coffee and final > 6.0:
+                    st.warning("☕ Hörmətli kolleqa, kofe limitini (6 AZN) keçmisiniz. Zəhmət olmasa balansa diqqət edin.")
+                
+                if not has_coffee:
+                    # Səbətdə kofe yoxdursa və şirniyyat varsa Maya Dəyəri xəbərdarlığı
+                    st.info("🍰 Şirniyyat seçimində maya dəyəri limitinə (2 AZN) görə rəhbərliklə dəqiqləşdirməyiniz xahiş olunur.")
+
             card_tips = 0.0
             if pm == "Kart": card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="tips_inp")
             
