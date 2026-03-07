@@ -41,11 +41,11 @@ def ensure_schema():
         # SƏNİN KÖHNƏ VƏ VACİB CƏDVƏLLƏRİN
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, tip_amount DECIMAL(10,2) DEFAULT 0);"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, tip_amount DECIMAL(10,2) DEFAULT 0, is_test BOOLEAN DEFAULT FALSE);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT, last_seen TIMESTAMP, failed_attempts INTEGER DEFAULT 0, locked_until TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS active_sessions (token TEXT PRIMARY KEY, username TEXT, role TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_activity TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS ingredients (id SERIAL PRIMARY KEY, name TEXT UNIQUE, stock_qty DECIMAL(10,2) DEFAULT 0, unit TEXT, category TEXT, min_limit DECIMAL(10,2) DEFAULT 10, type TEXT DEFAULT 'ingredient', unit_cost DECIMAL(18,5) DEFAULT 0, approx_count INTEGER DEFAULT 0);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, subject TEXT);"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS finance (id SERIAL PRIMARY KEY, type TEXT, category TEXT, amount DECIMAL(10,2), source TEXT, description TEXT, created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, subject TEXT, is_test BOOLEAN DEFAULT FALSE);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS expenses (id SERIAL PRIMARY KEY, amount DECIMAL(10,2), reason TEXT, spender TEXT, source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS recipes (id SERIAL PRIMARY KEY, menu_item_name TEXT, ingredient_name TEXT, quantity_required DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS customers (card_id TEXT PRIMARY KEY, stars INTEGER DEFAULT 0, type TEXT, email TEXT, birth_date TEXT, is_active BOOLEAN DEFAULT FALSE, last_visit TIMESTAMP, secret_token TEXT, gender TEXT, staff_note TEXT);"))
@@ -62,7 +62,19 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, total_price NUMERIC, payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_by TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS order_items (id SERIAL PRIMARY KEY, order_id INTEGER, item_name TEXT, quantity NUMERIC, price NUMERIC);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS z_reports (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, total_sales NUMERIC, cash_sales NUMERIC, card_sales NUMERIC, expected_cash NUMERIC, actual_cash NUMERIC, difference NUMERIC, generated_by TEXT);"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS shift_handovers (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, handed_by TEXT, received_by TEXT, expected_cash DECIMAL(10,2), actual_cash DECIMAL(10,2), difference DECIMAL(10,2), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, \"user\" TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+
+        # TƏHLÜKƏSİZ SÜTUN ƏLAVƏLƏRİ
+        try: 
+            s.execute(text("ALTER TABLE sales ADD COLUMN is_test BOOLEAN DEFAULT FALSE;"))
+        except: 
+            pass
+        
+        try: 
+            s.execute(text("ALTER TABLE finance ADD COLUMN is_test BOOLEAN DEFAULT FALSE;"))
+        except: 
+            pass
 
         # SHIFT STATUSUNUN İLKİN AYARI (TEK SƏTİRLİK ƏLAVƏ)
         s.execute(text("INSERT INTO settings (key, value) VALUES ('current_shift_status', 'Closed') ON CONFLICT DO NOTHING;"))
