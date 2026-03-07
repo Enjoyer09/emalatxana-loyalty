@@ -8,16 +8,16 @@ from database import run_query, run_action, get_setting, set_setting
 from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 
 def render_finance_page():
-    st.subheader("💰 Maliyyə Mərkəzi (Dəqiq Bank Uçotu)")
+    st.subheader("💰 Maliyyə Mərkəzi (Ağıllı Bank və Kassa Uçotu)")
     
-    # --- KASSA AÇILIŞI ---
+    # --- 1. KASSA AÇILIŞI ---
     with st.expander("🔓 Səhər Kassanı Aç"):
         op_bal = st.number_input("Kassada nə qədər pul var? (AZN)", min_value=0.0, step=0.1)
         if st.button("✅ Kassanı Təsdiqlə"): 
             set_setting("cash_limit", str(op_bal))
             st.success(f"Gün {op_bal} ₼ ilə başladı!"); time.sleep(1); st.rerun()
 
-    # --- BALANSLAR ---
+    # --- 2. BALANSLAR ---
     view_mode = st.radio("Görünüş Rejimi:", ["🕒 Bu Növbə", "📅 Ümumi Balans"], horizontal=True)
     log_date = get_logical_date(); shift_start, shift_end = get_shift_range(log_date)
     cond = "AND created_at >= :d AND created_at < :e AND (is_test IS NULL OR is_test = FALSE)" if "Növbə" in view_mode else "AND (is_test IS NULL OR is_test = FALSE)"
@@ -37,61 +37,84 @@ def render_finance_page():
     m1.metric("🏪 Kassada (Nəğd)", f"{disp_cash:.2f} ₼")
     m2.metric("💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
 
-    # --- ƏMƏLİYYATLAR ---
+    # --- 3. ƏMƏLİYYATLAR ---
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
         with t_op:
             with st.form("new_fin_trx", clear_on_submit=True):
-                c1, c2, c3 = st.columns(3); f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"]); f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"]); f_subj = c3.selectbox("Subyekt", SUBJECTS)
-                c4, c5 = st.columns(2); f_cat = c4.selectbox("Kateqoriya", ["Market Alış-verişi", "Kartdan Karta Transfer", "Xammal Alışı", "Maaş/Avans", "Təsisçi Çıxarışı", "Digər"]); f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
+                c1, c2, c3 = st.columns(3)
+                f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
+                f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"])
+                f_subj = c3.selectbox("Subyekt", SUBJECTS)
+                
+                c4, c5 = st.columns(2)
+                f_cat = c4.selectbox("Kateqoriya", ["Market Alış-verişi", "Kartdan Karta Transfer", "Xammal Alışı", "Maaş/Avans", "Təsisçi Çıxarışı", "Digər"])
+                f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
                 f_desc = st.text_input("Qeyd")
+                
                 if st.form_submit_button("Təsdiqlə"):
                     db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
                     run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":f_subj, "time":now, "tst":is_t})
                     
-                    # YENİ MƏNTİQ: Minimum 0.60 AZN və ya 0.5%
+                    # KOMİSSİYA: Emalatxana Kartı + Transfer = MAX(0.60, 0.5%)
                     if db_type == 'out' and f_source == 'Emalatxana Kartı' and f_cat == 'Kartdan Karta Transfer':
                         comm = max(0.60, f_amt * 0.005)
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :time, :tst)", {"a":comm, "s":f_source, "u":user, "time":now, "tst":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":f_subj, "time":now, "tst":is_t})
                     st.success("Qeyd olundu!"); time.sleep(1); st.rerun()
 
         with t_tr:
             with st.form("transfer_trx", clear_on_submit=True):
-                t_dir = st.selectbox("Yön", ["💳 Kart ➡️ 🏪 Kassa", "🏪 Kassa ➡️ 💳 Kart"]); t_amt = st.number_input("Məbləğ", min_value=0.01)
+                t_dir = st.selectbox("Yön", ["💳 Kart ➡️ 🏪 Kassa", "🏪 Kassa ➡️ 💳 Kart"])
+                t_amt = st.number_input("Məbləğ", min_value=0.01)
+                t_reason = st.selectbox("Transfer Səbəbi", ["Kassa bərpası", "Şəxsi nağdlaşdırma", "Xammal üçün", "Digər"])
+                has_comm = st.checkbox("Nağdlaşdırma komissiyası tutulsun? (Min 0.60 ₼)")
+                
                 if st.form_submit_button("Transferi İcra Et"):
                     is_t, u, n = st.session_state.get('test_mode', False), st.session_state.user, get_baku_now()
                     if "Kart ➡️ Kassa" in t_dir:
-                        comm = max(0.60, t_amt * 0.005)
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        if has_comm:
+                            comm = max(0.60, t_amt * 0.005)
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                     else:
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
-                    st.success("Köçürüldü!"); time.sleep(1); st.rerun()
+                    st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
-    # --- HESABATLAR VƏ AI ---
+    # --- 4. HESABATLAR VƏ AI ---
     st.markdown("---")
-    f_c1, f_c2 = st.columns(2); sd = f_c1.date_input("Başlanğıc", get_baku_now().date().replace(day=1)); ed = f_c2.date_input("Bitiş", get_baku_now().date())
+    st.subheader("🔍 Maliyyə Hesabatları")
+    f_c1, f_c2 = st.columns(2)
+    # Sənin istədiyin Tarix Filtrləri
+    sd = f_c1.date_input("Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
+    ed = f_c2.date_input("Bitiş Tarixi", get_baku_now().date())
+    
     fin_df = run_query("SELECT * FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
     if not fin_df.empty:
         total_comm = fin_df[fin_df['category'] == 'Bank Komissiyası']['amount'].sum()
-        if total_comm > 0: st.warning(f"🏦 Ödənilən cəmi bank komissiyası: **{total_comm:.2f} ₼**")
+        if total_comm > 0: st.warning(f"🏦 Bu aralıqda ödənilən cəmi bank komissiyası: **{total_comm:.2f} ₼**")
         
         if st.button("🤖 AI CFO Analizi (Səsli)", type="primary", use_container_width=True):
             api_key = get_setting("gemini_api_key", "")
             if api_key:
                 try:
                     genai.configure(api_key=api_key); model = genai.GenerativeModel('gemini-1.5-flash')
-                    total_in, total_out = fin_df[fin_df['type'] == 'in']['amount'].sum(), fin_df[fin_df['type'] == 'out']['amount'].sum()
-                    prompt = f"Gəlir {total_in} AZN, Xərc {total_out} AZN. Qısa maliyyə analizi ver."
+                    total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
+                    total_out = fin_df[fin_df['type'] == 'out']['amount'].sum()
+                    prompt = f"Maliyyə hesabatı: Gəlir {total_in} AZN, Xərc {total_out} AZN. {sd} və {ed} tarixləri arasındakı vəziyyət haqqında çox qısa, səmimi və professional maliyyə tövsiyəsi ver."
                     resp = model.generate_content(prompt).text; st.info(resp)
                     tts = gTTS(text=resp, lang='tr'); fp = io.BytesIO(); tts.write_to_fp(fp); st.audio(fp)
                 except Exception as e: st.error(f"AI Xətası: {e}")
+            else: st.error("Lütfən Ayarlardan Gemini API Key daxil edin.")
         
         exp_only = fin_df[fin_df['type'] == 'out']
         if not exp_only.empty:
-            fig = px.pie(exp_only.groupby('category')['amount'].sum().reset_index(), values='amount', names='category', hole=0.4)
+            fig = px.pie(exp_only.groupby('category')['amount'].sum().reset_index(), values='amount', names='category', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+            fig.update_layout(height=350, margin=dict(t=0, b=0, l=0, r=0))
             st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description']], hide_index=True, use_container_width=True)
+            
+        st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
+    else:
+        st.info("Seçilmiş tarixlər arasında heç bir maliyyə əməliyyatı tapılmadı.")
