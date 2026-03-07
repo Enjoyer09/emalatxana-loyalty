@@ -13,7 +13,6 @@ from auth import admin_confirm_dialog
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi (AI CFO Paneli)")
     
-    # === 1. KASSA AÇILIŞI VƏ ÜMUMİ BALANSLAR ===
     with st.expander("🔓 Səhər Kassanı Aç (Opening Balance)"):
         op_bal = st.number_input("Kassada nə qədər pul var? (AZN)", min_value=0.0, step=0.1)
         if st.button("✅ Kassanı Bu Məbləğlə Aç"): 
@@ -23,17 +22,17 @@ def render_finance_page():
     log_date = get_logical_date(); shift_start, shift_end = get_shift_range(log_date)
     
     if "Növbə" in view_mode: 
-        cond = "AND created_at >= :d AND created_at < :e"; params = {"d":shift_start, "e":shift_end}
+        cond = "AND created_at >= :d AND created_at < :e AND (is_test IS NULL OR is_test = FALSE)"; params = {"d":shift_start, "e":shift_end}
     else:
         last_z = get_setting("last_z_report_time")
-        # BURADA DA BAKU VAXTINI NƏZƏRƏ ALIRIQ
         last_z_dt = datetime.datetime.fromisoformat(last_z) if last_z else get_baku_now() - datetime.timedelta(days=365)
-        cond = "AND created_at > :d"; params = {"d":last_z_dt}
+        cond = "AND created_at > :d AND (is_test IS NULL OR is_test = FALSE)"; params = {"d":last_z_dt}
 
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", params).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
     i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
-    start_lim = float(get_setting("cash_limit", "0.0" if "Növbə" in view_mode else "100.0"))
+    
+    start_lim = float(get_setting("cash_limit", "0.0"))
     disp_cash = start_lim + float(s_cash) + float(i_cash) - float(e_cash)
     
     s_card_shift = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", params).iloc[0]['s'] or 0.0
@@ -41,9 +40,9 @@ def render_finance_page():
     i_card_shift = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
     disp_card_view = float(s_card_shift) + float(i_card_shift) - float(e_card_shift)
     
-    s_card_all = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card'").iloc[0]['s'] or 0.0
-    e_card_all = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out'").iloc[0]['e'] or 0.0
-    i_card_all = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in'").iloc[0]['i'] or 0.0
+    s_card_all = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND (is_test IS NULL OR is_test = FALSE)").iloc[0]['s'] or 0.0
+    e_card_all = run_query("SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' AND (is_test IS NULL OR is_test = FALSE)").iloc[0]['e'] or 0.0
+    i_card_all = run_query("SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND (is_test IS NULL OR is_test = FALSE)").iloc[0]['i'] or 0.0
     disp_card_all = float(s_card_all) + float(i_card_all) - float(e_card_all)
     
     st.divider(); m1, m2 = st.columns(2)
@@ -52,20 +51,22 @@ def render_finance_page():
 
     st.markdown("---")
     
-    # === 2. YENİ ƏMƏLİYYAT VƏ DAXİLİ TRANSFER ===
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=False):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
         with t_op:
             with st.form("new_fin_trx", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3); f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"]); f_source = c2.selectbox("Mənbə", ["Kassa", "Bank Kartı", "Seyf", "Investor"]); f_subj = c3.selectbox("Subyekt", SUBJECTS)
-                c4, c5 = st.columns(2); f_cat = c4.selectbox("Kateqoriya", ["Xammal Alışı", "Kommunal", "Kirayə", "Maaş/Avans", "Borc", "Digər", "Tips / Çayvoy"]); f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01, step=0.01)
+                c4, c5 = st.columns(2); f_cat = c4.selectbox("Kateqoriya", ["Xammal Alışı", "Kommunal", "Kirayə", "Maaş/Avans", "Borc", "Təsisçi Çıxarışı", "Goynar Group Transferi", "Bank Komissiyası", "Digər", "Tips / Çayvoy"]); f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01, step=0.01)
                 f_desc = st.text_input("Qeyd")
                 if st.form_submit_button("Təsdiqlə"):
                     db_type = 'out' if "Məxaric" in f_type else 'in'
-                    # BURADA BÜTÜN ƏMƏLİYYATLARA ZORLA get_baku_now() VERİRİK!
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user, "sb":f_subj, "time":get_baku_now()})
-                    if db_type == 'out': 
-                        run_action("INSERT INTO expenses (amount, reason, spender, source, created_at) VALUES (:a, :r, :s, :src, :time)", {"a":f_amt, "r":f"{f_subj} - {f_desc}", "s":st.session_state.user, "src":f_source, "time":get_baku_now()})
+                    is_test_mode = st.session_state.get('test_mode', False)
+                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":st.session_state.user, "sb":f_subj, "time":get_baku_now(), "tst":is_test_mode})
+                    
+                    if db_type == 'out' and f_source == 'Bank Kartı':
+                        comm = max(0.6, f_amt * 0.005)
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', :d, :u, :sb, :time, :tst)", {"a":comm, "d":f"Komissiya: {f_desc}", "u":st.session_state.user, "sb":f_subj, "time":get_baku_now(), "tst":is_test_mode})
+                        
                     st.success("Yazıldı!"); time.sleep(1); st.rerun()
 
         with t_tr:
@@ -77,16 +78,17 @@ def render_finance_page():
                 t_desc = st.text_input("Açıqlama", "Nağdlaşdırma / Kəsirin bərpası")
                 if st.form_submit_button("Transferi Təsdiqlə"):
                     user_u = st.session_state.user
-                    # TRANSFERLƏRDƏ DƏ BAKU VAXTI!
+                    is_test_mode = st.session_state.get('test_mode', False)
                     if "Bank Kartından" in t_dir:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kassaya)", "u":user_u, "time":get_baku_now()})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kartdan)", "u":user_u, "time":get_baku_now()})
+                        comm = max(0.6, t_amt * 0.005)
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time, :tst)", {"a":t_amt, "d":t_desc + " (Kassaya)", "u":user_u, "time":get_baku_now(), "tst":is_test_mode})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', :d, :u, :time, :tst)", {"a":comm, "d":t_desc + " (Komissiya)", "u":user_u, "time":get_baku_now(), "tst":is_test_mode})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time, :tst)", {"a":t_amt, "d":t_desc + " (Kartdan)", "u":user_u, "time":get_baku_now(), "tst":is_test_mode})
                     else:
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Karta)", "u":user_u, "time":get_baku_now()})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time)", {"a":t_amt, "d":t_desc + " (Kassadan)", "u":user_u, "time":get_baku_now()})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Daxili Transfer', :a, 'Kassa', :d, :u, :time, :tst)", {"a":t_amt, "d":t_desc + " (Karta)", "u":user_u, "time":get_baku_now(), "tst":is_test_mode})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Daxili Transfer', :a, 'Bank Kartı', :d, :u, :time, :tst)", {"a":t_amt, "d":t_desc + " (Kassadan)", "u":user_u, "time":get_baku_now(), "tst":is_test_mode})
                     st.success("Transfer Uğurla İcra Edildi!"); time.sleep(1); st.rerun()
 
-    # === 3. AĞILLI FİLTRLƏR VƏ CFO ANALİZATORU ===
     st.markdown("---")
     st.subheader("🔍 Ağıllı Maliyyə Cədvəli və Hesabatlar")
     
@@ -101,7 +103,6 @@ def render_finance_page():
     with f_col3:
         src_filter = st.selectbox("Mənbə", ["Hamısı", "Kassa", "Bank Kartı", "Seyf", "Investor"])
 
-    # Tarix məntiqi
     if date_filter == "Bu Ay":
         sd, ed = start_of_month, today
     elif date_filter == "Bu Gün":
@@ -117,8 +118,7 @@ def render_finance_page():
     else:
         sd, ed = datetime.date(2000, 1, 1), today
 
-    # Dinamik Query Quraşdırılması
-    query = "SELECT * FROM finance WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed"
+    query = "SELECT * FROM finance WHERE DATE(created_at) >= :sd AND DATE(created_at) <= :ed AND (is_test IS NULL OR is_test = FALSE)"
     params = {"sd": sd, "ed": ed}
     
     if type_filter == "Məxaric (Çıxış)": query += " AND type='out'"
@@ -130,7 +130,6 @@ def render_finance_page():
     query += " ORDER BY created_at DESC"
     fin_df = run_query(query, params)
     
-    # --- Vizual Qrafik (Pie Chart) ---
     if not fin_df.empty and (type_filter in ["Hamısı", "Məxaric (Çıxış)"]):
         expenses_only = fin_df[fin_df['type'] == 'out']
         if not expenses_only.empty:
@@ -143,7 +142,6 @@ def render_finance_page():
                 fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
-    # === 4. BİRBAŞA AI İNTEQRASİYASI (SƏNİN YAZDIĞIN KOD) ===
     action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         if not fin_df.empty:
@@ -206,7 +204,6 @@ def render_finance_page():
                 except Exception as e:
                     st.error(f"AI Analiz xətası: {e}")
 
-    # --- Cədvəl ---
     if not fin_df.empty:
         disp_df = fin_df.copy()
         disp_df['type'] = disp_df['type'].apply(lambda x: "🟢 Giriş" if x=='in' else "🔴 Çıxış")
