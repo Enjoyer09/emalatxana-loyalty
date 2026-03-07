@@ -1,18 +1,16 @@
 import datetime
 import io
 import base64
-import pytz
-import streamlit as st
 try:
     import qrcode
 except ImportError:
     pass
 
-from database import get_setting, run_action, run_query
+from database import get_setting, run_action
 
-# --- SİSTEM KONSTANTLARI (TAM QORUNUR) ---
+# --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
-VERSION = "1.2 (Full Patch)"
+VERSION = "1.0 RC"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
 APP_URL = "https://emalatxana.ironwaves.store" 
 
@@ -41,79 +39,119 @@ CAT_ORDER_MAP = {cat: i for i, cat in enumerate([
 ])}
 
 # --- KÖMƏKÇİ FUNKSİYALAR ---
+
 def image_to_base64(image_path):
     try:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
-    except Exception: return ""
+    except Exception:
+        return ""
 
 def generate_styled_qr(data):
     try:
-        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
-        qr.add_data(data); qr.make(fit=True)
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(data)
+        qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
-        buf = io.BytesIO(); img.save(buf, format="PNG")
+        
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
         return buf.getvalue()
-    except: return None
+    except:
+        return None
 
-# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI ---
+# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (YENİLƏNİB) ---
+
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
-    try: offset_hours = int(offset_str)
-    except: offset_hours = 4
+    try:
+        offset_hours = int(offset_str)
+    except:
+        offset_hours = 4
+        
     utc_now = datetime.datetime.utcnow()
-    return utc_now + datetime.timedelta(hours=offset_hours)
+    real_local_time = utc_now + datetime.timedelta(hours=offset_hours)
+    return real_local_time
 
 def get_logical_date():
     now = get_baku_now()
+    
     shift_start_str = get_setting("shift_start_time", "08:00")
-    try: start_hour = int(shift_start_str.split(':')[0])
-    except: start_hour = 8
-    if now.hour < start_hour: return (now - datetime.timedelta(days=1)).date()
+    try:
+        start_hour = int(shift_start_str.split(':')[0])
+    except:
+        start_hour = 8
+
+    if now.hour < start_hour:
+        return (now - datetime.timedelta(days=1)).date()
     return now.date()
 
 def get_shift_range(logical_date=None):
-    if not logical_date: logical_date = get_logical_date()
+    if not logical_date:
+        logical_date = get_logical_date()
+        
     shift_start_str = get_setting("shift_start_time", "08:00")
     shift_end_str = get_setting("shift_end_time", "23:59")
-    try: s_h, s_m = map(int, shift_start_str.split(':'))
-    except: s_h, s_m = 8, 0
-    try: e_h, e_m = map(int, shift_end_str.split(':'))
-    except: e_h, e_m = 23, 59
-    shift_start = datetime.datetime.combine(logical_date, datetime.time(s_h, s_m))
-    shift_end = datetime.datetime.combine(logical_date, datetime.time(e_h, e_m))
-    if shift_end <= shift_start: shift_end += datetime.timedelta(days=1)
-    return shift_start, shift_end
-
-# --- YENİ FUNKSİYALAR (SHIFT) ---
-def get_shift_status():
+    
     try:
-        res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
-        return {row['key']: row['value'] for _, row in res.iterrows()}
-    except: return {'current_shift_status': 'Closed'}
-
-def open_shift(user):
-    now_str = get_baku_now().strftime("%Y-%m-%d %H:%M:%S")
-    run_action("UPDATE settings SET value = 'Open' WHERE key = 'current_shift_status'")
-    run_action("UPDATE settings SET value = :t WHERE key = 'shift_open_time'", {"t": now_str})
-    log_system(user, f"NÖVBƏ AÇILDI: {now_str}")
-
-def close_shift(user):
-    run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
-    log_system(user, "NÖVBƏ BAĞLANDI")
+        start_hour, start_min = map(int, shift_start_str.split(':'))
+    except:
+        start_hour, start_min = 8, 0
+        
+    try:
+        end_hour, end_min = map(int, shift_end_str.split(':'))
+    except:
+        end_hour, end_min = 23, 59
+        
+    shift_start = datetime.datetime.combine(logical_date, datetime.time(start_hour, start_min))
+    shift_end = datetime.datetime.combine(logical_date, datetime.time(end_hour, end_min))
+    
+    # Məntiq: Qapanış saatı açılışdan kiçikdirsə (məs: gecə 02:00-da qapanış), deməli gün ertəsi günə keçir
+    if shift_end <= shift_start:
+        shift_end += datetime.timedelta(days=1)
+    
+    return shift_start, shift_end
 
 def clean_qr_code(code):
     if not code: return ""
-    if "id=" in str(code): return str(code).split("id=")[1].split("&")[0]
     return str(code).strip()
 
 def log_system(user, action):
-    try: run_action("INSERT INTO system_logs (username, action) VALUES (:u, :a)", {"u": str(user), "a": str(action)})
-    except: pass
+    try:
+        run_action("INSERT INTO logs (user, action, created_at) VALUES (:u, :a, :t)", 
+                   {"u": str(user), "a": str(action), "t": get_baku_now()})
+    except:
+        pass
 
-def verify_password(plain, hashed):
-    if plain == hashed: return True
+# --- ŞİFRƏLƏMƏ (AUTH) ---
+
+def hash_password(password):
+    try:
+        from werkzeug.security import generate_password_hash
+        return generate_password_hash(password)
+    except:
+        return password
+
+def verify_password(plain_password, hashed_password):
+    if plain_password == hashed_password:
+        return True
+    
+    if str(hashed_password).startswith("pbkdf2:"):
+        try:
+            from werkzeug.security import check_password_hash
+            return check_password_hash(hashed_password, plain_password)
+        except:
+            pass
+            
     try:
         import bcrypt
-        return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
-    except: return False
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except:
+        pass
+        
+    return False
