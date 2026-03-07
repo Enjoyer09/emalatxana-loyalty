@@ -10,7 +10,7 @@ except ImportError:
 
 from database import get_setting, run_action, run_query
 
-# --- SİSTEM KONSTANTLARI (TAM QORUNUR) ---
+# --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
 VERSION = "1.2 (Full Patch)"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
