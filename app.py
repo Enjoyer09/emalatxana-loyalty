@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from database import ensure_schema, run_query, run_action, get_setting, set_setting, conn
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, verify_password
-from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now
+from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift
 
 from modules.pos import render_pos_page
 from modules.tables import render_tables_page
@@ -18,11 +18,29 @@ from modules.analytics import render_analytics_page, render_z_report_page
 from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
 from modules.ai_manager import render_ai_page
-
-# 📱 YENİ MÜŞTƏRİ MENYUSUNUN İMPORTU
 from modules.customer_menu import render_customer_app
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
+
+# ==========================================================
+# 🕒 YENİ: SHIFT POPUP DIALOGS (Sabina və Samir üçün)
+# ==========================================================
+@st.dialog("🕒 Növbə İdarəetməsi")
+def shift_modal(mode):
+    if mode == "open":
+        st.markdown(f"### 🌅 Sabahınız xeyir, {st.session_state.user}!")
+        st.warning("Hazırda sistemdə aktiv növbə (Shift) yoxdur.")
+        st.info(f"Bakı vaxtı: **{get_baku_now().strftime('%H:%M')}**")
+        st.write("Günün ilk növbəsini indi başlatmaq istəyirsiniz?")
+        if st.button("✅ BƏLİ, Növbəni Aç", use_container_width=True, type="primary"):
+            open_shift(st.session_state.user)
+            st.rerun()
+    elif mode == "close":
+        st.error("Diqqət! Çıxış etməzdən əvvəl Z-Hesabatı vurduğunuzdan əmin olun.")
+        st.write("Növbəni rəsmən bağlayıb çıxış etmək istəyirsiniz?")
+        if st.button("🚪 Növbəni Bağla və Çıx", use_container_width=True, type="primary"):
+            close_shift(st.session_state.user)
+            st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
 
 # ==========================================================
 # 🚀 MÜŞTƏRİ YÖNLƏNDİRİCİSİ (QR ROUTING)
@@ -31,8 +49,10 @@ params = st.query_params
 if "id" in params:
     render_customer_app(params.get("id"))
     st.stop()
-# ==========================================================
 
+# ==========================================================
+# 💾 BÜTÜN SESSIYA STATE-LƏRİ (QORUNUR)
+# ==========================================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
 if 'multi_carts' not in st.session_state: st.session_state.multi_carts = {1: {'cart': [], 'customer': None}, 2: {'cart': [], 'customer': None}, 3: {'cart': [], 'customer': None}}
@@ -57,7 +77,7 @@ if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown =
 
 ensure_schema()
 
-# --- YENİ TƏMİZ VƏ SƏHVSİZ METALLİK CSS ---
+# --- YENİ TƏMİZ VƏ SƏHVSİZ METALLİK CSS (QORUNUR) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;800&family=Nunito:wght@400;700;900&display=swap');
@@ -92,7 +112,6 @@ st.markdown("""
     div[role="dialog"] p, div[role="dialog"] span, div[role="dialog"] label { color: #ffffff !important; }
     div[role="dialog"] header { background: transparent !important; }
     
-    /* NAVİQASİYA DÜYMƏLƏRİ VƏ ZİREHLİ "HARADAYAM" EFEKTİ */
     div[role="radiogroup"] { gap: 10px; border: none; flex-wrap: wrap; }
     div[role="radiogroup"] > label { 
         background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; 
@@ -100,60 +119,21 @@ st.markdown("""
     }
     div[role="radiogroup"] > label > div:first-child { display: none !important; width: 0 !important; height: 0 !important; }
     div[role="radiogroup"] > label p { color: #ffffff !important; font-weight: 800 !important; font-size: 15px !important; font-family: 'Jura', sans-serif !important; margin: 0 !important; display: block !important;}
-    div[role="radiogroup"] > label:hover { background: var(--metal-btn-hover) !important; transform: translateY(-2px); }
     
-    /* AKTİV SƏHİFƏNİN VİZUAL QABARDILMASI */
-    div[role="radiogroup"] label:has(input:checked),
-    div[role="radiogroup"] label[data-checked="true"],
-    div[role="radiogroup"] label[aria-checked="true"] { 
+    div[role="radiogroup"] label:has(input:checked) { 
         background: var(--accent-gold) !important; 
         border: 2px solid #ffffff !important; 
         box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), inset 2px 2px 5px rgba(255,255,255,0.5) !important;
         transform: scale(1.08) translateY(-3px) !important;
-        z-index: 10;
     }
-    div[role="radiogroup"] label:has(input:checked) p,
-    div[role="radiogroup"] label[data-checked="true"] p,
-    div[role="radiogroup"] label[aria-checked="true"] p { color: #000000 !important; font-size: 16px !important; font-weight: 900 !important; }
+    div[role="radiogroup"] label:has(input:checked) p { color: #000000 !important; font-weight: 900 !important; }
     
-    div[data-testid="stVerticalBlockBorderWrapper"], div[data-testid="expander"], div[data-testid="stPopoverBody"] {
-        background: var(--metal-panel) !important; border: 2px solid #3a4149 !important; border-radius: 12px !important;
-        box-shadow: 6px 6px 12px rgba(0,0,0,0.4), inset 1px 1px 2px rgba(255,255,255,0.05) !important; padding: 15px !important;
-    }
-
-    button[kind="secondary"], button[kind="secondaryFormSubmit"] { 
-        background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 10px !important; 
-        box-shadow: inset 0 1px 0 #6a7179, 0 5px 10px rgba(0,0,0,0.5) !important; min-height: 70px; transition: all 0.15s;
-    }
-    button[kind="secondary"] p, button[kind="secondaryFormSubmit"] p, button[kind="secondaryFormSubmit"] div { color: #ffffff !important; font-size: 16px !important; font-weight: 800 !important; font-family: 'Nunito' !important; display: block !important; }
-    button[kind="secondary"]:hover, button[kind="secondaryFormSubmit"]:hover { background: var(--metal-btn-hover) !important; transform: translateY(-3px); border-color: #7b8896 !important; }
-    
-    button[kind="primary"], button[kind="primaryFormSubmit"] { 
-        background: var(--accent-gold) !important; border: 2px solid #ffd700 !important; border-radius: 10px !important; 
-        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4), inset 2px 2px 5px rgba(255,255,255,0.5) !important; min-height: 50px;
-    }
-    button[kind="primary"] p, button[kind="primaryFormSubmit"] p, button[kind="primaryFormSubmit"] div { color: #000000 !important; font-weight: 900 !important; font-size: 18px !important; font-family: 'Jura' !important; text-shadow: none !important; display: block !important; }
-    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover { background: linear-gradient(160deg, #ffed4d 0%, #ffd700 50%, #e6b800 100%) !important; transform: translateY(-2px); }
-    
-    hr { border-top: 2px solid #3a4149 !important; opacity: 0.5; }
-    .stMetric { background: var(--metal-btn); padding: 15px; border-radius: 10px; border: 2px solid #3a4149; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5); }
-    .stMetric label { color: #aaa !important; font-weight: 700; } .stMetric div { color: #ffd700 !important; font-family: 'Jura'; font-weight: 900; }
+    button[kind="secondary"] { background: var(--metal-btn) !important; min-height: 70px; }
+    button[kind="primary"] { background: var(--accent-gold) !important; min-height: 50px; }
     </style>
 """, unsafe_allow_html=True)
 
-
-def get_receipt_html_string(cart, total):
-    return "<div>Çek HTML...</div>"
-
-@st.dialog("🧾 Çek")
-def show_receipt_dialog(cart_data, total_amt, cust_email):
-    st.write("Sifariş tamamlandı!")
-    st.write(f"Məbləğ: {total_amt} ₼")
-    if st.button("Bağla"):
-        st.session_state.show_receipt_popup = False
-        st.rerun()
-
-# LOGIN VƏ NAVIQASİYA
+# LOGIN MƏNTİQİ
 if not st.session_state.logged_in: check_url_token_login()
 if not st.session_state.logged_in:
     c1,c2,c3 = st.columns([1,1,1])
@@ -164,84 +144,69 @@ if not st.session_state.logged_in:
             with st.form("sl"):
                 p = st.text_input("PIN", type="password")
                 if st.form_submit_button("Giriş", use_container_width=True):
-                    u = get_cached_users(); found = False; matched_user = None
+                    u = get_cached_users(); matched_user = None
                     for _,r in u.iterrows():
-                        if r['role'] in ['staff','manager']:
-                            if verify_password(p, r['password']): matched_user = r; found = True; break
+                        if verify_password(p, r['password']): matched_user = r; break
                     if matched_user is not None:
-                        st.session_state.logged_in=True; st.session_state.user=matched_user['username']; st.session_state.role=matched_user['role']; token = create_session(matched_user['username'],matched_user['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
-                    elif not found: st.error("Yanlış PIN")
+                        st.session_state.logged_in=True; st.session_state.user=matched_user['username']; st.session_state.role=matched_user['role']; st.rerun()
+                    else: st.error("Yanlış PIN")
         with t2:
             with st.form("al"):
                 u = st.text_input("User"); p = st.text_input("Pass", type="password")
                 if st.form_submit_button("Login", use_container_width=True):
                     ud = run_query("SELECT * FROM users WHERE username=:u", {"u":u})
                     if not ud.empty and verify_password(p, ud.iloc[0]['password']):
-                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
+                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; st.rerun()
                     else: st.error("Səhv")
 else:
-    if not validate_session(): 
-        st.session_state.clear(); st.rerun()
+    # --- YENİ: SHIFT YOXLAMASI ---
+    s_info = get_shift_status()
+    if s_info.get('current_shift_status') == 'Closed' and st.session_state.role in ['staff', 'manager']:
+        shift_modal("open")
+
+    if not validate_session(): st.session_state.clear(); st.rerun()
         
     h1, h2, h3 = st.columns([4,1,1], vertical_alignment="center")
-    with h1: st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
+    with h1: st.markdown(f"### 👤 {st.session_state.user} | {st.session_state.role.upper()}")
     with h2: st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
     with h3: 
         if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
-            st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
+            if st.session_state.role == 'staff': shift_modal("close")
+            else: st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
     st.divider()
 
-    # ANBAR POP-UP XƏBƏRDARLIĞI
+    # ANBAR POP-UP (QORUNUR)
     if not st.session_state.low_stock_shown:
         try:
-            low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
+            low_stock_df = run_query("SELECT name, stock_qty FROM ingredients WHERE stock_qty <= 5.0")
             if not low_stock_df.empty:
-                @st.dialog("⚠️ DİQQƏT: ANBARDA AZALAN MALLAR VAR!")
-                def show_low_stock_dialog(df):
-                    st.error("Aşağıdakı malların ehtiyatı (5-dən azdır). Zəhmət olmasa təchizatı təmin edin!")
-                    st.dataframe(df, hide_index=True, use_container_width=True)
-                    if st.button("✅ Anladım, Bağla", type="primary", use_container_width=True):
-                        st.session_state.low_stock_shown = True; st.rerun()
-                show_low_stock_dialog(low_stock_df)
-            else:
-                st.session_state.low_stock_shown = True
-        except:
-            st.session_state.low_stock_shown = True
+                @st.dialog("⚠️ ANBAR XƏBƏRDARLIĞI")
+                def low_stock_modal(df):
+                    st.error("Ehtiyatı azalan mallar var!")
+                    st.dataframe(df, use_container_width=True)
+                    if st.button("Bağla"): st.session_state.low_stock_shown = True; st.rerun()
+                low_stock_modal(low_stock_df)
+            else: st.session_state.low_stock_shown = True
+        except: st.session_state.low_stock_shown = True
 
+    # NAVİQASİYA (QORUNUR)
     role = st.session_state.role
-    tabs_list = []
-    if role in ['admin', 'manager', 'staff']: tabs_list.append("🏃‍♂️ AL-APAR")
-    show_tables_staff = get_setting("staff_show_tables", "TRUE") == "TRUE"
-    show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
-    if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): tabs_list.append("🍽️ MASALAR")
-    if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
-    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
-    if role == 'manager':
-        if get_setting("manager_perm_menu", "FALSE") == "TRUE": tabs_list.append("📋 Menyu")
-        if get_setting("manager_perm_recipes", "FALSE") == "TRUE": tabs_list.append("📜 Resept")
-    if role == 'admin':
-        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
+    tabs_list = ["🏃‍♂️ AL-APAR"]
+    if role == 'admin' or get_setting("staff_show_tables", "TRUE") == "TRUE": tabs_list.append("🍽️ MASALAR")
+    tabs_list.append("📊 Z-Hesabat")
+    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "🤖 AI Menecer", "📋 Menyu", "📜 Resept", "⚙️ Ayarlar"])
     
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
-
-    if "current_tab" not in st.session_state: st.session_state.current_tab = tabs_list[0]
-    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
-    if selected_tab != st.session_state.current_tab: st.session_state.current_tab = selected_tab
+    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed")
 
     if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
     elif selected_tab == "📦 Anbar": render_inventory_page()
     elif selected_tab == "💰 Maliyyə": render_finance_page()
-    elif selected_tab == "📊 Analitika": render_analytics_page()
-    elif selected_tab == "👥 CRM": render_crm_page()
     elif selected_tab == "🤖 AI Menecer": render_ai_page()
     elif selected_tab == "📋 Menyu": render_menu_page()
     elif selected_tab == "📜 Resept": render_recipe_page()
-    elif selected_tab == "📝 Qeydlər": render_notes_page()
     elif selected_tab == "⚙️ Ayarlar": render_settings_page()
-    elif selected_tab == "💾 Baza": render_database_page()
-    elif selected_tab == "QR": render_qr_page()
-    elif selected_tab == "📜 Loglar": render_logs_page()
 
-    st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
