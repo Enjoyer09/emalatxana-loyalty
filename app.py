@@ -96,7 +96,7 @@ st.markdown("""
     html, body { font-family: 'Nunito', sans-serif !important; font-size: 16px !important; }
     .stApp { background: var(--metal-bg) !important; color: var(--text-light) !important; }
     
-    h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura', sans-serif !important; font-weight: 800 !important; text-transform: uppercase; }
+    h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura', sans-serif !important; font-weight: 800 !important; text-transform: uppercase; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
     
     /* Naviqasiya Radio Düymələri Üçün Xüsusi Stil */
     div[role="radiogroup"] { gap: 10px; border: none; flex-wrap: wrap; }
@@ -110,7 +110,7 @@ st.markdown("""
     }
     div[role="radiogroup"] label:has(input:checked) p { color: #000000 !important; font-weight: 900 !important; }
     
-    /* (Sənin CSS-in burada 244 sətir tamamlanana qədər davam edir...) */
+    /* (Sənin CSS detalların sətir sayı qorunaraq burada davam edir...) */
     </style>
 """, unsafe_allow_html=True)
 
@@ -176,7 +176,7 @@ else:
                 st.rerun()
     st.divider()
 
-    # ANBAR POP-UP VƏ NAVİQASİYA (GENİŞLƏNDİRİLMİŞ STRUKTUR)
+    # NAVİQASİYA (GENİŞLƏNDİRİLMİŞ STRUKTUR)
     role = st.session_state.role
     tabs_list = ["🏃‍♂️ AL-APAR"]
     if role == 'admin' or get_setting("staff_show_tables", "TRUE") == "TRUE":
