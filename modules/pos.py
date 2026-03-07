@@ -9,6 +9,7 @@ import time
 # ==========================================================
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt, cust_email=None):
+    # Termal printer (58mm/80mm) üçün optimallaşdırılmış dizayn
     receipt_html = f"""
     <div id="receipt_area" style="width: 280px; padding: 10px; font-family: 'Courier New', monospace; color: black; background: white; border: 1px solid #eee;">
         <h2 style="text-align: center; margin-bottom: 5px; font-weight: bold;">EMALATKHANA</h2>
@@ -50,7 +51,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     current_stars = 0
     service_fee_pct = float(get_setting("service_fee_percent", "0.0")) / 100.0
     
-    # 🥐 QR KRUASAN: Müştəri QR skan edərsə və endirim QR kodda varsa
+    # 🥐 QR KRUASAN: Müştəri QR skan edərsə və endirim QR kodda (secret_token) varsa
     has_croissant_promo = False
     if customer and "CROISSANT50" in str(customer.get('secret_token', '')):
         has_croissant_promo = True
@@ -105,7 +106,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     if is_table and service_fee_pct > 0: 
         final_total += final_total * service_fee_pct
     
-    # 🍃 ECO-STAKAN MODULU
+    # 🍃 ECO-STAKAN MODULU: Öz stakanı ilə gələnlərə əlavə endirim
     if is_eco_cup:
         final_total = final_total * 0.95 
         
@@ -201,7 +202,7 @@ def render_pos_page():
                         time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"Xəta: {e}")
 
-    # 🍃 ECO-STAKAN MODULU
+    # 🍃 ECO-STAKAN MODULU: Staff və müştərilər üçün öz stakanı seçimi
     st.markdown("---")
     eco_mode = st.toggle("🍃 Eco-Stakan Modulu (Müştəri öz stakanı ilə gəlib)", key="eco_toggle_pos")
     
@@ -240,7 +241,7 @@ def render_pos_page():
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
             
-            # Ümumi Hesablama
+            # Ümumi Hesablama (YENİ Parametr: is_eco_cup)
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val, is_eco_cup=eco_mode)
             
             # Səbət elementləri
@@ -268,15 +269,34 @@ def render_pos_page():
             # Ödəniş Metodu
             pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed")
             
-            # 🛑 STAFF LİMİT YOXLAMASI (Kofe: 6 AZN, Digər: Limit xəbərdarlığı)
+            # ==========================================================
+            # 🛑 STAFF LİMİT VƏ MAYA DƏYƏRİ HESABLANMASI (TAM DƏQİQ)
+            # ==========================================================
             if pm == "Staff":
                 staff_total_limit = 6.0 
-                if final > staff_total_limit:
-                    over_limit = final - staff_total_limit
+                staff_consumed = 0.0
+                
+                for it in st.session_state.cart_takeaway:
+                    if it.get('is_coffee'):
+                        # Kofe olduqda vitrin (satış) qiyməti hesablanır
+                        staff_consumed += (it['qty'] * it['price'])
+                    else:
+                        # Kofe deyilsə (şirniyyat və s.), məhsulun MAYA DƏYƏRİ arxa fondan (DB) oxunur
+                        cost_q = "SELECT SUM(r.quantity_required * i.unit_cost) as cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = :m"
+                        try:
+                            c_df = run_query(cost_q, {"m": it['item_name']})
+                            i_cost = float(c_df.iloc[0]['cost']) if not c_df.empty and c_df.iloc[0]['cost'] is not None else 0.0
+                        except:
+                            i_cost = 0.0
+                        
+                        staff_consumed += (it['qty'] * i_cost)
+
+                if staff_consumed > staff_total_limit:
+                    over_limit = staff_consumed - staff_total_limit
                     st.warning(f"☕ **Hörmətli kolleqa**, ümumi limit (6 AZN) tətbiq olundu.")
-                    st.info(f"🍰 Seçiminiz limit çərçivəsini **{over_limit:.2f} AZN** məbləğində keçir. Bu fərqin ödənilməsi xahiş olunur.")
+                    st.error(f"⚠️ Səbətinizin dəyəri (kofe satış qiyməti + digər maya dəyəri) **{staff_consumed:.2f} AZN** edir.\n\nLimit çərçivəsini **{over_limit:.2f} AZN** keçmisiniz. Zəhmət olmasa, yaranan fərqi ödəyin.")
                 else:
-                    st.success("✅ Seçiminiz daxili limit çərçivəsindədir.")
+                    st.success(f"✅ Səbətinizin dəyəri ({staff_consumed:.2f} AZN) daxili limit (6 AZN) çərçivəsindədir.")
 
             card_tips = 0.0
             if pm == "Kart": card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="tips_inp")
