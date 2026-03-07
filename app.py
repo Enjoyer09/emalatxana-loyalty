@@ -65,7 +65,7 @@ st.markdown("""
 
 ensure_schema()
 
-# LOGIN MƏNTİQİ (SƏHVSİZ PATCH)
+# LOGIN MƏNTİQİ
 if not st.session_state.logged_in:
     check_url_token_login()
 if not st.session_state.logged_in:
@@ -109,7 +109,7 @@ else:
             else: st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
     st.divider()
 
-    # NAVİQASİYA (SƏNİN ORİJİNAL TABS SİYAHIN)
+    # NAVİQASİYA
     role = st.session_state.role
     tabs_list = ["🏃‍♂️ AL-APAR"]
     if role == 'admin' or get_setting("staff_show_tables", "TRUE") == "TRUE": tabs_list.append("🍽️ MASALAR")
@@ -119,7 +119,7 @@ else:
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
     selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed")
 
-    # SƏHİFƏ RENDERLƏRİ (HƏR MODUL YERİNDƏDİR)
+    # SƏHİFƏ RENDERLƏRİ
     if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
