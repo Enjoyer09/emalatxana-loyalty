@@ -6,7 +6,7 @@ try:
 except ImportError:
     pass
 
-from database import get_setting, run_action
+from database import get_setting, run_action, run_query
 
 # --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
@@ -155,3 +155,22 @@ def verify_password(plain_password, hashed_password):
         pass
         
     return False
+
+# --- YENİ NÖVBƏ (SHIFT) İDARƏETMƏ FUNKSİYALARI (ƏLAVƏ OLUNDU) ---
+
+def get_shift_status():
+    try:
+        res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
+        return {row['key']: row['value'] for _, row in res.iterrows()}
+    except:
+        return {'current_shift_status': 'Closed'}
+
+def open_shift(user):
+    now_str = get_baku_now().strftime("%Y-%m-%d %H:%M:%S")
+    run_action("UPDATE settings SET value = 'Open' WHERE key = 'current_shift_status'")
+    run_action("UPDATE settings SET value = :t WHERE key = 'shift_open_time'", {"t": now_str})
+    log_system(user, f"NÖVBƏ AÇILDI: {now_str}")
+
+def close_shift(user):
+    run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
+    log_system(user, "NÖVBƏ BAĞLANDI")
