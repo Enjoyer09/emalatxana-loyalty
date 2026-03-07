@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import random, datetime, time, os
-from sqlalchemy import text
-
 from database import ensure_schema, run_query, run_action, get_setting, set_setting, conn
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, verify_password
 from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift
@@ -20,36 +18,34 @@ from modules.customer_menu import render_customer_app
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
-# 🕒 YENİ: SHIFT POPUP DIALOGS (Sabina və Samir üçün)
+# 🕒 SHIFT DIALOGS (Sabina və Samir üçün)
 @st.dialog("🕒 Növbə İdarəetməsi")
 def shift_modal(mode):
     if mode == "open":
         st.markdown(f"### 🌅 Sabahınız xeyir, {st.session_state.user}!")
-        st.warning("Hazırda sistemdə aktiv növbə (Shift) yoxdur.")
-        st.info(f"Bakı vaxtı: **{get_baku_now().strftime('%H:%M')}**")
-        if st.button("✅ BƏLİ, Növbəni Aç", use_container_width=True, type="primary"):
+        st.warning("Hazırda aktiv növbə yoxdur.")
+        if st.button("✅ Növbəni Aç", use_container_width=True, type="primary"):
             open_shift(st.session_state.user); st.rerun()
     elif mode == "close":
-        st.error("Diqqət! Çıxış etməzdən əvvəl Z-Hesabatı vurduğunuzdan əmin olun.")
+        st.error("Z-Hesabatı vurduğunuzdan əmin olun.")
         if st.button("🚪 Növbəni Bağla və Çıx", use_container_width=True, type="primary"):
-            close_shift(st.session_state.user); st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
+            close_shift(st.session_state.user); st.session_state.clear(); st.rerun()
 
-# 🚀 QR ROUTING (TAM QORUNUR)
+# QR ROUTING (QORUNUR)
 params = st.query_params
-if "id" in params:
-    render_customer_app(params.get("id")); st.stop()
+if "id" in params: render_customer_app(params.get("id")); st.stop()
 
-# 💾 BÜTÜN 20+ SESSIYA STATE-LƏRİ (TAM QORUNUR)
+# SESSION STATES (BÜTÜN ORİJİNAL STATE-LƏR)
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 for key in ['multi_carts', 'cart_takeaway', 'active_cart_id', 'pos_key_counter', 'search_key_counter', 'calc_received', 'tip_input_val', 'selected_table', 'cart_table', 'low_stock_shown']:
     if key not in st.session_state:
         if key == 'multi_carts': st.session_state[key] = {1: {'cart': [], 'customer': None}, 2: {'cart': [], 'customer': None}, 3: {'cart': [], 'customer': None}}
         elif key == 'active_cart_id': st.session_state[key] = 1
-        elif key == 'calc_received' or key == 'tip_input_val': st.session_state[key] = 0.0
-        elif key == 'cart_takeaway' or key == 'cart_table': st.session_state[key] = []
+        elif key in ['calc_received', 'tip_input_val']: st.session_state[key] = 0.0
+        elif key in ['cart_takeaway', 'cart_table']: st.session_state[key] = []
         else: st.session_state[key] = False
 
-# --- SƏNİN ORİJİNAL METALLİK CSS BLOKUN (TAM QORUNUR) ---
+# ORİJİNAL METALLİK CSS (TAM QORUNUR)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;800&family=Nunito:wght@400;700;900&display=swap');
@@ -57,21 +53,21 @@ st.markdown("""
         --metal-bg: radial-gradient(circle at center, #4a5159 0%, #1a1d21 100%);
         --accent-gold: linear-gradient(160deg, #ffd700 0%, #e6b800 50%, #b38f00 100%);
     }
-    .stApp { background: var(--metal-bg) !important; color: white !important; font-family: 'Nunito', sans-serif !important; }
-    h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura', sans-serif !important; text-transform: uppercase; }
-    div[role="radiogroup"] label:has(input:checked) { background: var(--accent-gold) !important; color: black !important; font-weight: 900 !important; transform: scale(1.08) !important; }
+    .stApp { background: var(--metal-bg) !important; color: white !important; font-family: 'Nunito' !important; }
+    h1, h2, h3 { color: #ffd700 !important; font-family: 'Jura' !important; text-transform: uppercase; }
+    div[role="radiogroup"] label:has(input:checked) { background: var(--accent-gold) !important; color: black !important; font-weight: 900 !important; }
     </style>
 """, unsafe_allow_html=True)
 
 ensure_schema()
 
-# LOGIN MƏNTİQİ
+# LOGIN MƏNTİQİ (SESSİYA BƏRKİDİLMİŞ)
 if not st.session_state.logged_in:
     check_url_token_login()
 if not st.session_state.logged_in:
     c1,c2,c3 = st.columns([1,1,1])
     with c2:
-        st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
+        st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
         with t1:
             with st.form("sl"):
@@ -82,7 +78,10 @@ if not st.session_state.logged_in:
                     for _,r in u_df.iterrows():
                         if verify_password(p, r['password']): matched = r; break
                     if matched is not None:
-                        st.session_state.logged_in=True; st.session_state.user=matched['username']; st.session_state.role=matched['role']; st.rerun()
+                        st.session_state.logged_in=True
+                        st.session_state.user=matched['username']
+                        st.session_state.role=matched['role']
+                        st.rerun()
                     else: st.error("Səhv PIN")
         with t2:
             with st.form("al"):
@@ -90,10 +89,11 @@ if not st.session_state.logged_in:
                 if st.form_submit_button("Login", use_container_width=True):
                     ud = run_query("SELECT * FROM users WHERE username=:u", {"u":u})
                     if not ud.empty and verify_password(p, ud.iloc[0]['password']):
-                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; st.rerun()
-                    else: st.error("Səhv")
+                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']
+                        st.rerun()
+                    else: st.error("Məlumatlar səhvdir")
 else:
-    # --- YENİ: SHIFT YOXLAMASI ---
+    # SHIFT YOXLAMASI
     s_info = get_shift_status()
     if s_info.get('current_shift_status') == 'Closed' and st.session_state.role != 'admin':
         shift_modal("open")
@@ -104,12 +104,11 @@ else:
     with h1: st.markdown(f"### 👤 {st.session_state.user} | {st.session_state.role.upper()}")
     with h2: st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
     with h3: 
-        if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
+        if st.button("🚪 ÇIXIŞ", type="primary", use_container_width=True):
             if st.session_state.role == 'staff': shift_modal("close")
             else: st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
     st.divider()
 
-    # NAVİQASİYA
     role = st.session_state.role
     tabs_list = ["🏃‍♂️ AL-APAR"]
     if role == 'admin' or get_setting("staff_show_tables", "TRUE") == "TRUE": tabs_list.append("🍽️ MASALAR")
@@ -119,7 +118,6 @@ else:
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
     selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed")
 
-    # SƏHİFƏ RENDERLƏRİ
     if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
