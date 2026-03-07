@@ -38,7 +38,7 @@ def set_setting(key, value):
 def ensure_schema():
     if not conn: return False
     with conn.session as s:
-        # SƏNİN BÜTÜN ORİJİNAL CƏDVƏLLƏRİN SƏTİRBƏSƏTİR QORUNUR
+        # SƏNİN KÖHNƏ VƏ VACİB CƏDVƏLLƏRİN
         s.execute(text("CREATE TABLE IF NOT EXISTS tables (id SERIAL PRIMARY KEY, label TEXT, is_occupied BOOLEAN DEFAULT FALSE, items TEXT, total DECIMAL(10,2) DEFAULT 0, opened_at TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS menu (id SERIAL PRIMARY KEY, item_name TEXT, price DECIMAL(10,2), category TEXT, is_active BOOLEAN DEFAULT FALSE, is_coffee BOOLEAN DEFAULT FALSE, printer_target TEXT DEFAULT 'kitchen', price_half DECIMAL(10,2));"))
         s.execute(text("CREATE TABLE IF NOT EXISTS sales (id SERIAL PRIMARY KEY, items TEXT, total DECIMAL(10,2), payment_method TEXT, cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, tip_amount DECIMAL(10,2) DEFAULT 0);"))
@@ -57,11 +57,20 @@ def ensure_schema():
         s.execute(text("CREATE TABLE IF NOT EXISTS feedbacks (id SERIAL PRIMARY KEY, card_id TEXT, rating INTEGER, comment TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, title TEXT, amount DECIMAL(10,2) DEFAULT 0);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS bonuses (id SERIAL PRIMARY KEY, employee TEXT, amount DECIMAL(10,2), is_paid BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+        
+        # BİZİM YENİ ƏLAVƏ ETDİYİMİZ CƏDVƏLLƏR VƏ TƏHLÜKƏSİZLİK LOQLARI ÜÇÜN NÜVƏ CƏDVƏLİ
         s.execute(text("CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, total_price NUMERIC, payment_method TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_by TEXT);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS order_items (id SERIAL PRIMARY KEY, order_id INTEGER, item_name TEXT, quantity NUMERIC, price NUMERIC);"))
         s.execute(text("CREATE TABLE IF NOT EXISTS z_reports (id SERIAL PRIMARY KEY, shift_start TIMESTAMP, shift_end TIMESTAMP, total_sales NUMERIC, cash_sales NUMERIC, card_sales NUMERIC, expected_cash NUMERIC, actual_cash NUMERIC, difference NUMERIC, generated_by TEXT);"))
-        s.execute(text("CREATE TABLE IF NOT EXISTS campaigns (id SERIAL PRIMARY KEY, title TEXT, description TEXT, img_url TEXT, badge TEXT, promo_code TEXT, discount_pct INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT TRUE);"))
         
-        s.execute(text("INSERT INTO settings (key, value) VALUES ('current_shift_status', 'Closed') ON CONFLICT DO NOTHING;"))
-        s.commit()
+        # === QARA QUTU CƏDVƏLİ ===
+        s.execute(text("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, \"user\" TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+
+        try:
+            p_hash = bcrypt.hashpw(os.environ.get("ADMIN_PASS", "admin123").encode(), bcrypt.gensalt()).decode()
+            s.execute(text("INSERT INTO users (username, password, role) VALUES ('admin', :p, 'admin') ON CONFLICT (username) DO NOTHING"), {"p": p_hash})
+            s.commit()
+        except: 
+            s.rollback()
+            
     return True
