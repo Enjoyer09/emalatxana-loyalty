@@ -10,17 +10,11 @@ from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
     
-    # --- BALANS ÜÇÜN TARİX ARALIĞI ---
-    st.markdown("### 📅 Balans Tarix Aralığı")
-    bc1, bc2 = st.columns(2)
-    b_start = bc1.date_input("Balans Başlanğıc", get_baku_now().date().replace(day=1))
-    b_end_date = bc2.date_input("Balans Bitiş", get_baku_now().date())
+    b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
+    b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
     
-    b_start_dt = datetime.datetime.combine(b_start, datetime.time(0,0,0))
-    b_end_dt = datetime.datetime.combine(b_end_date, datetime.time(23,59,59))
-    
-    cond = "AND created_at >= :s AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
-    p = {"s": b_start_dt, "e": b_end_dt}
+    cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
+    p = {"e": b_end}
 
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
@@ -32,14 +26,15 @@ def render_finance_page():
     i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
 
-    # Laptop Market Kartı və İnvestor mənbələri İnvestor borcu kimi hesablanır
-    inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    # İNVESTOR BORCU DÜSTURU (Məxaric - Mədaxil)
     inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='out' {cond}", p).iloc[0]['e'] or 0.0
-    inv_debt = float(inv_in) - float(inv_out)
+    inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    inv_debt = float(inv_out) - float(inv_in)
 
-    st.divider(); m1, m2, m3 = st.columns(3)
-    m1.metric(f"🏪 Kassada (Nağd)", f"{disp_cash:.2f} ₼")
-    m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
+    st.divider()
+    m1, m2, m3 = st.columns(3)
+    m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
+    m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
     saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
@@ -80,14 +75,20 @@ def render_finance_page():
 
         with t_tr:
             with st.form("transfer_trx", clear_on_submit=True):
-                t_dir = st.selectbox("Yön", ["💳 Kart ➡️ 🏪 Kassa", "🏪 Kassa ➡️ 💳 Kart"])
+                t_dir = st.selectbox("Yön", ["🕴️ İnvestor ➡️ 🏪 Kassa", "🏪 Kassa ➡️ 🕴️ İnvestor", "💳 Kart ➡️ 🏪 Kassa", "🏪 Kassa ➡️ 💳 Kart"])
                 t_amt = st.number_input("Məbləğ", min_value=0.01)
-                t_reason = st.selectbox("Transfer Səbəbi", ["Kassa bərpası", "Şəxsi nağdlaşdırma", "Xammal üçün", "Digər"])
-                has_comm = st.checkbox("Nağdlaşdırma komissiyası tutulsun? (Min 0.60 ₼)")
+                t_reason = st.selectbox("Transfer Səbəbi", ["Kassa bərpası", "İnvestisiya (Aylıq büdcə)", "Təsisçi Çıxarışı", "Şəxsi nağdlaşdırma", "Xammal üçün", "Digər"])
+                has_comm = st.checkbox("Nağdlaşdırma komissiyası tutulsun? (Min 0.60 ₼, Yalnız Kart-Kassa üçün)")
                 
                 if st.form_submit_button("Transferi İcra Et"):
                     is_t, u, n = st.session_state.get('test_mode', False), st.session_state.user, get_baku_now()
-                    if "Kart ➡️ Kassa" in t_dir:
+                    if "İnvestor ➡️ Kassa" in t_dir:
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'İnvestisiya', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'İnvestisiya', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                    elif "Kassa ➡️ İnvestor" in t_dir:
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təsisçi Çıxarışı', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'Təsisçi Çıxarışı', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                    elif "Kart ➡️ Kassa" in t_dir:
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
                         if has_comm:
                             comm = max(0.60, t_amt * 0.005)
@@ -97,6 +98,24 @@ def render_finance_page():
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
+
+    # KÖHNƏ SƏHVLƏRİ TƏMİR BLOKU
+    if st.session_state.role in ['admin', 'manager']:
+        with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
+            st.info("Keçmişdə 'Mənbə: Kassa', 'Növ: Mədaxil' kimi vurduğunuz əməliyyatlar buradadır. O pul İnvestordan gəlibsə düyməyə basın.")
+            kassa_ins = run_query("SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC LIMIT 30")
+            if not kassa_ins.empty:
+                for idx, row in kassa_ins.iterrows():
+                    c_t1, c_t2, c_t3, c_t4 = st.columns([2, 2, 3, 3])
+                    c_t1.write(row['created_at'].strftime("%d.%m.%Y"))
+                    c_t2.write(f"{row['amount']} ₼")
+                    c_t3.write(row['category'] or "-")
+                    if c_t4.button("İnvestor Transferinə Çevir", key=f"fix_{row['id']}"):
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at) VALUES ('out', 'Təmir Transferi', :a, 'Investor', 'Kassa mədaxili bərpası', :n)", {"a": row['amount'], "n": get_baku_now()})
+                        run_action("UPDATE finance SET category = 'İnvestisiya (Təmirli)' WHERE id=:id", {"id": row['id']})
+                        st.success("Düzəldildi! İnvestor borcu artdı."); time.sleep(1); st.rerun()
+            else:
+                st.write("Düzəlişə ehtiyac olan tapılmadı.")
 
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
