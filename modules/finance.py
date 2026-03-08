@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import datetime, time, io
+import datetime, time, io, os
 import plotly.express as px
 import google.generativeai as genai
 from gtts import gTTS
@@ -10,11 +10,17 @@ from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
     
-    b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
-    b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
+    # --- BALANS ÜÇÜN TARİX ARALIĞI ---
+    st.markdown("### 📅 Balans Tarix Aralığı")
+    bc1, bc2 = st.columns(2)
+    b_start = bc1.date_input("Balans Başlanğıc", get_baku_now().date().replace(day=1))
+    b_end_date = bc2.date_input("Balans Bitiş", get_baku_now().date())
     
-    cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
-    p = {"e": b_end}
+    b_start_dt = datetime.datetime.combine(b_start, datetime.time(0,0,0))
+    b_end_dt = datetime.datetime.combine(b_end_date, datetime.time(23,59,59))
+    
+    cond = "AND created_at >= :s AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
+    p = {"s": b_start_dt, "e": b_end_dt}
 
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
@@ -26,13 +32,14 @@ def render_finance_page():
     i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
 
-    inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Investor' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
-    inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Investor' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
+    # Laptop Market Kartı və İnvestor mənbələri İnvestor borcu kimi hesablanır
+    inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='out' {cond}", p).iloc[0]['e'] or 0.0
     inv_debt = float(inv_in) - float(inv_out)
 
     st.divider(); m1, m2, m3 = st.columns(3)
-    m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
-    m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
+    m1.metric(f"🏪 Kassada (Nağd)", f"{disp_cash:.2f} ₼")
+    m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
     saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
@@ -94,8 +101,8 @@ def render_finance_page():
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
     f_c1, f_c2 = st.columns(2)
-    sd = f_c1.date_input("Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
-    ed = f_c2.date_input("Bitiş Tarixi", get_baku_now().date())
+    sd = f_c1.date_input("Hesabat Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
+    ed = f_c2.date_input("Hesabat Bitiş Tarixi", get_baku_now().date())
     
     fin_df = run_query("SELECT * FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
@@ -103,9 +110,15 @@ def render_finance_page():
         total_comm = fin_df[fin_df['category'] == 'Bank Komissiyası']['amount'].sum()
         if total_comm > 0: st.warning(f"🏦 Bu aralıqda ödənilən cəmi bank komissiyası: **{total_comm:.2f} ₼**")
         
-        if st.button("🤖 AI CFO Analizi (Səsli)", type="primary", use_container_width=True):
-            api_key = get_setting("gemini_api_key", "")
-            if api_key:
+        api_key = os.environ.get("GEMINI_API_KEY") or get_setting("gemini_api_key", "")
+        if not api_key:
+            st.info("🤖 AI CFO Analizi üçün API Key daxil edilməyib.")
+            new_key = st.text_input("Gemini API Key daxil edin:", type="password")
+            if st.button("API Key-i Yadda Saxla"):
+                set_setting("gemini_api_key", new_key)
+                st.success("Yadda saxlanıldı!"); time.sleep(1); st.rerun()
+        else:
+            if st.button("🤖 AI CFO Analizi (Səsli)", type="primary", use_container_width=True):
                 try:
                     genai.configure(api_key=api_key); model = genai.GenerativeModel('gemini-1.5-flash')
                     total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
@@ -113,8 +126,11 @@ def render_finance_page():
                     prompt = f"Maliyyə hesabatı: Gəlir {total_in} AZN, Xərc {total_out} AZN. {sd} və {ed} tarixləri arasındakı vəziyyət haqqında çox qısa, səmimi və professional maliyyə tövsiyəsi ver."
                     resp = model.generate_content(prompt).text; st.info(resp)
                     tts = gTTS(text=resp, lang='tr'); fp = io.BytesIO(); tts.write_to_fp(fp); st.audio(fp)
-                except Exception as e: st.error(f"AI Xətası: {e}")
-            else: st.error("Lütfən Ayarlardan Gemini API Key daxil edin.")
+                except Exception as e: 
+                    st.error(f"AI Xətası: {e}")
+                    if st.button("API Key-i Sıfırla"):
+                        run_action("DELETE FROM settings WHERE key='gemini_api_key'")
+                        st.rerun()
         
         exp_only = fin_df[fin_df['type'] == 'out']
         if not exp_only.empty:
