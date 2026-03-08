@@ -6,7 +6,7 @@ import google.generativeai as genai
 from gtts import gTTS
 import bcrypt
 from database import run_query, run_action, get_setting, set_setting
-from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
+from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log_system
 
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
@@ -101,7 +101,6 @@ def render_finance_page():
 
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
-            st.info("Keçmişdə 'Mənbə: Kassa', 'Növ: Mədaxil' kimi vurduğunuz əməliyyatlar buradadır. O pul İnvestordan gəlibsə düyməyə basın.")
             kassa_ins = run_query("SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC LIMIT 30")
             if not kassa_ins.empty:
                 for idx, row in kassa_ins.iterrows():
@@ -113,8 +112,6 @@ def render_finance_page():
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at) VALUES ('out', 'Təmir Transferi', :a, 'Investor', 'Kassa mədaxili bərpası', :n)", {"a": row['amount'], "n": get_baku_now()})
                         run_action("UPDATE finance SET category = 'İnvestisiya (Təmirli)' WHERE id=:id", {"id": row['id']})
                         st.success("Düzəldildi! İnvestor borcu artdı."); time.sleep(1); st.rerun()
-            else:
-                st.write("Düzəlişə ehtiyac olan tapılmadı.")
 
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
@@ -130,7 +127,6 @@ def render_finance_page():
         
         api_key = os.environ.get("GEMINI_API_KEY") or get_setting("gemini_api_key", "")
         if not api_key:
-            st.info("🤖 AI CFO Analizi üçün API Key daxil edilməyib.")
             new_key = st.text_input("Gemini API Key daxil edin:", type="password")
             if st.button("API Key-i Yadda Saxla"):
                 set_setting("gemini_api_key", new_key)
@@ -145,7 +141,6 @@ def render_finance_page():
                     resp = model.generate_content(prompt).text; st.info(resp)
                     tts = gTTS(text=resp, lang='tr'); fp = io.BytesIO(); tts.write_to_fp(fp); st.audio(fp)
                 except Exception as e: 
-                    st.error(f"AI Xətası: {e}")
                     if st.button("API Key-i Sıfırla"):
                         run_action("DELETE FROM settings WHERE key='gemini_api_key'")
                         st.rerun()
@@ -157,7 +152,6 @@ def render_finance_page():
             st.plotly_chart(fig, use_container_width=True)
             
         if st.session_state.role in ['admin', 'manager']:
-            st.markdown("💡 **Cədvəldən səhv qeydləri seçib silə bilərsiniz:**")
             fin_disp = fin_df.copy()
             fin_disp.insert(0, "Seç", False)
             edited_fin = st.data_editor(fin_disp, hide_index=True, use_container_width=True, disabled=['id', 'created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by'], key="fin_editor")
@@ -171,7 +165,6 @@ def render_finance_page():
             if st.session_state.get('fin_to_del'):
                 @st.dialog("⚠️ Maliyyə Qeydini Sil")
                 def del_fin_d():
-                    st.warning("Bu əməliyyat kassa və balans məlumatlarını dəyişəcək!")
                     pwd = st.text_input("Admin Şifrəsi", type="password")
                     reason = st.text_input("Silinmə Səbəbi")
                     if st.button("Təsdiqlə və Sil", type="primary"):
@@ -183,9 +176,11 @@ def render_finance_page():
                                 else:
                                     for fid in st.session_state.fin_to_del:
                                         run_action("DELETE FROM finance WHERE id=:id", {"id": int(fid)})
-                                        run_action("INSERT INTO logs (\"user\", action, created_at) VALUES (:u, :a, :n)", {"u": st.session_state.user, "a": f"Maliyyə silindi (ID: {fid}). Səbəb: {reason}", "n": get_baku_now()})
+                                        try:
+                                            log_system(st.session_state.user, f"Maliyyə silindi (ID: {fid}). Səbəb: {reason}")
+                                        except:
+                                            pass
                                     st.session_state.fin_to_del = None
-                                    st.success("Uğurla silindi!")
                                     time.sleep(1)
                                     st.rerun()
                             else:
@@ -195,5 +190,3 @@ def render_finance_page():
                 del_fin_d()
         else:
             st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
-    else:
-        st.info("Seçilmiş tarixlər arasında heç bir maliyyə əməliyyatı tapılmadı.")
