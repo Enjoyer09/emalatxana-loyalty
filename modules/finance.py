@@ -25,10 +25,15 @@ def render_finance_page():
     e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Emalatxana Kartı' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
     i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
-    
-    st.divider(); m1, m2 = st.columns(2)
+
+    inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Investor' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Investor' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
+    inv_debt = float(inv_in) - float(inv_out)
+
+    st.divider(); m1, m2, m3 = st.columns(3)
     m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
     m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
+    m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
     saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
     cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
