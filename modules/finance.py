@@ -10,37 +10,6 @@ from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
     
-    with st.expander("⚙️ Balansı Uyğunlaşdır (1 Dəfəlik Sinxronizasiya)"):
-        c_f1, c_f2 = st.columns(2)
-        act_cash = c_f1.number_input("Kassadakı Faktiki Nağd (₼)", min_value=0.0, step=0.1)
-        act_card = c_f2.number_input("Kartdakı Faktiki Pul (₼)", min_value=0.0, step=0.1)
-        
-        if st.button("Təsdiqlə və Uyğunlaşdır", type="primary"):
-            now = get_baku_now()
-            
-            s_c = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            f_in_c = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            f_out_c = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            curr_cash = float(s_c) + float(f_in_c) - float(f_out_c)
-            
-            s_cd = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            f_in_cd = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Emalatxana Kartı' AND type='in' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            f_out_cd = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Emalatxana Kartı' AND type='out' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
-            curr_card = float(s_cd) + float(f_in_cd) - float(f_out_cd)
-
-            diff_cash = act_cash - curr_cash
-            diff_card = act_card - curr_card
-            u = st.session_state.user
-
-            if diff_cash != 0:
-                t = 'in' if diff_cash > 0 else 'out'
-                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES (:t, 'Balans Korreksiyası', :a, 'Kassa', 'Sistem uyğunlaşdırılması', :u, :now)", {"t":t, "a":abs(diff_cash), "u":u, "now":now})
-            if diff_card != 0:
-                t = 'in' if diff_card > 0 else 'out'
-                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES (:t, 'Balans Korreksiyası', :a, 'Emalatxana Kartı', 'Sistem uyğunlaşdırılması', :u, :now)", {"t":t, "a":abs(diff_card), "u":u, "now":now})
-            
-            st.success("Balanslar uğurla faktiki rəqəmlərə uyğunlaşdırıldı!"); time.sleep(2); st.rerun()
-
     b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
     b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
     
@@ -61,6 +30,9 @@ def render_finance_page():
     m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
     m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
 
+    saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
+    cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
+
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
         with t_op:
@@ -71,11 +43,21 @@ def render_finance_page():
                 f_subj = c3.selectbox("Subyekt", SUBJECTS)
                 
                 c4, c5 = st.columns(2)
-                f_cat = c4.selectbox("Kateqoriya", ["Market Alış-verişi", "Kartdan Karta Transfer", "Xammal Alışı", "Maaş/Avans", "Təsisçi Çıxarışı", "Digər"])
+                f_cat_sel = c4.selectbox("Kateqoriya", cat_list + ["➕ Yeni Kateqoriya Yarat"])
+                
+                if f_cat_sel == "➕ Yeni Kateqoriya Yarat":
+                    f_cat = c4.text_input("Yeni Kateqoriyanın Adı")
+                else:
+                    f_cat = f_cat_sel
+                    
                 f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
                 f_desc = st.text_input("Qeyd")
                 
                 if st.form_submit_button("Təsdiqlə"):
+                    if f_cat_sel == "➕ Yeni Kateqoriya Yarat" and f_cat and f_cat not in cat_list:
+                        new_cats = saved_cats + "," + f_cat
+                        set_setting("finance_cats", new_cats)
+                        
                     db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
                     run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":f_subj, "time":now, "tst":is_t})
                     
@@ -107,8 +89,8 @@ def render_finance_page():
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
     f_c1, f_c2 = st.columns(2)
-    sd = f_c1.date_input("Başlanğıc Tarixi ", get_baku_now().date().replace(day=1))
-    ed = f_c2.date_input("Bitiş Tarixi ", get_baku_now().date())
+    sd = f_c1.date_input("Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
+    ed = f_c2.date_input("Bitiş Tarixi", get_baku_now().date())
     
     fin_df = run_query("SELECT * FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
