@@ -4,6 +4,7 @@ import datetime, time, io, os
 import plotly.express as px
 import google.generativeai as genai
 from gtts import gTTS
+import bcrypt
 from database import run_query, run_action, get_setting, set_setting
 from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 
@@ -26,15 +27,14 @@ def render_finance_page():
     i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
 
-    # İNVESTOR BORCU DÜSTURU (Məxaric - Mədaxil)
     inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='out' {cond}", p).iloc[0]['e'] or 0.0
     inv_in = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     inv_debt = float(inv_out) - float(inv_in)
 
     st.divider()
     m1, m2, m3 = st.columns(3)
-    m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
-    m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
+    m1.metric(f"🏪 Kassada (Nağd)", f"{disp_cash:.2f} ₼")
+    m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
     saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
@@ -82,24 +82,23 @@ def render_finance_page():
                 
                 if st.form_submit_button("Transferi İcra Et"):
                     is_t, u, n = st.session_state.get('test_mode', False), st.session_state.user, get_baku_now()
-                    if "İnvestor ➡️ Kassa" in t_dir:
+                    if t_dir == "🕴️ İnvestor ➡️ 🏪 Kassa":
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'İnvestisiya', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'İnvestisiya', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
-                    elif "Kassa ➡️ İnvestor" in t_dir:
+                    elif t_dir == "🏪 Kassa ➡️ 🕴️ İnvestor":
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təsisçi Çıxarışı', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'Təsisçi Çıxarışı', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
-                    elif "Kart ➡️ Kassa" in t_dir:
+                    elif t_dir == "💳 Kart ➡️ 🏪 Kassa":
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
                         if has_comm:
                             comm = max(0.60, t_amt * 0.005)
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
-                    else:
+                    elif t_dir == "🏪 Kassa ➡️ 💳 Kart":
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
-    # KÖHNƏ SƏHVLƏRİ TƏMİR BLOKU
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
             st.info("Keçmişdə 'Mənbə: Kassa', 'Növ: Mədaxil' kimi vurduğunuz əməliyyatlar buradadır. O pul İnvestordan gəlibsə düyməyə basın.")
@@ -123,7 +122,7 @@ def render_finance_page():
     sd = f_c1.date_input("Hesabat Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
     ed = f_c2.date_input("Hesabat Bitiş Tarixi", get_baku_now().date())
     
-    fin_df = run_query("SELECT * FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
+    fin_df = run_query("SELECT id, created_at, type, category, amount, source, description, created_by FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
     if not fin_df.empty:
         total_comm = fin_df[fin_df['category'] == 'Bank Komissiyası']['amount'].sum()
@@ -157,6 +156,44 @@ def render_finance_page():
             fig.update_layout(height=350, margin=dict(t=0, b=0, l=0, r=0))
             st.plotly_chart(fig, use_container_width=True)
             
-        st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
+        if st.session_state.role in ['admin', 'manager']:
+            st.markdown("💡 **Cədvəldən səhv qeydləri seçib silə bilərsiniz:**")
+            fin_disp = fin_df.copy()
+            fin_disp.insert(0, "Seç", False)
+            edited_fin = st.data_editor(fin_disp, hide_index=True, use_container_width=True, disabled=['id', 'created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by'], key="fin_editor")
+            
+            sel_ids = edited_fin[edited_fin["Seç"]]['id'].tolist()
+            if sel_ids:
+                if st.button(f"🗑️ Seçilmiş {len(sel_ids)} qeydi sil", type="primary"):
+                    st.session_state.fin_to_del = sel_ids
+                    st.rerun()
+
+            if st.session_state.get('fin_to_del'):
+                @st.dialog("⚠️ Maliyyə Qeydini Sil")
+                def del_fin_d():
+                    st.warning("Bu əməliyyat kassa və balans məlumatlarını dəyişəcək!")
+                    pwd = st.text_input("Admin Şifrəsi", type="password")
+                    reason = st.text_input("Silinmə Səbəbi")
+                    if st.button("Təsdiqlə və Sil", type="primary"):
+                        try:
+                            admin_hash = run_query("SELECT password FROM users WHERE username='admin'").iloc[0]['password']
+                            if bcrypt.checkpw(pwd.encode('utf-8'), admin_hash.encode('utf-8')) or pwd == os.environ.get("ADMIN_PASS", "admin123"):
+                                if len(reason.strip()) < 3:
+                                    st.error("Səbəb qeyd edilməlidir!")
+                                else:
+                                    for fid in st.session_state.fin_to_del:
+                                        run_action("DELETE FROM finance WHERE id=:id", {"id": int(fid)})
+                                        run_action("INSERT INTO logs (\"user\", action, created_at) VALUES (:u, :a, :n)", {"u": st.session_state.user, "a": f"Maliyyə silindi (ID: {fid}). Səbəb: {reason}", "n": get_baku_now()})
+                                    st.session_state.fin_to_del = None
+                                    st.success("Uğurla silindi!")
+                                    time.sleep(1)
+                                    st.rerun()
+                            else:
+                                st.error("Şifrə yalnışdır!")
+                        except Exception as e:
+                            st.error(f"Xəta: {e}")
+                del_fin_d()
+        else:
+            st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
     else:
         st.info("Seçilmiş tarixlər arasında heç bir maliyyə əməliyyatı tapılmadı.")
