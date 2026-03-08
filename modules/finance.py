@@ -8,36 +8,59 @@ from database import run_query, run_action, get_setting, set_setting
 from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now
 
 def render_finance_page():
-    st.subheader("💰 Maliyyə Mərkəzi (Ağıllı Bank və Kassa Uçotu)")
+    st.subheader("💰 Maliyyə Mərkəzi")
     
-    # --- 1. KASSA AÇILIŞI ---
-    with st.expander("🔓 Səhər Kassanı Aç"):
-        op_bal = st.number_input("Kassada nə qədər pul var? (AZN)", min_value=0.0, step=0.1)
-        if st.button("✅ Kassanı Təsdiqlə"): 
-            set_setting("cash_limit", str(op_bal))
-            st.success(f"Gün {op_bal} ₼ ilə başladı!"); time.sleep(1); st.rerun()
+    with st.expander("⚙️ Balansı Uyğunlaşdır (1 Dəfəlik Sinxronizasiya)"):
+        c_f1, c_f2 = st.columns(2)
+        act_cash = c_f1.number_input("Kassadakı Faktiki Nağd (₼)", min_value=0.0, step=0.1)
+        act_card = c_f2.number_input("Kartdakı Faktiki Pul (₼)", min_value=0.0, step=0.1)
+        
+        if st.button("Təsdiqlə və Uyğunlaşdır", type="primary"):
+            now = get_baku_now()
+            
+            s_c = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            f_in_c = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            f_out_c = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            curr_cash = float(s_c) + float(f_in_c) - float(f_out_c)
+            
+            s_cd = run_query("SELECT SUM(total) as s FROM sales WHERE payment_method='Card' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            f_in_cd = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Emalatxana Kartı' AND type='in' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            f_out_cd = run_query("SELECT SUM(amount) as s FROM finance WHERE source='Emalatxana Kartı' AND type='out' AND (is_test IS NULL OR is_test=FALSE)").iloc[0]['s'] or 0.0
+            curr_card = float(s_cd) + float(f_in_cd) - float(f_out_cd)
 
-    # --- 2. BALANSLAR ---
-    view_mode = st.radio("Görünüş Rejimi:", ["🕒 Bu Növbə", "📅 Ümumi Balans"], horizontal=True)
-    log_date = get_logical_date(); shift_start, shift_end = get_shift_range(log_date)
-    cond = "AND created_at >= :d AND created_at < :e AND (is_test IS NULL OR is_test = FALSE)" if "Növbə" in view_mode else "AND (is_test IS NULL OR is_test = FALSE)"
-    params = {"d":shift_start, "e":shift_end} if "Növbə" in view_mode else {}
+            diff_cash = act_cash - curr_cash
+            diff_card = act_card - curr_card
+            u = st.session_state.user
 
-    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", params).iloc[0]['s'] or 0.0
-    e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
-    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
-    disp_cash = float(get_setting("cash_limit", "0.0")) + float(s_cash) + float(i_cash) - float(e_cash)
+            if diff_cash != 0:
+                t = 'in' if diff_cash > 0 else 'out'
+                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES (:t, 'Balans Korreksiyası', :a, 'Kassa', 'Sistem uyğunlaşdırılması', :u, :now)", {"t":t, "a":abs(diff_cash), "u":u, "now":now})
+            if diff_card != 0:
+                t = 'in' if diff_card > 0 else 'out'
+                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES (:t, 'Balans Korreksiyası', :a, 'Emalatxana Kartı', 'Sistem uyğunlaşdırılması', :u, :now)", {"t":t, "a":abs(diff_card), "u":u, "now":now})
+            
+            st.success("Balanslar uğurla faktiki rəqəmlərə uyğunlaşdırıldı!"); time.sleep(2); st.rerun()
+
+    b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
+    b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
     
-    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", params).iloc[0]['s'] or 0.0
-    e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Emalatxana Kartı' AND type='out' {cond}", params).iloc[0]['e'] or 0.0
-    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", params).iloc[0]['i'] or 0.0
+    cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
+    p = {"e": b_end}
+
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
+    e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
+    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    disp_cash = float(s_cash) + float(i_cash) - float(e_cash)
+    
+    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", p).iloc[0]['s'] or 0.0
+    e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Emalatxana Kartı' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
+    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
     
     st.divider(); m1, m2 = st.columns(2)
-    m1.metric("🏪 Kassada (Nəğd)", f"{disp_cash:.2f} ₼")
-    m2.metric("💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
+    m1.metric(f"🏪 Kassada (Nağd) - {b_date.strftime('%d.%m.%Y')}", f"{disp_cash:.2f} ₼")
+    m2.metric(f"💳 Emalatxana Kartı - {b_date.strftime('%d.%m.%Y')}", f"{disp_card:.2f} ₼")
 
-    # --- 3. ƏMƏLİYYATLAR ---
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
         with t_op:
@@ -56,7 +79,6 @@ def render_finance_page():
                     db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
                     run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":f_subj, "time":now, "tst":is_t})
                     
-                    # KOMİSSİYA: Emalatxana Kartı + Transfer = MAX(0.60, 0.5%)
                     if db_type == 'out' and f_source == 'Emalatxana Kartı' and f_cat == 'Kartdan Karta Transfer':
                         comm = max(0.60, f_amt * 0.005)
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":f_subj, "time":now, "tst":is_t})
@@ -82,13 +104,11 @@ def render_finance_page():
                         run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
-    # --- 4. HESABATLAR VƏ AI ---
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
     f_c1, f_c2 = st.columns(2)
-    # Sənin istədiyin Tarix Filtrləri
-    sd = f_c1.date_input("Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
-    ed = f_c2.date_input("Bitiş Tarixi", get_baku_now().date())
+    sd = f_c1.date_input("Başlanğıc Tarixi ", get_baku_now().date().replace(day=1))
+    ed = f_c2.date_input("Bitiş Tarixi ", get_baku_now().date())
     
     fin_df = run_query("SELECT * FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
