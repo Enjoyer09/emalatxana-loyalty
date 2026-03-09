@@ -26,7 +26,7 @@ def show_receipt_dialog(cart_data, total_amt):
         <hr style="border-top: 1px dashed black;">
         <h3 style="text-align: right; margin: 10px 0; font-weight: bold;">YEKUN: {total_amt:.2f} ₼</h3>
         <p style="text-align: center; font-size: 10px; margin-top: 15px;">Bizi seçdiyiniz üçün təşəkkür edirik!</p>
-        <p style="text-align: center; font-size: 9px; color: #666;">v1.5 Stable System</p>
+        <p style="text-align: center; font-size: 9px; color: #666;">v1.6 Fixed Dialogs</p>
     </div>
     <script src="https://printjs-4de6.kxcdn.com/print.min.js"></script>
     <button onclick="printJS({{printable: 'receipt_area', type: 'html', targetStyles: ['*'], style: '@page {{ size: auto; margin: 0mm; }}'}})" 
@@ -35,14 +35,14 @@ def show_receipt_dialog(cart_data, total_amt):
     </button>
     """
     st.components.v1.html(receipt_html, height=550)
-    if st.button("Bağla", use_container_width=True):
+    if st.button("Bağla", use_container_width=True, key="dlg_close_receipt"):
         st.session_state.active_dialog = None
         st.rerun()
 
 @st.dialog("🔐 Admin Təsdiqi")
 def test_auth_dialog():
-    pin = st.text_input("Şifrə:", type="password")
-    if st.button("Təsdiqlə", type="primary", use_container_width=True):
+    pin = st.text_input("Şifrə:", type="password", key="dlg_test_pin")
+    if st.button("Təsdiqlə", type="primary", use_container_width=True, key="dlg_test_confirm"):
         r = run_query("SELECT password FROM users WHERE username='admin'")
         db_hash = r.iloc[0]['password'] if not r.empty else ""
         if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
@@ -50,21 +50,21 @@ def test_auth_dialog():
             st.session_state.active_dialog = None
             st.rerun()
         else: st.error("Səhv şifrə!")
-    if st.button("Ləğv et", use_container_width=True):
+    if st.button("Ləğv et", use_container_width=True, key="dlg_test_cancel"):
         st.session_state.active_dialog = None
         st.rerun()
 
-@st.dialog("📋 Seçim Edin")
+@st.dialog("📋 Variant Seçimi")
 def variant_dialog(items, cart):
     st.write("Məhsulun növünü/ölçüsünü seçin:")
-    for it in items:
-        if st.button(f"{it['item_name']} | {it['price']}₼", use_container_width=True, type="secondary"): 
+    for i, it in enumerate(items):
+        if st.button(f"{it['item_name']} | {it['price']}₼", use_container_width=True, type="secondary", key=f"dlg_var_{i}"): 
             add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'category':it['category'], 'status':'new'})
             st.session_state.active_dialog = None
             st.rerun()
 
 # ==========================================================
-# 🧠 KÖMƏKÇİ FUNKSİYALAR (TOXUNULMAZ)
+# 🧠 KÖMƏKÇİ FUNKSİYALAR (SƏNİN ORİJİNAL MƏNTİQİN)
 # ==========================================================
 
 def add_to_cart(cart, item):
@@ -80,9 +80,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     current_stars = 0
     service_fee_pct = float(get_setting("service_fee_percent", "0.0")) / 100.0
     
-    has_croissant_promo = False
-    if customer and "CROISSANT50" in str(customer.get('secret_token', '')):
-        has_croissant_promo = True
+    has_croissant_promo = customer and "CROISSANT50" in str(customer.get('secret_token', ''))
     
     if manual_discount_percent > 0:
         disc_rate = manual_discount_percent / 100.0
@@ -153,12 +151,12 @@ def render_menu(cart, key):
     menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
     
     c_search, _ = st.columns([1, 1])
-    pos_search = c_search.text_input("🔍 Məhsul axtar...", key=f"pos_s_{key}", label_visibility="collapsed")
+    pos_search = c_search.text_input("🔍 Axtar...", key=f"pos_s_{key}", label_visibility="collapsed")
     if pos_search: menu_df = menu_df[menu_df['item_name'].str.contains(pos_search, case=False, na=False)]
     
     existing_cats = sorted(menu_df['category'].unique().tolist(), key=lambda x: CAT_ORDER_MAP.get(x, 99))
     cats = ["HAMISI"] + [c.upper() for c in existing_cats]
-    sc_upper = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_{key}")
+    sc_upper = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_rad_{key}")
     sc = "Hamısı" if sc_upper == "HAMISI" else next((c for c in existing_cats if c.upper() == sc_upper), "Hamısı")
     
     prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
@@ -180,12 +178,12 @@ def render_menu(cart, key):
         for base, items in groups.items():
             with cols[i%4]:
                 if len(items) > 1:
-                    if st.button(f"{base}\n▾", key=f"grp_{base}_{key}_{sc}", use_container_width=True, type="secondary"): 
+                    if st.button(f"{base}\n▾", key=f"grp_btn_{base}_{key}_{sc}", use_container_width=True, type="secondary"): 
                         st.session_state.active_dialog = ("variants", items)
                         st.rerun()
                 else:
                     r = items[0]
-                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"p_{r['id']}_{key}_{sc}", use_container_width=True, type="secondary"): 
+                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"prod_btn_{r['id']}_{key}_{sc}", use_container_width=True, type="secondary"): 
                         add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'})
                         st.rerun()
             i += 1
@@ -195,46 +193,48 @@ def render_menu(cart, key):
 # ==========================================================
 
 def render_pos_page():
-    # --- Yeganə Dialoq Meneceri ---
+    # --- 🛡️ YEGANƏ DİALOG MENECERİ (XƏTANIN QARŞISINI ALAN HİSSƏ) ---
+    # Bu hissə yalnız bir dəfə və ən başda çağırılmalıdır.
     if st.session_state.get('active_dialog'):
         d_type, d_data = st.session_state.active_dialog
         if d_type == "variants": variant_dialog(d_data, st.session_state.cart_takeaway)
         elif d_type == "test_auth": test_auth_dialog()
         elif d_type == "receipt": show_receipt_dialog(d_data['cart'], d_data['total'])
+        st.stop() # Başqa heç bir kodun icra olunmasına icazə vermirik
 
     # 🛒 Növbə Naviqasiyası
     c_carts = st.columns([1, 1, 1, 2, 1])
     for cid in [1, 2, 3]:
         count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
-        if c_carts[cid-1].button(f"🛒 Növbə {cid} ({count})", key=f"cart_sw_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True): 
+        if c_carts[cid-1].button(f"🛒 Növbə {cid} ({count})", key=f"nav_cart_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True): 
             switch_cart(cid)
             st.rerun()
     
     with c_carts[3]:
         with st.popover("☕ Yalnız Çayvoy Vur"):
-            t_amt = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0, key="tip_standalone_inp")
-            if st.button("💳 Karta Vur", type="primary"):
+            t_amt = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0, key="nav_tip_inp")
+            if st.button("💳 Karta Vur", type="primary", key="nav_tip_btn"):
                 if t_amt > 0:
-                    if st.session_state.get('test_mode'): st.success(f"🧪 [TEST] {t_amt} AZN qeyd edildi."); time.sleep(1); st.rerun()
+                    if st.session_state.get('test_mode'): st.success("🧪 [TEST] Tip qeyd edildi."); time.sleep(1); st.rerun()
                     else:
                         try:
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
-                            st.success(f"✅ {t_amt} AZN Tip qeyd olundu!"); time.sleep(1); st.rerun()
+                            st.success(f"✅ {t_amt} AZN Tip!"); time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Xəta: {e}")
 
     with c_carts[4]:
         if st.session_state.get('test_mode'):
-            if st.button("🧪 Test: ON", type="primary", use_container_width=True):
+            if st.button("🧪 Test: ON", type="primary", use_container_width=True, key="test_off_btn"):
                 st.session_state.test_mode = False; st.rerun()
         else:
-            if st.button("🧪 Test: OFF", type="secondary", use_container_width=True):
+            if st.button("🧪 Test: OFF", type="secondary", use_container_width=True, key="test_on_btn"):
                 st.session_state.active_dialog = ("test_auth", None); st.rerun()
 
     st.markdown("---")
-    if st.session_state.get('test_mode'): st.warning("⚠️ Hazırda TEST rejimindəsiniz.")
+    if st.session_state.get('test_mode'): st.warning("⚠️ TEST REJİMİ AKTİVDİR")
     
-    eco_mode = st.toggle("🍃 Eco-Stakan Modulu", key="eco_toggle_pos")
+    eco_mode = st.toggle("🍃 Eco-Stakan Modulu", key="nav_eco_toggle")
     c_menu, c_cart = st.columns([2.5, 1.2])
     
     with c_menu: render_menu(st.session_state.cart_takeaway, "ta")
@@ -244,9 +244,9 @@ def render_pos_page():
             st.markdown(f"### 🛒 Səbət {st.session_state.active_cart_id}")
             
             c_src, c_btn = st.columns([4,1], vertical_alignment="bottom")
-            code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan et...", key=f"search_input_ta_{st.session_state.search_key_counter}")
+            code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan et...", key=f"cust_qr_{st.session_state.search_key_counter}")
             
-            if c_btn.button("🔍", key="search_btn_ta") or code:
+            if c_btn.button("🔍", key="cust_search_btn") or code:
                 cid = str(code).split("id=")[1].split("&")[0] if "id=" in str(code) else str(code).strip()
                 r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id":cid})
                 if not r.empty: 
@@ -258,10 +258,10 @@ def render_pos_page():
             if cust: 
                 c_head, c_del = st.columns([4,1], vertical_alignment="bottom")
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
-                c_del.button("❌", key="clear_cust", on_click=clear_customer_data_callback)
+                c_del.button("❌", key="cust_clear_btn", on_click=clear_customer_data_callback)
                 
-            man_disc_val = st.selectbox("Endirim %", [0, 10, 20, 30, 40, 50, 100], index=0)
-            is_table_order = st.checkbox("🍽️ Masada (Servis)")
+            man_disc_val = st.selectbox("Endirim %", [0, 10, 20, 30, 40, 50, 100], index=0, key="cart_disc_sel")
+            is_table_order = st.checkbox("🍽️ Masada (Servis)", key="cart_table_check")
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
             raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val, is_eco_cup=eco_mode)
@@ -274,17 +274,17 @@ def render_pos_page():
                     c_q.write(f"x{item['qty']}")
                     with c_btn_col:
                         btn_min, btn_plus = st.columns(2)
-                        if btn_min.button("➖", key=f"dec_{i}"): 
+                        if btn_min.button("➖", key=f"cart_dec_{i}"): 
                              if item['qty'] > 1: item['qty'] -= 1
                              else: st.session_state.cart_takeaway.pop(i)
                              st.rerun()
-                        if btn_plus.button("➕", key=f"inc_{i}"): item['qty'] += 1; st.rerun()
+                        if btn_plus.button("➕", key=f"cart_inc_{i}"): item['qty'] += 1; st.rerun()
                             
             st.markdown(f"<h1 style='text-align:center; color:#ffd700; font-size: 48px;'>{final:.2f} ₼</h1>", unsafe_allow_html=True)
             if is_ikram: st.success("🎁 İKRAM")
             elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
             
-            pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed")
+            pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed", key="cart_pm_radio")
             
             if pm == "Staff":
                 staff_total_limit, staff_consumed = 6.0, 0.0
@@ -293,12 +293,12 @@ def render_pos_page():
                     else:
                         c_df = run_query("SELECT SUM(r.quantity_required * i.unit_cost) as cost FROM recipes r JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = :m", {"m": it['item_name']})
                         staff_consumed += (it['qty'] * (float(c_df.iloc[0]['cost']) if not c_df.empty and c_df.iloc[0]['cost'] is not None else 0.0))
-                if staff_consumed > staff_total_limit: st.error(f"⚠️ Limit keçilib: {staff_consumed - staff_total_limit:.2f} AZN ödənilməlidir.")
-                else: st.success(f"✅ Limit daxilindədir.")
+                if staff_consumed > staff_total_limit: st.error(f"⚠️ Limit keçilib: {staff_consumed - staff_total_limit:.2f} AZN")
+                else: st.success(f"✅ Limit daxilində.")
 
-            card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5) if pm == "Kart" else 0.0
+            card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="cart_tip_inp") if pm == "Kart" else 0.0
             
-            if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True):
+            if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True, key="cart_pay_btn"):
                 if not st.session_state.cart_takeaway: st.error("Səbət boşdur"); st.stop()
                 is_test_mode = st.session_state.get('test_mode', False)
                 try:
@@ -316,6 +316,7 @@ def render_pos_page():
                             new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
                             s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": max(0, new_stars), "cid": cust['card_id']})
                         s.commit()
+                        log_system(st.session_state.user, f"{'🧪 TEST ' if is_test_mode else ''}SATIŞ: {final:.2f} AZN")
                     
                     receipt_data = {"cart": st.session_state.cart_takeaway.copy(), "total": final}
                     st.session_state.cart_takeaway, st.session_state.current_customer_ta = [], None
