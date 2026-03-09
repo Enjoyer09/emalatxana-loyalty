@@ -11,7 +11,6 @@ import bcrypt
 # ==========================================================
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt, cust_email=None):
-    # Termal printer (58mm/80mm) üçün optimallaşdırılmış dizayn
     test_badge = "<p style='text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px;'>*** TEST REJİMİ ***</p>" if st.session_state.get('test_mode') else ""
     receipt_html = f"""
     <div id="receipt_area" style="width: 280px; padding: 10px; font-family: 'Courier New', monospace; color: black; background: white; border: 1px solid #eee;">
@@ -36,7 +35,6 @@ def show_receipt_dialog(cart_data, total_amt, cust_email=None):
     """
     st.components.v1.html(receipt_html, height=550)
     if st.button("Bağla", use_container_width=True, key="close_receipt_btn"):
-        st.session_state.show_receipt_popup = False
         st.rerun()
 
 @st.dialog("🔐 Admin Təsdiqi (Test Rejimi)")
@@ -47,12 +45,9 @@ def test_auth_dialog():
         db_hash = r.iloc[0]['password'] if not r.empty else ""
         if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
             st.session_state.test_mode = True
-            st.session_state.show_test_auth = False
             st.rerun()
-        else: st.error("Səhv şifrə!")
-    if st.button("Ləğv et"):
-        st.session_state.show_test_auth = False
-        st.rerun()
+        else: 
+            st.error("Səhv şifrə!")
 
 def add_to_cart(cart, item):
     for i in cart: 
@@ -196,9 +191,6 @@ def render_menu(cart, key):
             i += 1
 
 def render_pos_page():
-    if st.session_state.get('show_test_auth'):
-        test_auth_dialog()
-
     # 🛒 MULTI-CART Naviqasiyası
     c_carts = st.columns([1, 1, 1, 2, 1])
     for cid in [1, 2, 3]:
@@ -233,8 +225,7 @@ def render_pos_page():
                 st.rerun()
         else:
             if st.button("🧪 Test: OFF", type="secondary", use_container_width=True):
-                st.session_state.show_test_auth = True
-                st.rerun()
+                test_auth_dialog()
 
     # 🍃 ECO-STAKAN MODULU
     st.markdown("---")
@@ -362,13 +353,13 @@ def render_pos_page():
                         else:
                             log_system(st.session_state.user, f"SATIŞ: {final:.2f} AZN ({pm})")
                     
-                    st.session_state.last_receipt_data = {'cart': st.session_state.cart_takeaway.copy(), 'total': final}
-                    st.session_state.show_receipt_popup = True
+                    receipt_cart = st.session_state.cart_takeaway.copy()
+                    receipt_total = final
+                    
                     st.session_state.cart_takeaway = []
                     st.session_state.current_customer_ta = None
                     st.session_state.search_key_counter += 1
-                    st.rerun()
+                    
+                    show_receipt_dialog(receipt_cart, receipt_total)
+                    
                 except Exception as e: st.error(f"Baza xətası: {e}")
-
-    if st.session_state.get('show_receipt_popup'):
-        show_receipt_dialog(st.session_state.last_receipt_data['cart'], st.session_state.last_receipt_data['total'])
