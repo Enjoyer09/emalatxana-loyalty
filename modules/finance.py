@@ -37,7 +37,6 @@ def render_finance_page():
     cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
     p = {"e": b_end}
 
-    # Kassa Açılışı hesablamadan çıxarıldı (category != 'Kassa Açılışı')
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
     i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category != 'Kassa Açılışı' {cond}", p).iloc[0]['i'] or 0.0
@@ -58,7 +57,7 @@ def render_finance_page():
     m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
-    # KATEQORİYA VƏ SUBYEKTLƏR (Siyahı yenilənib)
+    # KATEQORİYA VƏ SUBYEKTLƏR 
     default_cats = "Maaş/Avans,Xammal Alışı,Kommunal xərclər,İşıq pulu,Su pulu,İnternet,Market Alış-verişi,Kartdan Karta Transfer,Təsisçi Çıxarışı,Digər"
     saved_cats = get_setting("finance_cats", default_cats)
     cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
@@ -71,7 +70,6 @@ def render_finance_page():
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
         
         with t_op:
-            # Sürətli və dinamik məlumat girişi üçün st.form-dan çıxarıldı
             c1, c2, c3 = st.columns(3)
             f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
             f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"])
@@ -194,10 +192,19 @@ def render_finance_page():
             
             sel_ids = edited_fin[edited_fin["Seç"]]['id'].tolist()
             if sel_ids:
-                if st.button(f"🗑️ Seçilmiş {len(sel_ids)} qeydi sil", type="primary"):
+                col_del, col_edit = st.columns(2)
+                if col_del.button(f"🗑️ Seçilmiş {len(sel_ids)} qeydi sil", type="primary"):
                     st.session_state.fin_to_del = sel_ids
                     st.rerun()
+                    
+                if len(sel_ids) == 1:
+                    if col_edit.button("✏️ Seçilmiş qeydi düzəlt"):
+                        st.session_state.fin_to_edit = sel_ids[0]
+                        st.rerun()
+                elif len(sel_ids) > 1:
+                    col_edit.warning("Düzəliş etmək üçün yalnız 1 qeyd seçin.")
 
+            # SİLƏMƏ DİALOQU
             if st.session_state.get('fin_to_del'):
                 @st.dialog("⚠️ Maliyyə Qeydini Sil")
                 def del_fin_d():
@@ -224,5 +231,58 @@ def render_finance_page():
                         except Exception as e:
                             st.error(f"Xəta: {e}")
                 del_fin_d()
+
+            # DÜZƏLİŞ DİALOQU
+            if st.session_state.get('fin_to_edit'):
+                @st.dialog("✏️ Maliyyə Qeydini Düzəlt")
+                def edit_fin_d():
+                    fid = st.session_state.fin_to_edit
+                    row_df = run_query("SELECT * FROM finance WHERE id=:id", {"id": fid})
+                    if row_df.empty:
+                        st.error("Qeyd tapılmadı.")
+                        if st.button("Bağla"):
+                            st.session_state.fin_to_edit = None
+                            st.rerun()
+                        return
+                        
+                    row = row_df.iloc[0]
+                    st.write(f"**Tarix:** {row['created_at']}")
+                    
+                    t_idx = 0 if row['type'] == 'out' else 1
+                    e_type = st.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"], index=t_idx)
+                    
+                    src_opts = ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"]
+                    s_idx = src_opts.index(row['source']) if row['source'] in src_opts else 0
+                    e_src = st.selectbox("Mənbə", src_opts, index=s_idx)
+                    
+                    e_cat = st.text_input("Kateqoriya", value=row['category'] if pd.notna(row['category']) else "")
+                    e_amt = st.number_input("Məbləğ", value=float(row['amount']), min_value=0.01)
+                    e_desc = st.text_input("Qeyd", value=row['description'] if pd.notna(row['description']) else "")
+                    
+                    pwd = st.text_input("Admin Şifrəsi", type="password")
+                    
+                    if st.button("Təsdiqlə və Düzəlt", type="primary"):
+                        try:
+                            admin_hash = run_query("SELECT password FROM users WHERE username='admin'").iloc[0]['password']
+                            if bcrypt.checkpw(pwd.encode('utf-8'), admin_hash.encode('utf-8')) or pwd == os.environ.get("ADMIN_PASS", "admin123"):
+                                db_type = 'out' if "Məxaric" in e_type else 'in'
+                                run_action(
+                                    "UPDATE finance SET type=:t, source=:s, category=:c, amount=:a, description=:d WHERE id=:id",
+                                    {"t": db_type, "s": e_src, "c": e_cat, "a": e_amt, "d": e_desc, "id": int(fid)}
+                                )
+                                try:
+                                    log_system(st.session_state.user, f"Maliyyə düzəlişi (ID: {fid}). Yeni: {db_type}, {e_amt} ₼, {e_cat}")
+                                except:
+                                    pass
+                                st.session_state.fin_to_edit = None
+                                st.success("Qeyd uğurla yeniləndi!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Şifrə yalnışdır!")
+                        except Exception as e:
+                            st.error(f"Xəta: {e}")
+                edit_fin_d()
+
         else:
             st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
