@@ -147,37 +147,15 @@ def render_z_report_page():
             st.dataframe(my_sales[['id', 'created_at', 'items', 'total', 'payment_method']], hide_index=True, use_container_width=True)
         else:
             st.warning("Bu növbədə hələ satışınız yoxdur.")
-    else:
-        c1, c2 = st.columns(2)
-        c1.metric("Bugünkü Satış", f"{(float(s_cash)+float(s_card)):.2f} ₼")
-        c1.write(f"💳 Kart Net (98%): {float(s_card)*0.98:.2f} ₼")
-        c2.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
-        
-        with st.expander("💸 GÜNLÜK MAAŞ/AVANS ÖDƏ"):
-            with st.form("salary_form_fix"):
-                emp = st.selectbox("İşçi", run_query("SELECT username FROM users")['username'].tolist())
-                amt = st.number_input("Məbləğ", min_value=0.0)
-                if st.form_submit_button("💰 Ödə"):
-                    run_action("INSERT INTO finance (type, category, amount, source, created_by, description, created_at) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', :u, :d, :t)", {"a":amt, "u":st.session_state.user, "d":f"{emp} avans", "t":get_baku_now()})
-                    st.success("Ödənildi!"); time.sleep(1); st.rerun()
 
-    cx, cz = st.columns(2)
-    if cx.button("🤝 Növbəni Təhvil Ver (X)", use_container_width=True):
-        @st.dialog("🤝 X-Hesabat")
-        def x_dialog_fix():
-            actual = st.number_input("Kassadakı nağd:", value=float(expected_cash))
-            if st.button("Təsdiqlə"):
-                run_action("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:hb, :ec, :ac, :t)", {"hb":st.session_state.user, "ec":expected_cash, "ac":actual, "t":get_baku_now()})
-                st.success("Təhvil verildi!"); time.sleep(1); st.rerun()
-        x_dialog_fix()
-
-    if cz.button("🔴 Günü Bitir (Z)", type="primary", use_container_width=True):
-        @st.dialog("🔴 Z-Hesabat və Maaş")
+    st.markdown("---")
+    if st.button("🔴 Günü Bitir (Z)", type="primary", use_container_width=True, key="main_z_btn"):
+        @st.dialog("🔴 Z-Hesabat və Maaş Çıxarışı")
         def z_dialog_updated():
             st.write(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
             actual_z = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=100.0)
             
-            # Samir və digər işçilər maaşını bura yazacaq
+            # MAAŞ BÖLMƏSİ (Skrinşotdakı çatışmayan hissə)
             default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
             wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0)
             
