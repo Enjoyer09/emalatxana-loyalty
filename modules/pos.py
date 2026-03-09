@@ -47,8 +47,12 @@ def test_auth_dialog():
         db_hash = r.iloc[0]['password'] if not r.empty else ""
         if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
             st.session_state.test_mode = True
+            st.session_state.show_test_auth = False
             st.rerun()
         else: st.error("Səhv şifrə!")
+    if st.button("Ləğv et"):
+        st.session_state.show_test_auth = False
+        st.rerun()
 
 def add_to_cart(cart, item):
     for i in cart: 
@@ -192,6 +196,9 @@ def render_menu(cart, key):
             i += 1
 
 def render_pos_page():
+    if st.session_state.get('show_test_auth'):
+        test_auth_dialog()
+
     # 🛒 MULTI-CART Naviqasiyası
     c_carts = st.columns([1, 1, 1, 2, 1])
     for cid in [1, 2, 3]:
@@ -226,7 +233,8 @@ def render_pos_page():
                 st.rerun()
         else:
             if st.button("🧪 Test: OFF", type="secondary", use_container_width=True):
-                test_auth_dialog()
+                st.session_state.show_test_auth = True
+                st.rerun()
 
     # 🍃 ECO-STAKAN MODULU
     st.markdown("---")
