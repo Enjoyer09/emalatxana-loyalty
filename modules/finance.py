@@ -11,6 +11,26 @@ from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
     
+    # 🌅 KASSA AÇILIŞI BÖLMƏSİ
+    with st.expander("🌅 Kassa Açılışı (Günə Başla)", expanded=False):
+        with st.form("open_register_form", clear_on_submit=True):
+            c_open1, c_open2 = st.columns([3, 1])
+            open_amt = c_open1.number_input("Səhər kassada olan məbləğ (Açılış balansı - AZN)", min_value=0.0, step=1.0)
+            if c_open2.form_submit_button("Kassanı Aç"):
+                is_t = st.session_state.get('test_mode', False)
+                run_action(
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılışı', :u, :time, :tst)", 
+                    {"a": open_amt, "u": st.session_state.user, "time": get_baku_now(), "tst": is_t}
+                )
+                try:
+                    log_system(st.session_state.user, f"Kassa açılışı edildi: {open_amt} ₼")
+                except:
+                    pass
+                st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ ilə açıldı.")
+                time.sleep(1)
+                st.rerun()
+    
+    # BALANS TARİXİ
     b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
     b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
     
@@ -37,7 +57,7 @@ def render_finance_page():
     m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
-    saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Digər")
+    saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Kassa Açılışı,Digər")
     cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
 
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
