@@ -26,7 +26,7 @@ def render_finance_page():
                     log_system(st.session_state.user, f"Kassa açılışı edildi: {open_amt} ₼")
                 except:
                     pass
-                st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ ilə açıldı.")
+                st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ olaraq qeyd edildi (Kassa balansını süni artırmır).")
                 time.sleep(1)
                 st.rerun()
     
@@ -37,14 +37,15 @@ def render_finance_page():
     cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
     p = {"e": b_end}
 
+    # Kassa Açılışı hesablamadan çıxarıldı (category != 'Kassa Açılışı')
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
     e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
-    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category != 'Kassa Açılışı' {cond}", p).iloc[0]['i'] or 0.0
     disp_cash = float(s_cash) + float(i_cash) - float(e_cash)
     
     s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Card' {cond}", p).iloc[0]['s'] or 0.0
     e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Emalatxana Kartı' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
-    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' {cond}", p).iloc[0]['i'] or 0.0
+    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' AND category != 'Kassa Açılışı' {cond}", p).iloc[0]['i'] or 0.0
     disp_card = float(s_card) + float(i_card) - float(e_card)
 
     inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='out' {cond}", p).iloc[0]['e'] or 0.0
@@ -57,43 +58,47 @@ def render_finance_page():
     m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
-    # Ayarlardan kateqoriya və subyektləri çəkirik
-    saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Kassa Açılışı,Digər")
+    # KATEQORİYA VƏ SUBYEKTLƏR (Siyahı yenilənib)
+    default_cats = "Maaş/Avans,Xammal Alışı,Kommunal xərclər,İşıq pulu,Su pulu,İnternet,Market Alış-verişi,Kartdan Karta Transfer,Təsisçi Çıxarışı,Digər"
+    saved_cats = get_setting("finance_cats", default_cats)
     cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
     
-    default_subjs = ",".join(SUBJECTS) if SUBJECTS else "Təsisçi,İşçi,Müştəri,Digər"
+    default_subjs = ",".join(SUBJECTS) if SUBJECTS else "Təsisçi,İşçi,Müştəri,Dövlət,Digər"
     saved_subjs = get_setting("finance_subjs", default_subjs)
     subj_list = [s.strip() for s in saved_subjs.split(",") if s.strip()]
 
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
+        
         with t_op:
-            with st.form("new_fin_trx", clear_on_submit=True):
-                c1, c2, c3 = st.columns(3)
-                f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
-                f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"])
+            # Sürətli və dinamik məlumat girişi üçün st.form-dan çıxarıldı
+            c1, c2, c3 = st.columns(3)
+            f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
+            f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"])
+            
+            f_subj_sel = c3.selectbox("Subyekt", subj_list + ["➕ Yeni əlavə et..."])
+            if f_subj_sel == "➕ Yeni əlavə et...":
+                final_subj = c3.text_input("Yeni Subyektin Adını Yazın (Yadda qalacaq)")
+            else:
+                final_subj = f_subj_sel
+            
+            c4, c5 = st.columns(2)
+            f_cat_sel = c4.selectbox("Kateqoriya", cat_list + ["➕ Yeni əlavə et..."])
+            if f_cat_sel == "➕ Yeni əlavə et...":
+                final_cat = c4.text_input("Yeni Kateqoriyanın Adını Yazın (Yadda qalacaq)")
+            else:
+                final_cat = f_cat_sel
                 
-                # Subyekt bloku
-                f_subj_sel = c3.selectbox("Subyekt (Siyahıdan)", subj_list)
-                f_subj_new = c3.text_input("➕ Və ya Yeni Subyekt (Boş qoyula bilər)")
-                
-                c4, c5 = st.columns(2)
-                # Kateqoriya bloku
-                f_cat_sel = c4.selectbox("Kateqoriya (Siyahıdan)", cat_list)
-                f_cat_new = c4.text_input("➕ Və ya Yeni Kateqoriya (Boş qoyula bilər)")
-                
-                f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
-                f_desc = st.text_input("Qeyd")
-                
-                if st.form_submit_button("Təsdiqlə"):
-                    # Əgər yeni subyekt yazılıbsa onu götür, yoxsa siyahıdakını
-                    final_subj = f_subj_new.strip() if f_subj_new.strip() else f_subj_sel
-                    if final_subj and final_subj not in subj_list:
+            f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
+            f_desc = st.text_input("Qeyd")
+            
+            if st.button("Standart Əməliyyatı Təsdiqlə", type="primary", use_container_width=True):
+                if not final_subj or not final_cat:
+                    st.error("Subyekt və Kateqoriya boş ola bilməz!")
+                else:
+                    if final_subj not in subj_list:
                         set_setting("finance_subjs", saved_subjs + "," + final_subj)
-                        
-                    # Əgər yeni kateqoriya yazılıbsa onu götür, yoxsa siyahıdakını
-                    final_cat = f_cat_new.strip() if f_cat_new.strip() else f_cat_sel
-                    if final_cat and final_cat not in cat_list:
+                    if final_cat not in cat_list:
                         set_setting("finance_cats", saved_cats + "," + final_cat)
                         
                     db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
@@ -132,7 +137,7 @@ def render_finance_page():
 
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
-            kassa_ins = run_query("SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC LIMIT 30")
+            kassa_ins = run_query("SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND category != 'Kassa Açılışı' AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC LIMIT 30")
             if not kassa_ins.empty:
                 for idx, row in kassa_ins.iterrows():
                     c_t1, c_t2, c_t3, c_t4 = st.columns([2, 2, 3, 3])
