@@ -15,7 +15,7 @@ def render_analytics_page():
     ts_start = datetime.datetime.combine(d1, datetime.time(0,0))
     ts_end = datetime.datetime.combine(d2, datetime.time(23,59))
     
-    # Müştəri məlumatları ilə birlikdə SQL sorğusu
+    # Müştəri ID-si və ulduzları ilə birgə SQL sorğusu
     query = """
         SELECT s.*, c.stars as current_stars, c.type as cust_type 
         FROM sales s 
@@ -53,7 +53,7 @@ def render_analytics_page():
             sales_disp['Net'] = sales_disp.apply(lambda x: x['total'] * 0.98 if x['payment_method'] == 'Card' else x['total'], axis=1)
             sales_disp['Test?'] = sales_disp['is_test'].apply(lambda x: '🧪' if x else '')
             
-            # 📋 Müştəri ID, Ulduz və Endirim sütunları əlavə edildi
+            # Cədvələ Müştəri ID, Mövcud Ulduz və Endirim sütunları daxil edildi
             display_df = sales_disp[[
                 'id', 'created_at', 'customer_card_id', 'current_stars', 'items', 
                 'original_total', 'discount_amount', 'total', 'payment_method', 'Test?'
@@ -67,21 +67,22 @@ def render_analytics_page():
                     "current_stars": "Mövcud ⭐",
                     "original_total": "Məbləğ",
                     "discount_amount": "Endirim",
-                    "total": "Yekun Ödəniş",
+                    "total": "Yekun",
                     "created_at": st.column_config.DatetimeColumn("Tarix", format="DD.MM HH:mm")
                 }
             )
             
-            # Silmə və Düzəliş funksiyaları... (Hissə 2-də davam edir)
-sel_s_ids = edited_sales[edited_sales["Seç"]]['id'].tolist()
+            # Redaktə və Silmə bölməsi (İndentation düzəldildi)
+            sel_s_ids = edited_sales[edited_sales["Seç"]]['id'].tolist()
             if st.session_state.role in ['admin', 'manager'] and len(sel_s_ids) > 0:
                 col_b1, col_b2 = st.columns(2)
                 if len(sel_s_ids) == 1 and col_b1.button("✏️ Düzəliş"):
-                    st.session_state.sale_edit_id = int(sel_s_ids[0]); st.rerun()
+                    st.session_state.sale_edit_id = int(sel_s_ids[0])
+                    st.rerun()
                 if col_b2.button(f"🗑️ Satışları Sil"):
-                    st.session_state.sales_to_delete = sel_s_ids; st.rerun()
+                    st.session_state.sales_to_delete = sel_s_ids
+                    st.rerun()
 
-            # Dialoq menecerləri
             if st.session_state.get('sale_edit_id'):
                 s_res = run_query("SELECT * FROM sales WHERE id=:id", {"id": st.session_state.sale_edit_id})
                 if not s_res.empty:
@@ -92,23 +93,62 @@ sel_s_ids = edited_sales[edited_sales["Seç"]]['id'].tolist()
                             e_p = st.selectbox("Ödəniş", ["Cash", "Card", "Staff"], index=["Cash", "Card", "Staff"].index(r['payment_method']))
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE sales SET total=:t, payment_method=:p WHERE id=:id", {"t":e_t, "p":e_p, "id":r['id']})
-                                st.session_state.sale_edit_id = None; st.success("Dəyişdi!"); time.sleep(1); st.rerun()
+                                st.session_state.sale_edit_id = None
+                                st.success("Dəyişdi!"); time.sleep(1); st.rerun()
                     edit_dialog(s_res.iloc[0])
-
-        with tab2:
-            # Məhsul analitikası...
+with tab2:
             item_counts = {}
             for items_str in real_sales['items']:
                 if isinstance(items_str, str):
                     for p in items_str.split(", "):
                         if " x" in p:
                             try:
-                                n, q = p.rsplit(" x", 1); item_counts[n] = item_counts.get(n, 0) + int(q.split()[0])
+                                n, q = p.rsplit(" x", 1)
+                                item_counts[n] = item_counts.get(n, 0) + int(q.split()[0])
                             except: pass
             if item_counts:
                 st.bar_chart(pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).set_index('Məhsul'))
+    else:
+        st.info("Məlumat tapılmadı.")
 
 def render_z_report_page():
-    # Z-Hesabat kodu pos (3).py faylındakı yeni Z-dialoqu ilə sinxronlaşdırılmalıdır
     st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
-    # ... (Z-Hesabat detalları və Samir-in maaş düyməsi bura daxildir)            
+    log_date_z = get_logical_date()
+    sh_start_z, sh_end_z = get_shift_range(log_date_z)
+    
+    q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+    params = {"d":sh_start_z, "e":sh_end_z}
+
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {q_cond}", params).iloc[0]['s'] or 0.0
+    f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
+    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' {q_cond}", params).iloc[0]['s'] or 0.0
+    
+    opening_limit = float(get_setting("cash_limit", "0.0"))
+    expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+
+    if st.button("🔴 Günü Bitir (Z)", type="primary", use_container_width=True, key="main_z_btn"):
+        @st.dialog("🔴 Z-Hesabat və Maaş")
+        def z_dialog_updated():
+            st.write(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
+            actual_z = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=100.0)
+            
+            # Samir və digər işçilər maaşını bura yazacaq
+            default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
+            wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0)
+            
+            if st.button("✅ Günü Bağla və Maaşı Çıxar"):
+                u = st.session_state.user
+                now = get_baku_now()
+                is_t = st.session_state.get('test_mode', False)
+                
+                # 1. Maaşı xərc kimi qeyd et
+                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
+                           {"a": wage_amt, "u": u, "subj": u, "time": now, "tst": is_t})
+                
+                # 2. Z-Hesabatı sisteme vur
+                run_action("INSERT INTO z_reports (total_sales, cash_sales, card_sales, actual_cash, generated_by) VALUES (:ts, :cs, :crs, :ac, :gb)",
+                           {"ts":float(s_cash), "cs":float(s_cash), "crs":0.0, "ac":actual_z, "gb":u})
+                
+                set_setting("cash_limit", str(actual_z))
+                st.success("GÜN BAĞLANDI!"); time.sleep(1); st.rerun()
+        z_dialog_updated()                    
