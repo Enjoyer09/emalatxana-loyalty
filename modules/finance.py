@@ -11,37 +11,40 @@ from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log
 def render_finance_page():
     st.subheader("💰 Maliyyə Mərkəzi")
     
+    # 🧪 TEST REJİMİ STATUSU
+    is_t_active = st.session_state.get('test_mode', False)
+    if is_t_active:
+        st.warning("⚠️ Hazırda TEST rejimindəsiniz. Aşağıdakı balans və cədvəldə TEST əməliyyatları nəzərə alınır.")
+
     # 🌅 KASSA AÇILIŞI BÖLMƏSİ
     with st.expander("🌅 Kassa Açılışı (Günə Başla)", expanded=False):
         with st.form("open_register_form", clear_on_submit=True):
             c_open1, c_open2 = st.columns([3, 1])
             open_amt = c_open1.number_input("Səhər kassada olan məbləğ (Açılış balansı - AZN)", min_value=0.0, step=1.0)
             if c_open2.form_submit_button("Kassanı Aç"):
-                is_t = st.session_state.get('test_mode', False)
                 run_action(
                     "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılışı', :u, :time, :tst)", 
-                    {"a": open_amt, "u": st.session_state.user, "time": get_baku_now(), "tst": is_t}
+                    {"a": open_amt, "u": st.session_state.user, "time": get_baku_now(), "tst": is_t_active}
                 )
                 try:
                     log_system(st.session_state.user, f"Kassa açılışı edildi: {open_amt} ₼")
                 except:
                     pass
-                st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ olaraq qeyd edildi (Kassa balansını süni artırmır).")
+                st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ olaraq qeyd edildi.")
                 time.sleep(1)
                 st.rerun()
 
-    # 🌙 SMENİ BAĞLA VƏ MAAŞI ÇIXAR (Yalnız staff və manager üçün)
-    if st.session_state.role in ['staff', 'manager']:
+    # 🌙 SMENİ BAĞLA VƏ MAAŞI ÇIXAR (Admin, staff və manager üçün)
+    if st.session_state.role in ['admin', 'staff', 'manager']:
         with st.expander("🌙 Smeni Bağla və Maaşı Çıxar", expanded=False):
             with st.form("close_shift_form", clear_on_submit=True):
-                default_wage = 25.0 if st.session_state.role == 'manager' else 20.0
+                default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
                 c_close1, c_close2 = st.columns([3, 1])
                 wage_amt = c_close1.number_input("Günlük Maaş (AZN)", value=default_wage, min_value=0.0, step=1.0)
                 if c_close2.form_submit_button("Maaşı Çıxar və Bağla"):
-                    is_t = st.session_state.get('test_mode', False)
                     run_action(
                         "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
-                        {"a": wage_amt, "u": st.session_state.user, "subj": st.session_state.user, "time": get_baku_now(), "tst": is_t}
+                        {"a": wage_amt, "u": st.session_state.user, "subj": st.session_state.user, "time": get_baku_now(), "tst": is_t_active}
                     )
                     try:
                         log_system(st.session_state.user, f"Smen bağlandı və maaş çıxarıldı: {wage_amt} ₼")
@@ -51,11 +54,14 @@ def render_finance_page():
                     time.sleep(1)
                     st.rerun()
     
-    # BALANS TARİXİ
+    # BALANS TARİXİ VƏ FİLTERLƏR
     b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
     b_end = datetime.datetime.combine(b_date, datetime.time(23,59,59))
     
-    cond = "AND created_at <= :e AND (is_test IS NULL OR is_test = FALSE)"
+    # Test rejimi aktivdirsə, həm real, həm test məlumatlarını göstər
+    test_filter = "AND (is_test IS NULL OR is_test = FALSE OR is_test = TRUE)" if is_t_active else "AND (is_test IS NULL OR is_test = FALSE)"
+    
+    cond = f"AND created_at <= :e {test_filter}"
     p = {"e": b_end}
 
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method='Cash' {cond}", p).iloc[0]['s'] or 0.0
@@ -120,12 +126,12 @@ def render_finance_page():
                     if final_cat not in cat_list:
                         set_setting("finance_cats", saved_cats + "," + final_cat)
                         
-                    db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":final_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":final_subj, "time":now, "tst":is_t})
+                    db_type, user, now = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now()
+                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":final_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":final_subj, "time":now, "tst":is_t_active})
                     
                     if db_type == 'out' and f_source == 'Emalatxana Kartı' and final_cat == 'Kartdan Karta Transfer':
                         comm = max(0.60, f_amt * 0.005)
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":final_subj, "time":now, "tst":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":final_subj, "time":now, "tst":is_t_active})
                     st.success("Qeyd olundu!"); time.sleep(1); st.rerun()
 
         with t_tr:
@@ -136,27 +142,27 @@ def render_finance_page():
                 has_comm = st.checkbox("Nağdlaşdırma komissiyası tutulsun? (Min 0.60 ₼, Yalnız Kart-Kassa üçün)")
                 
                 if st.form_submit_button("Transferi İcra Et"):
-                    is_t, u, n = st.session_state.get('test_mode', False), st.session_state.user, get_baku_now()
+                    u, n = st.session_state.user, get_baku_now()
                     if t_dir == "🕴️ İnvestor ➡️ 🏪 Kassa":
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'İnvestisiya', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'İnvestisiya', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'İnvestisiya', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'İnvestisiya', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                     elif t_dir == "🏪 Kassa ➡️ 🕴️ İnvestor":
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təsisçi Çıxarışı', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'Təsisçi Çıxarışı', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təsisçi Çıxarışı', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'Təsisçi Çıxarışı', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                     elif t_dir == "💳 Kart ➡️ 🏪 Kassa":
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                         if has_comm:
                             comm = max(0.60, t_amt * 0.005)
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t})
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
                     elif t_dir == "🏪 Kassa ➡️ 💳 Kart":
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
-            kassa_ins = run_query("SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND category != 'Kassa Açılışı' AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC LIMIT 30")
+            kassa_ins = run_query(f"SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND category != 'Kassa Açılışı' {test_filter} ORDER BY created_at DESC LIMIT 30")
             if not kassa_ins.empty:
                 for idx, row in kassa_ins.iterrows():
                     c_t1, c_t2, c_t3, c_t4 = st.columns([2, 2, 3, 3])
@@ -164,7 +170,7 @@ def render_finance_page():
                     c_t2.write(f"{row['amount']} ₼")
                     c_t3.write(row['category'] or "-")
                     if c_t4.button("İnvestor Transferinə Çevir", key=f"fix_{row['id']}"):
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at) VALUES ('out', 'Təmir Transferi', :a, 'Investor', 'Kassa mədaxili bərpası', :n)", {"a": row['amount'], "n": get_baku_now()})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təmir Transferi', :a, 'Investor', 'Kassa mədaxili bərpası', :n, :is_t)", {"a": row['amount'], "n": get_baku_now(), "is_t": is_t_active})
                         run_action("UPDATE finance SET category = 'İnvestisiya (Təmirli)' WHERE id=:id", {"id": row['id']})
                         st.success("Düzəldildi! İnvestor borcu artdı."); time.sleep(1); st.rerun()
 
@@ -174,7 +180,7 @@ def render_finance_page():
     sd = f_c1.date_input("Hesabat Başlanğıc Tarixi", get_baku_now().date().replace(day=1))
     ed = f_c2.date_input("Hesabat Bitiş Tarixi", get_baku_now().date())
     
-    fin_df = run_query("SELECT id, created_at, type, category, amount, source, description, created_by FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed AND (is_test IS NULL OR is_test = FALSE) ORDER BY created_at DESC", {"sd": sd, "ed": ed})
+    fin_df = run_query(f"SELECT id, created_at, type, category, amount, source, description, created_by, is_test FROM finance WHERE DATE(created_at) BETWEEN :sd AND :ed {test_filter} ORDER BY created_at DESC", {"sd": sd, "ed": ed})
     
     if not fin_df.empty:
         total_comm = fin_df[fin_df['category'] == 'Bank Komissiyası']['amount'].sum()
