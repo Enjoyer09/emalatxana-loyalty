@@ -10,7 +10,7 @@ import bcrypt
 # 🖨️ ÇAP SİSTEMİ (PRINT.JS İNTEQRASİYASI - TOXUNULMAZ)
 # ==========================================================
 @st.dialog("🧾 Satış Çeki")
-def show_receipt_dialog(cart_data, total_amt, cust_email=None):
+def show_receipt_dialog(cart_data, total_amt):
     test_badge = "<p style='text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 5px;'>*** TEST REJİMİ ***</p>" if st.session_state.get('test_mode') else ""
     receipt_html = f"""
     <div id="receipt_area" style="width: 280px; padding: 10px; font-family: 'Courier New', monospace; color: black; background: white; border: 1px solid #eee;">
@@ -25,7 +25,7 @@ def show_receipt_dialog(cart_data, total_amt, cust_email=None):
         <hr style="border-top: 1px dashed black;">
         <h3 style="text-align: right; margin: 10px 0; font-weight: bold;">YEKUN: {total_amt:.2f} ₼</h3>
         <p style="text-align: center; font-size: 10px; margin-top: 15px;">Bizi seçdiyiniz üçün təşəkkür edirik!</p>
-        <p style="text-align: center; font-size: 9px; color: #666;">v1.2 Patched System</p>
+        <p style="text-align: center; font-size: 9px; color: #666;">v1.3 Patched System</p>
     </div>
     <script src="https://printjs-4de6.kxcdn.com/print.min.js"></script>
     <button onclick="printJS({{printable: 'receipt_area', type: 'html', targetStyles: ['*'], style: '@page {{ size: auto; margin: 0mm; }}'}})" 
@@ -330,19 +330,16 @@ def render_pos_page():
                 try:
                     with conn.session as s:
                         if not is_test_mode:
-                            # 1. Anbar Çıxışı Yalnız Real Satışda
                             for it in st.session_state.cart_takeaway:
                                 recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
                                 for r in recs:
                                     s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"), {"q":float(r[1])*it['qty'], "n":r[0]})
                                 
-                        # 2. Satış Loqu (is_test bayrağı ilə)
                         items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
                         s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip, :tst)"), 
                                   {"i":items_str,"t":final,"p":("Cash" if pm=="Nəğd" else "Card" if pm=="Kart" else "Staff"),"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode})
                         
                         if not is_test_mode:
-                            # 3. Ulduz Yenilənməsi Yalnız Real Satışda
                             if cust:
                                 new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
                                 s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": max(0, new_stars), "cid": cust['card_id']})
