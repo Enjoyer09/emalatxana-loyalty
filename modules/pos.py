@@ -39,6 +39,17 @@ def show_receipt_dialog(cart_data, total_amt, cust_email=None):
         st.session_state.show_receipt_popup = False
         st.rerun()
 
+@st.dialog("🔐 Admin Təsdiqi (Test Rejimi)")
+def test_auth_dialog():
+    pin = st.text_input("Şifrə:", type="password")
+    if st.button("Təsdiqlə", type="primary"):
+        r = run_query("SELECT password FROM users WHERE username='admin'")
+        db_hash = r.iloc[0]['password'] if not r.empty else ""
+        if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
+            st.session_state.test_mode = True
+            st.rerun()
+        else: st.error("Səhv şifrə!")
+
 def add_to_cart(cart, item):
     for i in cart: 
         if i['item_name'] == item['item_name'] and i.get('status')=='new': 
@@ -181,20 +192,6 @@ def render_menu(cart, key):
             i += 1
 
 def render_pos_page():
-    if st.session_state.get('show_test_auth'):
-        @st.dialog("🔐 Admin Təsdiqi (Test Rejimi)")
-        def test_auth_dialog():
-            pin = st.text_input("Şifrə:", type="password")
-            if st.button("Təsdiqlə", type="primary"):
-                r = run_query("SELECT password FROM users WHERE username='admin'")
-                db_hash = r.iloc[0]['password'] if not r.empty else ""
-                if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
-                    st.session_state.test_mode = True
-                    st.session_state.show_test_auth = False
-                    st.rerun()
-                else: st.error("Səhv şifrə!")
-        test_auth_dialog()
-
     # 🛒 MULTI-CART Naviqasiyası
     c_carts = st.columns([1, 1, 1, 2, 1])
     for cid in [1, 2, 3]:
@@ -229,8 +226,7 @@ def render_pos_page():
                 st.rerun()
         else:
             if st.button("🧪 Test: OFF", type="secondary", use_container_width=True):
-                st.session_state.show_test_auth = True
-                st.rerun()
+                test_auth_dialog()
 
     # 🍃 ECO-STAKAN MODULU
     st.markdown("---")
