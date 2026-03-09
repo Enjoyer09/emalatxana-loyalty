@@ -29,6 +29,27 @@ def render_finance_page():
                 st.success(f"Günə başlanıldı! Kassa {open_amt} ₼ olaraq qeyd edildi (Kassa balansını süni artırmır).")
                 time.sleep(1)
                 st.rerun()
+
+    # 🌙 SMENİ BAĞLA VƏ MAAŞI ÇIXAR (Yalnız staff və manager üçün)
+    if st.session_state.role in ['staff', 'manager']:
+        with st.expander("🌙 Smeni Bağla və Maaşı Çıxar", expanded=False):
+            with st.form("close_shift_form", clear_on_submit=True):
+                default_wage = 25.0 if st.session_state.role == 'manager' else 20.0
+                c_close1, c_close2 = st.columns([3, 1])
+                wage_amt = c_close1.number_input("Günlük Maaş (AZN)", value=default_wage, min_value=0.0, step=1.0)
+                if c_close2.form_submit_button("Maaşı Çıxar və Bağla"):
+                    is_t = st.session_state.get('test_mode', False)
+                    run_action(
+                        "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
+                        {"a": wage_amt, "u": st.session_state.user, "subj": st.session_state.user, "time": get_baku_now(), "tst": is_t}
+                    )
+                    try:
+                        log_system(st.session_state.user, f"Smen bağlandı və maaş çıxarıldı: {wage_amt} ₼")
+                    except:
+                        pass
+                    st.success(f"Smen bağlandı! {wage_amt} ₼ kassa xərci olaraq qeyd edildi.")
+                    time.sleep(1)
+                    st.rerun()
     
     # BALANS TARİXİ
     b_date = st.date_input("Hansı tarixə qədərki balansı görmək istəyirsiniz?", get_baku_now().date())
