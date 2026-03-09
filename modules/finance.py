@@ -57,8 +57,13 @@ def render_finance_page():
     m2.metric(f"💳 Emalatxana Kartı", f"{disp_card:.2f} ₼")
     m3.metric(f"🕴️ İnvestor (Borc)", f"{inv_debt:.2f} ₼")
 
+    # Ayarlardan kateqoriya və subyektləri çəkirik
     saved_cats = get_setting("finance_cats", "Market Alış-verişi,Kartdan Karta Transfer,Xammal Alışı,Maaş/Avans,Təsisçi Çıxarışı,Kassa Açılışı,Digər")
     cat_list = [c.strip() for c in saved_cats.split(",") if c.strip()]
+    
+    default_subjs = ",".join(SUBJECTS) if SUBJECTS else "Təsisçi,İşçi,Müştəri,Digər"
+    saved_subjs = get_setting("finance_subjs", default_subjs)
+    subj_list = [s.strip() for s in saved_subjs.split(",") if s.strip()]
 
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=True):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
@@ -67,30 +72,36 @@ def render_finance_page():
                 c1, c2, c3 = st.columns(3)
                 f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
                 f_source = c2.selectbox("Mənbə", ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"])
-                f_subj = c3.selectbox("Subyekt", SUBJECTS)
+                
+                # Subyekt bloku
+                f_subj_sel = c3.selectbox("Subyekt (Siyahıdan)", subj_list)
+                f_subj_new = c3.text_input("➕ Və ya Yeni Subyekt (Boş qoyula bilər)")
                 
                 c4, c5 = st.columns(2)
-                f_cat_sel = c4.selectbox("Kateqoriya", cat_list + ["➕ Yeni Kateqoriya Yarat"])
+                # Kateqoriya bloku
+                f_cat_sel = c4.selectbox("Kateqoriya (Siyahıdan)", cat_list)
+                f_cat_new = c4.text_input("➕ Və ya Yeni Kateqoriya (Boş qoyula bilər)")
                 
-                if f_cat_sel == "➕ Yeni Kateqoriya Yarat":
-                    f_cat = c4.text_input("Yeni Kateqoriyanın Adı")
-                else:
-                    f_cat = f_cat_sel
-                    
                 f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01)
                 f_desc = st.text_input("Qeyd")
                 
                 if st.form_submit_button("Təsdiqlə"):
-                    if f_cat_sel == "➕ Yeni Kateqoriya Yarat" and f_cat and f_cat not in cat_list:
-                        new_cats = saved_cats + "," + f_cat
-                        set_setting("finance_cats", new_cats)
+                    # Əgər yeni subyekt yazılıbsa onu götür, yoxsa siyahıdakını
+                    final_subj = f_subj_new.strip() if f_subj_new.strip() else f_subj_sel
+                    if final_subj and final_subj not in subj_list:
+                        set_setting("finance_subjs", saved_subjs + "," + final_subj)
+                        
+                    # Əgər yeni kateqoriya yazılıbsa onu götür, yoxsa siyahıdakını
+                    final_cat = f_cat_new.strip() if f_cat_new.strip() else f_cat_sel
+                    if final_cat and final_cat not in cat_list:
+                        set_setting("finance_cats", saved_cats + "," + final_cat)
                         
                     db_type, user, now, is_t = ('out' if "Məxaric" in f_type else 'in'), st.session_state.user, get_baku_now(), st.session_state.get('test_mode', False)
-                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":f_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":f_subj, "time":now, "tst":is_t})
+                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)", {"t":db_type, "c":final_cat, "a":f_amt, "s":f_source, "d":f_desc, "u":user, "sb":final_subj, "time":now, "tst":is_t})
                     
-                    if db_type == 'out' and f_source == 'Emalatxana Kartı' and f_cat == 'Kartdan Karta Transfer':
+                    if db_type == 'out' and f_source == 'Emalatxana Kartı' and final_cat == 'Kartdan Karta Transfer':
                         comm = max(0.60, f_amt * 0.005)
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":f_subj, "time":now, "tst":is_t})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, :s, 'Transfer xərci', :u, :sb, :time, :tst)", {"a":comm, "s":f_source, "u":user, "sb":final_subj, "time":now, "tst":is_t})
                     st.success("Qeyd olundu!"); time.sleep(1); st.rerun()
 
         with t_tr:
