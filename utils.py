@@ -1,3 +1,4 @@
+# utils.py
 import datetime
 import io
 import base64
@@ -8,7 +9,6 @@ except ImportError:
 
 from database import get_setting, run_action, run_query
 
-# --- SİSTEM KONSTANTLARI ---
 BRAND_NAME = "Emalatkhana POS AI Powered"
 VERSION = "1.0 RC"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
@@ -38,13 +38,12 @@ CAT_ORDER_MAP = {cat: i for i, cat in enumerate([
     "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"
 ])}
 
-# --- KÖMƏKÇİ FUNKSİYALAR ---
-
 def image_to_base64(image_path):
     try:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
-    except Exception:
+    except Exception as e:
+        print(f"Error reading image: {e}")
         return ""
 
 def generate_styled_qr(data):
@@ -62,16 +61,16 @@ def generate_styled_qr(data):
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
-    except:
+    except Exception as e:
+        print(f"Error generating QR: {e}")
         return None
-
-# --- ZAMAN VƏ NÖVBƏ FUNKSİYALARI (YENİLƏNİB) ---
 
 def get_baku_now():
     offset_str = get_setting("utc_offset", "4")
     try:
         offset_hours = int(offset_str)
-    except:
+    except Exception as e:
+        print(f"Error parsing offset: {e}")
         offset_hours = 4
         
     utc_now = datetime.datetime.utcnow()
@@ -84,7 +83,8 @@ def get_logical_date():
     shift_start_str = get_setting("shift_start_time", "08:00")
     try:
         start_hour = int(shift_start_str.split(':')[0])
-    except:
+    except Exception as e:
+        print(f"Error parsing start hour: {e}")
         start_hour = 8
 
     if now.hour < start_hour:
@@ -100,18 +100,19 @@ def get_shift_range(logical_date=None):
     
     try:
         start_hour, start_min = map(int, shift_start_str.split(':'))
-    except:
+    except Exception as e:
+        print(f"Error parsing shift start: {e}")
         start_hour, start_min = 8, 0
         
     try:
         end_hour, end_min = map(int, shift_end_str.split(':'))
-    except:
+    except Exception as e:
+        print(f"Error parsing shift end: {e}")
         end_hour, end_min = 23, 59
         
     shift_start = datetime.datetime.combine(logical_date, datetime.time(start_hour, start_min))
     shift_end = datetime.datetime.combine(logical_date, datetime.time(end_hour, end_min))
     
-    # Məntiq: Qapanış saatı açılışdan kiçikdirsə (məs: gecə 02:00-da qapanış), deməli gün ertəsi günə keçir
     if shift_end <= shift_start:
         shift_end += datetime.timedelta(days=1)
     
@@ -125,44 +126,39 @@ def log_system(user, action):
     try:
         run_action("INSERT INTO logs (user, action, created_at) VALUES (:u, :a, :t)", 
                    {"u": str(user), "a": str(action), "t": get_baku_now()})
-    except:
-        pass
-
-# --- ŞİFRƏLƏMƏ (AUTH) ---
+    except Exception as e:
+        print(f"System log error: {e}")
 
 def hash_password(password):
     try:
         from werkzeug.security import generate_password_hash
         return generate_password_hash(password)
-    except:
+    except Exception as e:
+        print(f"Hash password error: {e}")
         return password
 
 def verify_password(plain_password, hashed_password):
-    if plain_password == hashed_password:
-        return True
-    
     if str(hashed_password).startswith("pbkdf2:"):
         try:
             from werkzeug.security import check_password_hash
             return check_password_hash(hashed_password, plain_password)
-        except:
-            pass
+        except Exception as e:
+            print(f"Werkzeug auth check error: {e}")
             
     try:
         import bcrypt
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except:
-        pass
+    except Exception as e:
+        print(f"Bcrypt auth check error: {e}")
         
     return False
-
-# --- YENİ NÖVBƏ (SHIFT) İDARƏETMƏ FUNKSİYALARI (ƏLAVƏ OLUNDU) ---
 
 def get_shift_status():
     try:
         res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
         return {row['key']: row['value'] for _, row in res.iterrows()}
-    except:
+    except Exception as e:
+        print(f"Get shift status error: {e}")
         return {'current_shift_status': 'Closed'}
 
 def open_shift(user):
