@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import random
@@ -7,26 +8,22 @@ import os
 from sqlalchemy import text
 
 from database import ensure_schema, run_query, run_action, get_setting, set_setting, conn
-from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, verify_password
-from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift
+from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users
+from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift, verify_password
 
-from modules.pos import render_pos_page
-from modules.tables import render_tables_page
-from modules.inventory import render_inventory_page
-from modules.finance import render_finance_page
-from modules.analytics import render_analytics_page, render_z_report_page
-from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
-from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
-from modules.ai_manager import render_ai_page
+from pos import render_pos_page
+from tables import render_tables_page
+from inventory import render_inventory_page
+from finance import render_finance_page
+from analytics import render_analytics_page, render_z_report_page
+from management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
+from admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
+from ai_manager import render_ai_page
 
-# 📱 YENİ MÜŞTƏRİ MENYUSUNUN İMPORTU
-from modules.customer_menu import render_customer_app
+from customer_menu import render_customer_app
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
-# ==========================================================
-# 🕒 YENİ: SHIFT POPUP DIALOGS (Sabina və Samir üçün)
-# ==========================================================
 @st.dialog("🕒 Növbə İdarəetməsi")
 def shift_modal(mode):
     if mode == "open":
@@ -42,16 +39,14 @@ def shift_modal(mode):
         st.write("Növbəni rəsmən bağlayıb çıxış etmək istəyirsiniz?")
         if st.button("🚪 Növbəni Bağla və Çıx", use_container_width=True, type="primary"):
             close_shift(st.session_state.user)
-            st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
+            st.session_state.clear()
+            st.session_state.logged_in = False
+            st.rerun()
 
-# ==========================================================
-# 🚀 MÜŞTƏRİ YÖNLƏNDİRİCİSİ (QR ROUTING)
-# ==========================================================
 params = st.query_params
 if "id" in params:
     render_customer_app(params.get("id"))
     st.stop()
-# ==========================================================
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
@@ -77,7 +72,6 @@ if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown =
 
 ensure_schema()
 
-# --- YENİ TƏMİZ VƏ SƏHVSİZ METALLİK CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;800&family=Nunito:wght@400;700;900&display=swap');
@@ -112,7 +106,6 @@ st.markdown("""
     div[role="dialog"] p, div[role="dialog"] span, div[role="dialog"] label { color: #ffffff !important; }
     div[role="dialog"] header { background: transparent !important; }
     
-    /* NAVİQASİYA DÜYMƏLƏRİ VƏ ZİREHLİ "HARADAYAM" EFEKTİ */
     div[role="radiogroup"] { gap: 10px; border: none; flex-wrap: wrap; }
     div[role="radiogroup"] > label { 
         background: var(--metal-btn) !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; 
@@ -122,7 +115,6 @@ st.markdown("""
     div[role="radiogroup"] > label p { color: #ffffff !important; font-weight: 800 !important; font-size: 15px !important; font-family: 'Jura', sans-serif !important; margin: 0 !important; display: block !important;}
     div[role="radiogroup"] > label:hover { background: var(--metal-btn-hover) !important; transform: translateY(-2px); }
     
-    /* AKTİV SƏHİFƏNİN VİZUAL QABARDILMASI */
     div[role="radiogroup"] label:has(input:checked),
     div[role="radiogroup"] label[data-checked="true"],
     div[role="radiogroup"] label[aria-checked="true"] { 
@@ -173,7 +165,6 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
         st.session_state.show_receipt_popup = False
         st.rerun()
 
-# LOGIN VƏ NAVIQASİYA
 if not st.session_state.logged_in: check_url_token_login()
 if not st.session_state.logged_in:
     c1,c2,c3 = st.columns([1,1,1])
@@ -184,42 +175,65 @@ if not st.session_state.logged_in:
             with st.form("sl"):
                 p = st.text_input("PIN", type="password")
                 if st.form_submit_button("Giriş", use_container_width=True):
-                    u = get_cached_users(); found = False; matched_user = None
+                    u = get_cached_users()
+                    found = False
+                    matched_user = None
                     for _,r in u.iterrows():
                         if r['role'] in ['staff','manager']:
-                            if verify_password(p, r['password']): matched_user = r; found = True; break
+                            if verify_password(p, r['password']): 
+                                matched_user = r
+                                found = True
+                                break
                     if matched_user is not None:
-                        st.session_state.logged_in=True; st.session_state.user=matched_user['username']; st.session_state.role=matched_user['role']; token = create_session(matched_user['username'],matched_user['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
-                    elif not found: st.error("Yanlış PIN")
+                        st.session_state.logged_in=True
+                        st.session_state.user=matched_user['username']
+                        st.session_state.role=matched_user['role']
+                        token = create_session(matched_user['username'],matched_user['role'])
+                        st.session_state.session_token = token
+                        st.query_params.clear()
+                        st.rerun()
+                    elif not found: 
+                        st.error("Yanlış PIN")
         with t2:
             with st.form("al"):
-                u = st.text_input("User"); p = st.text_input("Pass", type="password")
+                u = st.text_input("User")
+                p = st.text_input("Pass", type="password")
                 if st.form_submit_button("Login", use_container_width=True):
                     ud = run_query("SELECT * FROM users WHERE username=:u", {"u":u})
                     if not ud.empty and verify_password(p, ud.iloc[0]['password']):
-                        st.session_state.logged_in=True; st.session_state.user=u; st.session_state.role=ud.iloc[0]['role']; token = create_session(u,ud.iloc[0]['role']); st.session_state.session_token = token; st.query_params.clear(); st.rerun()
-                    else: st.error("Səhv")
+                        st.session_state.logged_in=True
+                        st.session_state.user=u
+                        st.session_state.role=ud.iloc[0]['role']
+                        token = create_session(u,ud.iloc[0]['role'])
+                        st.session_state.session_token = token
+                        st.query_params.clear()
+                        st.rerun()
+                    else: 
+                        st.error("Səhv ad və ya şifrə")
 else:
-    # --- YENİ: SHIFT YOXLAMASI ---
     s_info = get_shift_status()
     if s_info.get('current_shift_status') == 'Closed' and st.session_state.role in ['staff', 'manager']:
         shift_modal("open")
 
     if not validate_session(): 
-        st.session_state.clear(); st.rerun()
+        st.session_state.clear()
+        st.rerun()
         
     h1, h2, h3 = st.columns([4,1,1], vertical_alignment="center")
-    with h1: st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
-    with h2: st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
+    with h1: 
+        st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
+    with h2: 
+        st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
     with h3: 
         if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
             if st.session_state.role == 'staff':
                 shift_modal("close")
             else:
-                st.session_state.clear(); st.session_state.logged_in = False; st.rerun()
+                st.session_state.clear()
+                st.session_state.logged_in = False
+                st.rerun()
     st.divider()
 
-    # ANBAR POP-UP XƏBƏRDARLIĞI
     if not st.session_state.low_stock_shown:
         try:
             low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
@@ -229,11 +243,12 @@ else:
                     st.error("Aşağıdakı malların ehtiyatı (5-dən azdır). Zəhmət olmasa təchizatı təmin edin!")
                     st.dataframe(df, hide_index=True, use_container_width=True)
                     if st.button("✅ Anladım, Bağla", type="primary", use_container_width=True):
-                        st.session_state.low_stock_shown = True; st.rerun()
+                        st.session_state.low_stock_shown = True
+                        st.rerun()
                 show_low_stock_dialog(low_stock_df)
             else:
                 st.session_state.low_stock_shown = True
-        except:
+        except Exception as e:
             st.session_state.low_stock_shown = True
 
     role = st.session_state.role
