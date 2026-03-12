@@ -1,3 +1,4 @@
+# ai_manager.py
 import streamlit as st
 import pandas as pd
 import datetime
@@ -39,9 +40,6 @@ def render_ai_page():
     
     tab_biz, tab_sec = st.tabs(["📊 Biznes və Satış Analizi", "🕵️‍♂️ Təhlükəsizlik və Sistem Auditi"])
     
-    # ==========================================
-    # 1. BİZNES VƏ SATIŞ ANALİZİ
-    # ==========================================
     with tab_biz:
         st.markdown("### 📈 Nəyi Analiz Edək?")
         c1, c2 = st.columns(2)
@@ -74,7 +72,8 @@ def render_ai_page():
                                     name_part, qty_part = p.rsplit(" x", 1)
                                     qty = int(qty_part.split()[0])
                                     item_counts[name_part] = item_counts.get(name_part, 0) + qty
-                                except: pass
+                                except Exception as e:
+                                    print(f"Error parsing item in analytics: {e}")
                     
                     top_items = sorted(item_counts.items(), key=lambda x: x[1], reverse=True)
                     top_items_str = ", ".join([f"{k} ({v} ədəd)" for k, v in top_items[:15]])
@@ -113,8 +112,8 @@ def render_ai_page():
                             tts.write_to_fp(fp)
                             st.audio(fp, format='audio/mp3')
                             st.info("▶️ Yuxarıdakı pleyerdən hesabatı səsli dinləyə bilərsiniz.")
-                        except:
-                            pass
+                        except Exception as e:
+                            print(f"TTS Error: {e}")
 
                         st.markdown(f"""
                         <div style="background: #1e2226; padding: 20px; border-left: 5px solid #ffd700; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
@@ -125,9 +124,6 @@ def render_ai_page():
                     except Exception as e:
                         st.error(f"Xəta baş verdi. Detal: {e}")
 
-    # ==========================================
-    # 2. TƏHLÜKƏSİZLİK VƏ SİSTEM AUDİTİ (QAYDALARI BİLƏN MÜFƏTTİŞ)
-    # ==========================================
     with tab_sec:
         st.markdown("### 🕵️‍♂️ Sistem Loqları və Anomaliya Ovu")
         st.info("AI Baş Müfəttiş arxa plandakı bütün hərəkətləri oxuyur və sənə şübhəli vəziyyətləri məruzə edir.")
@@ -146,8 +142,8 @@ def render_ai_page():
                 logs_df = pd.DataFrame()
                 try:
                     logs_df = run_query("SELECT \"user\", action, created_at FROM logs WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC LIMIT 200", {"s":t_s, "e":t_e})
-                except:
-                    pass 
+                except Exception as e:
+                    print(f"Logs query error: {e}") 
                 
                 disc_sales = run_query("SELECT cashier, items, discount_amount, total, note, created_at FROM sales WHERE discount_amount > 0 AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
                 cash_outs = run_query("SELECT category, amount, description, created_by, created_at FROM finance WHERE type='out' AND source='Kassa' AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
@@ -156,7 +152,6 @@ def render_ai_page():
                 disc_str = "Bu aralıqda endirimli satış yoxdur." if disc_sales.empty else "\n".join([f"[{r['created_at']}] {r['cashier']} | Total: {r['total']}AZN | Endirim: {r['discount_amount']}AZN | Səbəb: {r['note']}" for _, r in disc_sales.iterrows()])
                 outs_str = "Bu aralıqda kassadan pul çıxışı yoxdur." if cash_outs.empty else "\n".join([f"[{r['created_at']}] {r['created_by']} | {r['amount']}AZN çıxardı | Səbəb: {r['category']} - {r['description']}" for _, r in cash_outs.iterrows()])
                 
-                # --- YENİ VƏ DAHA AĞILLI PROMPT ---
                 sys_prompt = f"""
                 Sən 'Füzuli' kofe şopunun 'AI Baş Müfəttişisən' (Security & Audit Manager). Sənin işin verilmiş sistem loqlarını və əməliyyatları oxuyaraq anomaliyaları, şübhəli hərəkətləri (oğurluq, səlahiyyətdən sui-istifadə, qayda pozuntusu) tapmaq və rəhbərə dəqiq hərbi məruzə formatında hesabat verməkdir.
                 
