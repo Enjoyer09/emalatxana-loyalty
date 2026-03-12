@@ -1,4 +1,3 @@
-# ai_manager.py
 import streamlit as st
 import pandas as pd
 import datetime
@@ -38,7 +37,8 @@ def render_ai_page():
         st.error(f"Sistem konfiqurasiyasında xəta: {e}")
         return
     
-    tab_biz, tab_sec = st.tabs(["📊 Biznes və Satış Analizi", "🕵️‍♂️ Təhlükəsizlik və Sistem Auditi"])
+    # 3 TAB YARADILDI
+    tab_biz, tab_sec, tab_audit = st.tabs(["📊 Biznes Analizi", "🕵️‍♂️ Sistem Təhlükəsizliyi", "🧪 Anbar və Resept Auditi"])
     
     with tab_biz:
         st.markdown("### 📈 Nəyi Analiz Edək?")
@@ -56,134 +56,110 @@ def render_ai_page():
                 sales = run_query("SELECT * FROM sales WHERE created_at BETWEEN :s AND :e", {"s":ts_start, "e":ts_end})
                 
                 if sales.empty:
-                    st.error("Seçilmiş tarixlərdə satış yoxdur. Analiz edəcək məlumat tapılmadı.")
+                    st.error("Seçilmiş tarixlərdə satış yoxdur.")
                 else:
                     total_revenue = sales['total'].sum()
-                    cash_rev = sales[sales['payment_method']=='Cash']['total'].sum()
-                    card_rev = sales[sales['payment_method']=='Card']['total'].sum()
+                    cash_rev = sales[sales['payment_method'].isin(['Cash','Nəğd'])]['total'].sum()
+                    card_rev = sales[sales['payment_method'].isin(['Card','Kart'])]['total'].sum()
                     
                     item_counts = {}
                     for items_str in sales['items']:
                         if not isinstance(items_str, str) or items_str == "Table Order": continue
-                        parts = items_str.split(", ")
-                        for p in parts:
-                            if " x" in p:
-                                try:
-                                    name_part, qty_part = p.rsplit(" x", 1)
-                                    qty = int(qty_part.split()[0])
-                                    item_counts[name_part] = item_counts.get(name_part, 0) + qty
-                                except Exception as e:
-                                    print(f"Error parsing item in analytics: {e}")
+                        try:
+                            import json
+                            parsed = json.loads(items_str)
+                            for i in parsed: item_counts[i['item_name']] = item_counts.get(i['item_name'], 0) + i['qty']
+                        except:
+                            parts = items_str.split(", ")
+                            for p in parts:
+                                if " x" in p:
+                                    try:
+                                        name_part, qty_part = p.rsplit(" x", 1)
+                                        qty = int(qty_part.split()[0])
+                                        item_counts[name_part] = item_counts.get(name_part, 0) + qty
+                                    except: pass
                     
                     top_items = sorted(item_counts.items(), key=lambda x: x[1], reverse=True)
                     top_items_str = ", ".join([f"{k} ({v} ədəd)" for k, v in top_items[:15]])
-                    least_items_str = ", ".join([f"{k} ({v} ədəd)" for k, v in top_items[-5:]]) if len(top_items) > 5 else "Məlumat azdır"
 
                     if user_question.strip():
-                        task_instruction = f"Müdirin sənə xüsusi sualı var: '{user_question}'. Zəhmət olmasa yuxarıdakı datalara əsasən MƏHZ bu suala peşəkar və ətraflı cavab ver."
+                        task_instruction = f"Müdirin sənə xüsusi sualı var: '{user_question}'. Zəhmət olmasa yuxarıdakı datalara əsasən MƏHZ bu suala peşəkar cavab ver."
                     else:
-                        task_instruction = "Müdir xüsusi sual verməyib. Ona bu aralıq üçün qısa ümumi biznes vəziyyətini, menyudan çıxarılmalı məhsulları və gəliri artırmaq üçün 2 kampaniya təklifi ver."
+                        task_instruction = "Müdir xüsusi sual verməyib. Qısa biznes vəziyyətini analiz et."
 
-                    prompt = f"""
-                    Sən 'Füzuli' adlı kofe şopunun baş meneceri və biznes analitikisən. 
-                    DİQQƏT: YALNIZ bu kofe biznesi, satışlar və idarəetmə barədə danış!
-                    
-                    Məlumatlar ({d1} - {d2}):
-                    - Ümumi Dövriyyə: {total_revenue:.2f} AZN
-                    - Nağd Satış: {cash_rev:.2f} AZN
-                    - Kartla Satış: {card_rev:.2f} AZN
-                    - Ümumi çek sayı: {len(sales)}
-                    - Ən çox satılanlar: {top_items_str}
-                    - Ən zəif satılanlar: {least_items_str}
-                    
-                    Tapşırıq:
-                    {task_instruction}
-                    
-                    Məsləhətini Azərbaycan dilində yaz.
-                    """
+                    prompt = f"Məlumatlar:\nDövriyyə: {total_revenue} AZN\nƏn çox satılanlar: {top_items_str}\n\nTapşırıq: {task_instruction}"
 
                     try:
                         response = model.generate_content(prompt)
-                        st.success("✅ Biznes Analizi Tamamlandı!")
-                        
-                        try:
-                            tts = gTTS(text=response.text, lang='tr')
-                            fp = io.BytesIO()
-                            tts.write_to_fp(fp)
-                            st.audio(fp, format='audio/mp3')
-                            st.info("▶️ Yuxarıdakı pleyerdən hesabatı səsli dinləyə bilərsiniz.")
-                        except Exception as e:
-                            print(f"TTS Error: {e}")
-
-                        st.markdown(f"""
-                        <div style="background: #1e2226; padding: 20px; border-left: 5px solid #ffd700; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
-                            {response.text}
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
+                        st.success("✅ Analiz Tamamlandı!")
+                        st.markdown(f"<div style='background: #1e2226; padding: 20px; border-left: 5px solid #ffd700; border-radius: 10px;'>{response.text}</div>", unsafe_allow_html=True)
                     except Exception as e:
-                        st.error(f"Xəta baş verdi. Detal: {e}")
+                        st.error(f"Xəta: {e}")
 
     with tab_sec:
         st.markdown("### 🕵️‍♂️ Sistem Loqları və Anomaliya Ovu")
-        st.info("AI Baş Müfəttiş arxa plandakı bütün hərəkətləri oxuyur və sənə şübhəli vəziyyətləri məruzə edir.")
-        
         c3, c4 = st.columns(2)
         audit_d1 = c3.date_input("Başlanğıc Tarixi", get_logical_date(), key="audit_d1")
         audit_d2 = c4.date_input("Bitiş Tarixi", get_logical_date(), key="audit_d2")
         
-        audit_q = st.text_area("Müfəttişə sualın var?", placeholder="Məsələn: Bu gün kimsə çeki silibmi? Və ya Səbinə xanım sistemdə nə edib?", key="audit_q")
+        audit_q = st.text_area("Müfəttişə sualın var?", placeholder="Məsələn: Bu gün kimsə çeki silibmi?", key="audit_q")
         
         if st.button("🚨 Təhlükəsizlik Auditi Başlat", type="primary", use_container_width=True, key="audit_btn"):
-            with st.spinner("🕵️‍♂️ Müfəttiş sistemin altını-üstünə gətirir, loqları oxuyur..."):
+            with st.spinner("🕵️‍♂️ Müfəttiş loqları oxuyur..."):
                 t_s = datetime.datetime.combine(audit_d1, datetime.time(0,0))
                 t_e = datetime.datetime.combine(audit_d2, datetime.time(23,59))
                 
                 logs_df = pd.DataFrame()
-                try:
-                    logs_df = run_query("SELECT \"user\", action, created_at FROM logs WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC LIMIT 200", {"s":t_s, "e":t_e})
-                except Exception as e:
-                    print(f"Logs query error: {e}") 
+                try: logs_df = run_query("SELECT \"user\", action, created_at FROM logs WHERE created_at BETWEEN :s AND :e ORDER BY created_at DESC LIMIT 200", {"s":t_s, "e":t_e})
+                except: pass 
                 
-                disc_sales = run_query("SELECT cashier, items, discount_amount, total, note, created_at FROM sales WHERE discount_amount > 0 AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
-                cash_outs = run_query("SELECT category, amount, description, created_by, created_at FROM finance WHERE type='out' AND source='Kassa' AND created_at BETWEEN :s AND :e", {"s":t_s, "e":t_e})
+                logs_str = "Loq yoxdur." if logs_df.empty else "\n".join([f"[{r['created_at']}] {r['user']}: {r['action']}" for _, r in logs_df.iterrows()])
                 
-                logs_str = "Hələlik sistem səviyyəli klik loqları yoxdur." if logs_df.empty else "\n".join([f"[{r['created_at']}] {r['user']}: {r['action']}" for _, r in logs_df.iterrows()])
-                disc_str = "Bu aralıqda endirimli satış yoxdur." if disc_sales.empty else "\n".join([f"[{r['created_at']}] {r['cashier']} | Total: {r['total']}AZN | Endirim: {r['discount_amount']}AZN | Səbəb: {r['note']}" for _, r in disc_sales.iterrows()])
-                outs_str = "Bu aralıqda kassadan pul çıxışı yoxdur." if cash_outs.empty else "\n".join([f"[{r['created_at']}] {r['created_by']} | {r['amount']}AZN çıxardı | Səbəb: {r['category']} - {r['description']}" for _, r in cash_outs.iterrows()])
-                
-                sys_prompt = f"""
-                Sən 'Füzuli' kofe şopunun 'AI Baş Müfəttişisən' (Security & Audit Manager). Sənin işin verilmiş sistem loqlarını və əməliyyatları oxuyaraq anomaliyaları, şübhəli hərəkətləri (oğurluq, səlahiyyətdən sui-istifadə, qayda pozuntusu) tapmaq və rəhbərə dəqiq hərbi məruzə formatında hesabat verməkdir.
-                
-                🚨 DİQQƏT - RƏSMİ BİZNES QAYDALARI (BUNLARI POZUNTU SAYMA):
-                1. "İkram" (Complimentary) və ya 100% endirim: Bizim ərazidəki polis, təmizlik işçiləri və xüsusi qonaqlar üçün 100% pulsuz ("Staff" metodu ilə) xidmət göstərmək qanunidir və təsdiqlənmişdir! Əgər səbəb qismində "Ikram", "Polis", "Təmizlikçi" və ya "Staff" yazılıbsa, BUNU ŞÜBHƏLİ HƏRƏKƏT SAYMA!
-                2. Səbəbsiz və İzahatsız Endirimlər: Yalnız heç bir qeyd yazılmayan və ya mənası olmayan, işçilərin özbaşınca vurduğu 50%-100% endirimləri şübhəli kimi məruzə et.
-
-                TARİX ARALIĞI: {audit_d1} - {audit_d2}
-                
-                --- SİSTEM LOQLARI (HƏRƏKƏTLƏR) ---
-                {logs_str[:2500]} 
-                
-                --- ENDİRİMLİ SATIŞLAR (ŞÜBHƏLİ OLA BİLƏR) ---
-                {disc_str[:1500]}
-                
-                --- KASSADAN PUL ÇIXIŞLARI (MƏXARİC) ---
-                {outs_str[:1500]}
-                
-                RƏHBƏRİN SUALI/TƏLƏBİ: {audit_q if audit_q.strip() else 'Mövcud məlumatları incələ və əgər hər hansı bir silinmə, böyük endirim və ya şübhəli hərəkət varsa (Biznes Qaydalarını nəzərə alaraq), mənə məruzə et. Hər şey normaldırsa, sadəcə qısa bir asayiş hesabatı ver.'}
-                
-                DİQQƏT: Cavabın çox konkret, peşəkar və Azərbaycan dilində olmalıdır. Lazımsız cümlələr qurma. Şübhəli bir şey tapmasan, uydurma, sadəcə "Hər şey qaydasındadır" de.
-                """
+                sys_prompt = f"LOQLAR:\n{logs_str[:3000]}\nSUAL: {audit_q if audit_q.strip() else 'Şübhəli əməliyyatları axtar.'}"
                 
                 try:
                     audit_res = model.generate_content(sys_prompt)
-                    st.success("🚨 Audit Tamamlandı!")
-                    
-                    st.markdown(f"""
-                    <div style="background: #1e1e1e; padding: 20px; border-left: 5px solid #28a745; border-radius: 10px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);">
-                        <h4 style="color:#28a745; margin-top:0;">📋 MÜFƏTTİŞİN MƏRUZƏSİ</h4>
-                        {audit_res.text}
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div style='background: #1e1e1e; padding: 20px; border-left: 5px solid #28a745; border-radius: 10px;'>{audit_res.text}</div>", unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"Müfəttiş xəta verdi: {e}")
+
+    # ==========================================
+    # YENİ MODUL: ANBAR VƏ RESEPT AUDİTİ
+    # ==========================================
+    with tab_audit:
+        st.markdown("### 🧪 Qramaj və Qiymət Auditi")
+        st.info("Müfəttiş bütün menyunu, reseptlərin tərkibini və anbar qiymətlərini incələyəcək. Həddindən artıq istifadə olunan qramajları (məs: 1 stəkana 5kq süd) və xətalı maya dəyərlərini aşkar edəcək.")
+        
+        if st.button("🔍 Bütün Reseptləri Skan Et", type="primary", use_container_width=True):
+            with st.spinner("Bütün qramajlar və anbar qiymətləri analiz edilir..."):
+                recipes = run_query("SELECT menu_item_name, ingredient_name, quantity_required FROM recipes")
+                ingredients = run_query("SELECT name, unit, unit_cost, stock_qty FROM ingredients")
+                
+                if recipes.empty or ingredients.empty:
+                    st.warning("Resept və ya anbar məlumatları kifayət deyil.")
+                else:
+                    rec_str = "\n".join([f"- Məhsul: {r['menu_item_name']} | Xammal: {r['ingredient_name']} | Miqdar: {r['quantity_required']}" for _, r in recipes.iterrows()])
+                    ing_str = "\n".join([f"- {r['name']} | Vahid: {r['unit']} | Alış Qiyməti: {r['unit_cost']} ₼" for _, r in ingredients.iterrows()])
+                    
+                    prompt = f"""
+                    Sən Baş Auditor və Baristasan. Aşağıdakı məlumatlar kofe şopun bazasındandır.
+                    Səndən istədiyim:
+                    1. Reseptlərdəki 'Miqdar' dəyərlərini məntiq süzgəcindən keçir. (Məsələn, 1 porsiya kofeyə 15 qram (0.015 KG) kofe gedər, əgər 15 KG yazılıbsa bu XƏTADIR!)
+                    2. Xammalların 'Alış Qiyməti'ni yoxla. (Məsələn, 1 ədəd stəkan 0.05 AZN olar, əgər 50 AZN yazılıbsa XƏTADIR!)
+                    3. Alış qiyməti '0' olanları xüsusi olaraq qeyd et ki, təcili düzəltsinlər.
+                    
+                    YALNIZ ŞÜBHƏLİ GÖRDÜYÜN VƏ XƏTALI OLANLARI SİYAHI ŞƏKLİNDƏ YAZ. (Əgər hər şey qaydasındadırsa, qısa 'Hər şey mükəmməldir' de).
+                    
+                    -- RESEPTLƏR (Qramajlar) --
+                    {rec_str}
+                    
+                    -- ANBAR XAMMALLARI --
+                    {ing_str}
+                    """
+                    
+                    try:
+                        audit_res = model.generate_content(prompt)
+                        st.success("Skan tamamlandı!")
+                        st.markdown(f"<div style='background: #1e1e1e; padding: 20px; border-left: 5px solid #dc3545; border-radius: 10px;'><h4 style='color:#dc3545;'>🔴 AŞKARLANAN RİSKLƏR</h4>{audit_res.text}</div>", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"Xəta: {e}")
