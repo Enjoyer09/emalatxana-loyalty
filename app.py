@@ -11,16 +11,16 @@ from database import ensure_schema, run_query, run_action, get_setting, set_sett
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users
 from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift, verify_password
 
-from pos import render_pos_page
-from tables import render_tables_page
-from inventory import render_inventory_page
-from finance import render_finance_page
-from analytics import render_analytics_page, render_z_report_page
-from management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
-from admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
-from ai_manager import render_ai_page
+from modules.pos import render_pos_page
+from modules.tables import render_tables_page
+from modules.inventory import render_inventory_page
+from modules.finance import render_finance_page
+from modules.analytics import render_analytics_page, render_z_report_page
+from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
+from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
+from modules.ai_manager import render_ai_page
 
-from customer_menu import render_customer_app
+from modules.customer_menu import render_customer_app
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
