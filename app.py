@@ -19,7 +19,6 @@ from modules.analytics import render_analytics_page, render_z_report_page
 from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
 from modules.ai_manager import render_ai_page
-
 from modules.customer_menu import render_customer_app
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
