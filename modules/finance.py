@@ -1,3 +1,4 @@
+# modules/finance.py
 import streamlit as st
 import pandas as pd
 import datetime, time, io, os
@@ -148,18 +149,28 @@ def render_finance_page():
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
     if st.session_state.role in ['admin', 'manager']:
-        with st.expander("🛠️ Keçmişi Təmir Et (Təkcə Admin üçün)"):
-            kassa_ins = run_query(f"SELECT id, created_at, category, amount, description FROM finance WHERE source='Kassa' AND type='in' AND category != 'İnvestisiya (Təmirli)' AND category != 'Kassa Açılışı' {test_filter} ORDER BY created_at DESC LIMIT 30")
-            if not kassa_ins.empty:
-                for idx, row in kassa_ins.iterrows():
-                    c_t1, c_t2, c_t3, c_t4 = st.columns([2, 2, 3, 3])
-                    c_t1.write(row['created_at'].strftime("%d.%m.%Y"))
-                    c_t2.write(f"{row['amount']} ₼")
-                    c_t3.write(row['category'] or "-")
-                    if c_t4.button("İnvestor Transferinə Çevir", key=f"fix_{row['id']}"):
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təmir Transferi', :a, 'Investor', 'Kassa mədaxili bərpası', :n, :is_t)", {"a": row['amount'], "n": get_baku_now(), "is_t": is_t_active})
-                        run_action("UPDATE finance SET category = 'İnvestisiya (Təmirli)' WHERE id=:id", {"id": row['id']})
-                        st.success("Düzəldildi! İnvestor borcu artdı."); time.sleep(1); st.rerun()
+        with st.expander("⚖️ Balans Korreksiyası (Sinxronizasiya)", expanded=True):
+            st.warning("Məcburi balans bərabərləşdirmə (Nağd və Kart balansını bugünkü real məbləğlərə uyğunlaşdırır).")
+            with st.form("sync_balance"):
+                new_cash = st.number_input("Kassada olmalı olan HƏQİQİ nağd məbləğ (AZN):", value=120.20, step=1.0)
+                new_card = st.number_input("Kartda olmalı olan HƏQİQİ məbləğ (AZN):", value=12.78, step=1.0)
+                if st.form_submit_button("Balansları İndi Bərabərləşdir"):
+                    u = st.session_state.user
+                    now = get_baku_now()
+                    cash_diff = new_cash - disp_cash
+                    if abs(cash_diff) > 0.01:
+                        c_type = 'in' if cash_diff > 0 else 'out'
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, 'Sistem Korreksiyası', :a, 'Kassa', 'Məcburi Balans Sinxronizasiyası', :u, :time, FALSE)", 
+                                   {"t": c_type, "a": abs(cash_diff), "u": u, "time": now})
+                    
+                    card_diff = new_card - disp_card
+                    if abs(card_diff) > 0.01:
+                        c_type = 'in' if card_diff > 0 else 'out'
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, 'Sistem Korreksiyası', :a, 'Emalatxana Kartı', 'Məcburi Balans Sinxronizasiyası', :u, :time, FALSE)", 
+                                   {"t": c_type, "a": abs(card_diff), "u": u, "time": now})
+                    st.success("✅ Balanslar uğurla sinxronlaşdırıldı!")
+                    time.sleep(1.5)
+                    st.rerun()
 
     st.markdown("---")
     st.subheader("🔍 Maliyyə Hesabatları")
@@ -232,10 +243,6 @@ def render_finance_page():
                                 else:
                                     for fid in st.session_state.fin_to_del:
                                         run_action("DELETE FROM finance WHERE id=:id", {"id": int(fid)})
-                                        try:
-                                            log_system(st.session_state.user, f"Maliyyə silindi (ID: {fid}). Səbəb: {reason}")
-                                        except:
-                                            pass
                                     st.session_state.fin_to_del = None
                                     time.sleep(1)
                                     st.rerun()
@@ -251,15 +258,11 @@ def render_finance_page():
                     fid = st.session_state.fin_to_edit
                     row_df = run_query("SELECT * FROM finance WHERE id=:id", {"id": fid})
                     if row_df.empty:
-                        st.error("Qeyd tapılmadı.")
-                        if st.button("Bağla"):
-                            st.session_state.fin_to_edit = None
-                            st.rerun()
+                        st.session_state.fin_to_edit = None
+                        st.rerun()
                         return
                         
                     row = row_df.iloc[0]
-                    st.write(f"**Tarix:** {row['created_at']}")
-                    
                     t_idx = 0 if row['type'] == 'out' else 1
                     e_type = st.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"], index=t_idx)
                     
@@ -282,10 +285,6 @@ def render_finance_page():
                                     "UPDATE finance SET type=:t, source=:s, category=:c, amount=:a, description=:d WHERE id=:id",
                                     {"t": db_type, "s": e_src, "c": e_cat, "a": e_amt, "d": e_desc, "id": int(fid)}
                                 )
-                                try:
-                                    log_system(st.session_state.user, f"Maliyyə düzəlişi (ID: {fid}). Yeni: {db_type}, {e_amt} ₼, {e_cat}")
-                                except:
-                                    pass
                                 st.session_state.fin_to_edit = None
                                 st.success("Qeyd uğurla yeniləndi!")
                                 time.sleep(1)
