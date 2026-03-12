@@ -1,3 +1,4 @@
+# modules/analytics.py
 import streamlit as st
 import pandas as pd
 import datetime, time
@@ -50,13 +51,18 @@ def render_analytics_page():
         
         total_rev = real_sales['total'].sum()
         total_cogs = real_sales['cogs'].sum()
-        gross_profit = total_rev - total_cogs
+        total_bank_fee = real_sales['bank_fee'].sum()
+        gross_profit = total_rev - total_cogs - total_bank_fee
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Xalis Satış", f"{total_rev:.2f} ₼")
-        c2.metric("Cəmi Endirim", f"{real_sales['discount_amount'].sum():.2f} ₼")
-        c3.metric("Maya Dəyəri (COGS)", f"{total_cogs:.2f} ₼")
-        c4.metric("Brutto Mənfəət", f"{gross_profit:.2f} ₼")
+        cash_sales = real_sales[real_sales['payment_method'].isin(['Cash', 'Nəğd'])]['total'].sum()
+        card_sales = real_sales[real_sales['payment_method'].isin(['Card', 'Kart'])]['total'].sum()
+        
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Ümumi Satış", f"{total_rev:.2f} ₼")
+        c2.metric("Nağd", f"{cash_sales:.2f} ₼")
+        c3.metric("Kart", f"{card_sales:.2f} ₼")
+        c4.metric("Maya (COGS)", f"{total_cogs:.2f} ₼")
+        c5.metric("Brutto Mənfəət", f"{gross_profit:.2f} ₼")
         
         st.divider()
         tab1, tab2 = st.tabs(["📋 Çeklər", "☕ Məhsullar"])
@@ -67,7 +73,7 @@ def render_analytics_page():
             sales_disp['Test?'] = sales_disp['is_test'].apply(lambda x: '🧪' if x else '')
             sales_disp['Oxunaqlı_Səbət'] = sales_disp['items'].apply(parse_items_for_display)
             
-            cols_to_disp = ['id', 'created_at', 'cashier', 'customer_card_id', 'Oxunaqlı_Səbət', 'original_total', 'discount_amount', 'total']
+            cols_to_disp = ['id', 'created_at', 'cashier', 'customer_card_id', 'current_stars', 'Oxunaqlı_Səbət', 'original_total', 'discount_amount', 'total']
             if 'cogs' in sales_disp.columns: cols_to_disp.append('cogs')
             cols_to_disp.extend(['payment_method', 'Test?'])
             
@@ -78,12 +84,14 @@ def render_analytics_page():
                 display_df, hide_index=True, use_container_width=True, key="sales_ed_v_final",
                 column_config={
                     "cashier": "İşçi (Staff)",
-                    "customer_card_id": "Müştəri ID",
+                    "customer_card_id": "Müştəri QR",
+                    "current_stars": "Ulduz",
                     "Oxunaqlı_Səbət": "Sifariş Detalı",
-                    "original_total": "Məbləğ",
+                    "original_total": "Brutto",
                     "discount_amount": "Endirim",
-                    "total": "Yekun",
-                    "cogs": "Maya Dəyəri",
+                    "total": "Net Ödəniş",
+                    "cogs": "Maya",
+                    "payment_method": "Ödəniş",
                     "created_at": st.column_config.DatetimeColumn("Tarix", format="DD.MM HH:mm")
                 }
             )
