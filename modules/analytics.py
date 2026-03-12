@@ -1,4 +1,3 @@
-# modules/analytics.py
 import streamlit as st
 import pandas as pd
 import datetime, time
@@ -6,6 +5,14 @@ import json
 from database import run_query, run_action, get_setting, set_setting
 from utils import get_logical_date, get_shift_range, get_baku_now, log_system
 from auth import admin_confirm_dialog
+
+def parse_items_for_display(items_str):
+    if not items_str or items_str == "Table Order": return items_str
+    try:
+        items = json.loads(items_str)
+        return ", ".join([f"{i['item_name']} x{i['qty']}" for i in items])
+    except:
+        return items_str
 
 def render_analytics_page():
     st.subheader("📊 Analitika və Satışlar (Net Monitor)")
@@ -35,7 +42,6 @@ def render_analytics_page():
     if not sales.empty:
         if 'is_test' not in sales.columns: sales['is_test'] = False
         real_sales = sales[sales['is_test'] != True].copy()
-        
         if 'cogs' not in real_sales.columns: real_sales['cogs'] = 0.0
         
         bank_fee_rate = 0.02 
@@ -43,13 +49,12 @@ def render_analytics_page():
         real_sales['net_total'] = real_sales['total'] - real_sales['bank_fee']
         
         total_rev = real_sales['total'].sum()
-        total_disc = real_sales['discount_amount'].sum()
         total_cogs = real_sales['cogs'].sum()
         gross_profit = total_rev - total_cogs
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Xalis Satış (Net)", f"{total_rev:.2f} ₼")
-        c2.metric("Cəmi Endirim", f"{total_disc:.2f} ₼")
+        c1.metric("Xalis Satış", f"{total_rev:.2f} ₼")
+        c2.metric("Cəmi Endirim", f"{real_sales['discount_amount'].sum():.2f} ₼")
         c3.metric("Maya Dəyəri (COGS)", f"{total_cogs:.2f} ₼")
         c4.metric("Brutto Mənfəət", f"{gross_profit:.2f} ₼")
         
@@ -60,8 +65,9 @@ def render_analytics_page():
             sales_disp = sales.copy()
             sales_disp['Net'] = sales_disp.apply(lambda x: x['total'] * 0.98 if x['payment_method'] in ['Card', 'Kart'] else x['total'], axis=1)
             sales_disp['Test?'] = sales_disp['is_test'].apply(lambda x: '🧪' if x else '')
+            sales_disp['Oxunaqlı_Səbət'] = sales_disp['items'].apply(parse_items_for_display)
             
-            cols_to_disp = ['id', 'created_at', 'cashier', 'customer_card_id', 'current_stars', 'items', 'original_total', 'discount_amount', 'total']
+            cols_to_disp = ['id', 'created_at', 'cashier', 'customer_card_id', 'Oxunaqlı_Səbət', 'original_total', 'discount_amount', 'total']
             if 'cogs' in sales_disp.columns: cols_to_disp.append('cogs')
             cols_to_disp.extend(['payment_method', 'Test?'])
             
@@ -73,7 +79,7 @@ def render_analytics_page():
                 column_config={
                     "cashier": "İşçi (Staff)",
                     "customer_card_id": "Müştəri ID",
-                    "current_stars": "Mövcud ⭐",
+                    "Oxunaqlı_Səbət": "Sifariş Detalı",
                     "original_total": "Məbləğ",
                     "discount_amount": "Endirim",
                     "total": "Yekun",
@@ -99,9 +105,7 @@ def render_analytics_page():
                     def edit_dialog(r):
                         with st.form("ed_f"):
                             e_t = st.number_input("Yekun Məbləğ", value=float(r['total']))
-                            pay_opts = ["Nəğd", "Kart", "Staff", "Cash", "Card"]
-                            s_idx = pay_opts.index(r['payment_method']) if r['payment_method'] in pay_opts else 0
-                            e_p = st.selectbox("Ödəniş", pay_opts, index=s_idx)
+                            e_p = st.selectbox("Ödəniş", ["Nəğd", "Kart", "Staff", "Cash", "Card"], index=["Nəğd", "Kart", "Staff", "Cash", "Card"].index(r['payment_method']) if r['payment_method'] in ["Nəğd", "Kart", "Staff", "Cash", "Card"] else 0)
                             if st.form_submit_button("Yadda Saxla"):
                                 run_action("UPDATE sales SET total=:t, payment_method=:p WHERE id=:id", {"t":e_t, "p":e_p, "id":r['id']})
                                 st.session_state.sale_edit_id = None
@@ -116,29 +120,16 @@ def render_analytics_page():
                         for sid in st.session_state.sales_to_delete:
                             if "qayıtsın" in reason:
                                 s_row = run_query("SELECT items, is_test FROM sales WHERE id=:id", {"id":sid})
-                                if not s_row.empty:
-                                    if not s_row.iloc[0]['is_test']:
-                                        items_data = s_row.iloc[0]['items']
-                                        parsed_items = []
-                                        try:
-                                            parsed_items = json.loads(items_data)
-                                        except Exception:
-                                            parts = str(items_data).split(", ")
-                                            for p in parts:
-                                                if " x" in p:
-                                                    try:
-                                                        n, q = p.rsplit(" x", 1)
-                                                        parsed_items.append({'item_name': n, 'qty': int(q.split()[0])})
-                                                    except: pass
-                                                    
-                                        for item in parsed_items:
+                                if not s_row.empty and not s_row.iloc[0]['is_test']:
+                                    try:
+                                        parsed = json.loads(s_row.iloc[0]['items'])
+                                        for item in parsed:
                                             recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":item.get('item_name')})
                                             for _, rc in recs.iterrows():
                                                 run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:ing", {"q":float(rc['quantity_required'])*item.get('qty', 1), "ing":rc['ingredient_name']})
-                                                
+                                    except: pass
                             run_action("DELETE FROM sales WHERE id=:id", {"id":sid})
-                            try:
-                                log_system(st.session_state.user, f"Satış silindi (ID:{sid}). Səbəb: {reason}")
+                            try: log_system(st.session_state.user, f"Satış silindi (ID:{sid}). Səbəb: {reason}")
                             except: pass
                         st.session_state.sales_to_delete = None
                         st.success("Silindi!"); time.sleep(1); st.rerun()
@@ -146,45 +137,33 @@ def render_analytics_page():
 
         with tab2:
             item_counts = {}
-            for items_data in real_sales['items']:
-                if not items_data or items_data == "Table Order": continue
-                try:
-                    parsed_items = json.loads(items_data)
-                    for item in parsed_items:
-                        n = item.get('item_name')
-                        q = item.get('qty', 0)
-                        if n:
-                            item_counts[n] = item_counts.get(n, 0) + q
-                except Exception:
-                    parts = str(items_data).split(", ")
-                    for p in parts:
-                        if " x" in p:
-                            try:
-                                n, q = p.rsplit(" x", 1)
-                                item_counts[n] = item_counts.get(n, 0) + int(q.split()[0])
-                            except: pass
-                            
+            for items_str in real_sales['items']:
+                if isinstance(items_str, str) and items_str != "Table Order":
+                    try:
+                        parsed_items = json.loads(items_str)
+                        for item in parsed_items:
+                            n = item.get('item_name')
+                            item_counts[n] = item_counts.get(n, 0) + item.get('qty', 0)
+                    except:
+                        pass
             if item_counts:
                 st.bar_chart(pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).set_index('Məhsul'))
     else:
         st.info("Məlumat tapılmadı.")
 
 def render_z_report_page():
-    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi (Dünya Standartı)")
+    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
     log_date_z = get_logical_date()
     sh_start_z, sh_end_z = get_shift_range(log_date_z)
     
     q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
     params = {"d":sh_start_z, "e":sh_end_z}
 
-    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Cash', 'Nəğd') {q_cond}", params).iloc[0]['s'] or 0.0
-    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Card', 'Kart') {q_cond}", params).iloc[0]['s'] or 0.0
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'] or 0.0
+    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {q_cond}", params).iloc[0]['s'] or 0.0
+    try: s_cogs = run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", params).iloc[0]['s'] or 0.0
+    except: s_cogs = 0.0
     
-    try:
-        s_cogs = run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", params).iloc[0]['s'] or 0.0
-    except:
-        s_cogs = 0.0
-        
     f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
     f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' {q_cond}", params).iloc[0]['s'] or 0.0
     
@@ -196,9 +175,8 @@ def render_z_report_page():
         if not my_sales.empty:
             m1, m2, m3 = st.columns(3)
             m1.metric("Mənim Növbə Satışım", f"{my_sales['total'].sum():.2f} ₼")
-            m2.metric("Nağd", f"{my_sales[my_sales['payment_method'].isin(['Cash', 'Nəğd'])]['total'].sum():.2f} ₼")
-            m3.metric("Kart", f"{my_sales[my_sales['payment_method'].isin(['Card', 'Kart'])]['total'].sum():.2f} ₼")
-            
+            m2.metric("Nağd", f"{my_sales[my_sales['payment_method'].isin(['Nəğd', 'Cash'])]['total'].sum():.2f} ₼")
+            m3.metric("Kart", f"{my_sales[my_sales['payment_method'].isin(['Kart', 'Card'])]['total'].sum():.2f} ₼")
             disp_cols = ['id', 'created_at', 'items', 'total', 'payment_method']
             if 'cogs' in my_sales.columns: disp_cols.append('cogs')
             st.dataframe(my_sales[disp_cols], hide_index=True, use_container_width=True)
@@ -208,12 +186,12 @@ def render_z_report_page():
         c1, c2, c3 = st.columns(3)
         c1.metric("Kassa Açılış Balansı", f"{opening_limit:.2f} ₼")
         c2.metric("Nağd Satış", f"{float(s_cash):.2f} ₼")
-        c3.metric("Kartla Satış", f"{float(s_card):.2f} ₼")
+        c3.metric("Kart Satış", f"{float(s_card):.2f} ₼")
 
         st.markdown("---")
         c4, c5, c6 = st.columns(3)
-        c4.metric("Kassaya Mədaxil (Satışdan kənar)", f"{float(f_in):.2f} ₼")
-        c5.metric("Kassadan Məxaric (Xərc/Avans)", f"{float(f_out):.2f} ₼")
+        c4.metric("Kassaya Mədaxil (Satışsız)", f"{float(f_in):.2f} ₼")
+        c5.metric("Kassadan Məxaric (Xərc)", f"{float(f_out):.2f} ₼")
         c6.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
 
         if st.session_state.role in ['admin', 'manager']:
@@ -257,9 +235,7 @@ def render_z_report_page():
                 try:
                     run_action("INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)",
                                {"ts":float(s_cash)+float(s_card), "cs":float(s_cash), "crs":float(s_card), "cogs":float(s_cogs), "ac":actual_z, "gb":u, "t":now})
-                except Exception as e:
-                    # Əgər z_reports cədvəlində problem varsa, sadəcə keç
-                    print(f"Z report error: {e}")
+                except: pass
                 
                 set_setting("cash_limit", str(actual_z))
                 st.success("GÜN BAĞLANDI!"); time.sleep(1); st.rerun()
