@@ -1,6 +1,8 @@
+# analytics.py
 import streamlit as st
 import pandas as pd
 import datetime, time
+import json
 from database import run_query, run_action, get_setting, set_setting
 from utils import get_logical_date, get_shift_range, get_baku_now, log_system
 from auth import admin_confirm_dialog
@@ -105,15 +107,24 @@ def render_analytics_page():
                                 s_row = run_query("SELECT items, is_test FROM sales WHERE id=:id", {"id":sid})
                                 if not s_row.empty:
                                     if not s_row.iloc[0]['is_test']:
-                                        for p in str(s_row.iloc[0]['items']).split(", "):
-                                            if " x" in p:
-                                                try:
-                                                    n, q = p.rsplit(" x", 1)
-                                                    qty = int(q.split()[0])
-                                                    recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":n})
-                                                    for _, rc in recs.iterrows():
-                                                        run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:ing", {"q":float(rc['quantity_required'])*qty, "ing":rc['ingredient_name']})
-                                                except: pass
+                                        items_data = s_row.iloc[0]['items']
+                                        parsed_items = []
+                                        try:
+                                            parsed_items = json.loads(items_data)
+                                        except Exception:
+                                            parts = str(items_data).split(", ")
+                                            for p in parts:
+                                                if " x" in p:
+                                                    try:
+                                                        n, q = p.rsplit(" x", 1)
+                                                        parsed_items.append({'item_name': n, 'qty': int(q.split()[0])})
+                                                    except: pass
+                                                    
+                                        for item in parsed_items:
+                                            recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":item.get('item_name')})
+                                            for _, rc in recs.iterrows():
+                                                run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:ing", {"q":float(rc['quantity_required'])*item.get('qty', 1), "ing":rc['ingredient_name']})
+                                                
                             run_action("DELETE FROM sales WHERE id=:id", {"id":sid})
                             try:
                                 log_system(st.session_state.user, f"Satış silindi (ID:{sid}). Səbəb: {reason}")
@@ -124,14 +135,24 @@ def render_analytics_page():
 
         with tab2:
             item_counts = {}
-            for items_str in real_sales['items']:
-                if isinstance(items_str, str):
-                    for p in items_str.split(", "):
+            for items_data in real_sales['items']:
+                if not items_data or items_data == "Table Order": continue
+                try:
+                    parsed_items = json.loads(items_data)
+                    for item in parsed_items:
+                        n = item.get('item_name')
+                        q = item.get('qty', 0)
+                        if n:
+                            item_counts[n] = item_counts.get(n, 0) + q
+                except Exception:
+                    parts = str(items_data).split(", ")
+                    for p in parts:
                         if " x" in p:
                             try:
                                 n, q = p.rsplit(" x", 1)
                                 item_counts[n] = item_counts.get(n, 0) + int(q.split()[0])
                             except: pass
+                            
             if item_counts:
                 st.bar_chart(pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).set_index('Məhsul'))
     else:
