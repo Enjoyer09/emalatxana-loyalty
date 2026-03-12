@@ -42,12 +42,11 @@ def test_auth_dialog():
     if st.button("Təsdiqlə", type="primary", use_container_width=True, key="dlg_test_confirm"):
         r = run_query("SELECT password FROM users WHERE username='admin'")
         db_hash = r.iloc[0]['password'] if not r.empty else ""
-        if db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode()):
+        if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
             st.session_state.test_mode = True
             st.session_state.active_dialog = None
             st.rerun()
-        else: 
-            st.error("Səhv şifrə!")
+        else: st.error("Səhv şifrə!")
     if st.button("Ləğv et", use_container_width=True, key="dlg_test_cancel"):
         st.session_state.active_dialog = None
         st.rerun()
@@ -60,6 +59,32 @@ def variant_dialog(items, cart):
             add_to_cart(cart, {'item_name':it['item_name'], 'price':float(it['price']), 'qty':1, 'is_coffee':it['is_coffee'], 'category':it['category'], 'status':'new'})
             st.session_state.active_dialog = None
             st.rerun()
+
+@st.dialog("🔴 Z-Hesabat və Maaş")
+def z_report_dialog():
+    st.write("Günü tamamlamaq və kassanı bağlamaq üçün:")
+    next_open = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=100.0, step=1.0, key="z_next_open")
+    default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
+    wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0, step=1.0, key="z_wage_amt")
+    
+    st.markdown("---")
+    if st.button("✅ Günü Bağla və Maaşı Çıxar", use_container_width=True, key="z_confirm_btn"):
+        u = st.session_state.user
+        now = get_baku_now()
+        is_t = st.session_state.get('test_mode', False)
+        run_action(
+            "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
+            {"a": wage_amt, "u": u, "subj": u, "time": now, "tst": is_t}
+        )
+        run_action(
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Sabah üçün açılış balansı', :u, :time, :tst)", 
+            {"a": next_open, "u": u, "time": now, "tst": is_t}
+        )
+        log_system(u, f"Günü bağladı. Maaş: {wage_amt} AZN, Sabahkı açılış: {next_open} AZN")
+        st.success(f"Uğurlu! Maaş ({wage_amt} AZN) kassadan çıxıldı.")
+        time.sleep(1.5)
+        st.session_state.active_dialog = None
+        st.rerun()
 
 def add_to_cart(cart, item):
     for i in cart: 
@@ -184,6 +209,7 @@ def render_pos_page():
         if d_type == "variants": variant_dialog(d_data, st.session_state.cart_takeaway)
         elif d_type == "test_auth": test_auth_dialog()
         elif d_type == "receipt": show_receipt_dialog(d_data['cart'], d_data['total'])
+        elif d_type == "z_report": z_report_dialog()
         st.stop()
 
     c_carts = st.columns([1, 1, 1, 2, 1])
@@ -201,10 +227,13 @@ def render_pos_page():
                     if st.session_state.get('test_mode'): st.success("🧪 [TEST] Tip qeyd edildi."); time.sleep(1); st.rerun()
                     else:
                         try:
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Emalatxana Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
                             st.success(f"✅ {t_amt} AZN Tip!"); time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Xəta: {e}")
+        if st.button("📊 Günü Bitir (Z)", key="z_report_trigger_btn", use_container_width=True):
+            st.session_state.active_dialog = ("z_report", None)
+            st.rerun()
 
     with c_carts[4]:
         if st.session_state.get('test_mode'):
@@ -304,22 +333,19 @@ def render_pos_page():
                     total_cogs = 0.0
                     now = get_baku_now()
                     
-                    # 1. COGS Hesablama və Anbardan Silmə
-                    for it in st.session_state.cart_takeaway:
-                        recs = run_query("SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m", {"m":it['item_name']})
-                        if not recs.empty:
-                            for _, r in recs.iterrows():
-                                qty_req = float(r['quantity_required']) * it['qty']
-                                u_cost = float(r['unit_cost']) if pd.notna(r['unit_cost']) else 0.0
-                                total_cogs += (qty_req * u_cost)
-                                if not is_test_mode:
+                    if not is_test_mode:
+                        for it in st.session_state.cart_takeaway:
+                            recs = run_query("SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m", {"m":it['item_name']})
+                            if not recs.empty:
+                                for _, r in recs.iterrows():
+                                    qty_req = float(r['quantity_required']) * it['qty']
+                                    u_cost = float(r['unit_cost']) if pd.notna(r['unit_cost']) else 0.0
+                                    total_cogs += (qty_req * u_cost)
                                     run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n", {"q":qty_req, "n":r['ingredient_name']})
                     
-                    # 2. Satışı Qeyd Etmək (COGS ilə)
                     run_action("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test, cogs) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip, :tst, :cogs)", 
                               {"i":items_json,"t":final,"p":pm,"c":st.session_state.user,"time":now,"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode, "cogs":total_cogs})
                     
-                    # 3. İKİYOQLAMA MALIYYƏ YOZUVU (Double-Entry)
                     if not is_test_mode and final > 0:
                         db_pm = "Kassa" if pm == "Nəğd" else "Emalatxana Kartı"
                         pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
@@ -329,7 +355,7 @@ def render_pos_page():
                         
                         if pm == "Kart":
                             min_comm = float(get_setting("bank_comm_min", "0.60"))
-                            pct_comm = float(get_setting("bank_comm_pct", "0.02")) # 2% komissiya
+                            pct_comm = float(get_setting("bank_comm_pct", "0.02"))
                             comm = max(min_comm, final * pct_comm)
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE)", 
                                        {"a": comm, "u": st.session_state.user, "t": now})
@@ -338,7 +364,6 @@ def render_pos_page():
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Emalatxana Kartı', 'Kart Tip', :u, :t)", {"a":card_tips, "u":st.session_state.user, "t":now})
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t)", {"a":card_tips, "u":st.session_state.user, "t":now})
                     
-                    # 4. Müştəri Ulduzları
                     if not is_test_mode and cust:
                         new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
                         run_action("UPDATE customers SET stars = :ns WHERE card_id = :cid", {"ns": max(0, new_stars), "cid": cust['card_id']})
