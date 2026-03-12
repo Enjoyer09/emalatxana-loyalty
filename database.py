@@ -1,4 +1,3 @@
-# database.py
 import streamlit as st
 from sqlalchemy import text
 import os
@@ -61,7 +60,8 @@ def ensure_schema():
                     cashier TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
                     customer_card_id TEXT, original_total DECIMAL(10,2) DEFAULT 0, 
                     discount_amount DECIMAL(10,2) DEFAULT 0, note TEXT, 
-                    tip_amount DECIMAL(10,2) DEFAULT 0, is_test BOOLEAN DEFAULT FALSE
+                    tip_amount DECIMAL(10,2) DEFAULT 0, is_test BOOLEAN DEFAULT FALSE,
+                    cogs DECIMAL(10,2) DEFAULT 0
                 );
             """))
             
@@ -78,12 +78,14 @@ def ensure_schema():
             
             s.execute(text("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);"))
             s.execute(text("CREATE TABLE IF NOT EXISTS logs (id SERIAL PRIMARY KEY, \"user\" TEXT, action TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
+            s.execute(text("CREATE TABLE IF NOT EXISTS z_reports (id SERIAL PRIMARY KEY, total_sales DECIMAL(10,2), cash_sales DECIMAL(10,2), card_sales DECIMAL(10,2), total_cogs DECIMAL(10,2), actual_cash DECIMAL(10,2), generated_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"))
 
             columns_to_add = [
                 ("sales", "is_test", "BOOLEAN DEFAULT FALSE"),
                 ("finance", "is_test", "BOOLEAN DEFAULT FALSE"),
                 ("sales", "bank_fee", "DECIMAL(10,2) DEFAULT 0"),
-                ("sales", "net_total", "DECIMAL(10,2) DEFAULT 0")
+                ("sales", "net_total", "DECIMAL(10,2) DEFAULT 0"),
+                ("sales", "cogs", "DECIMAL(10,2) DEFAULT 0")
             ]
 
             for table, col, dtype in columns_to_add:
@@ -91,7 +93,7 @@ def ensure_schema():
                     with s.begin_nested():
                         s.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {dtype};"))
                 except Exception as e:
-                    print(f"Schema update info ({table}.{col}): {e}")
+                    pass
 
             s.execute(text("INSERT INTO settings (key, value) VALUES ('current_shift_status', 'Closed') ON CONFLICT DO NOTHING;"))
 
