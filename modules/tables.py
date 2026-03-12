@@ -1,11 +1,11 @@
-# tables.py
+# modules/tables.py
 import streamlit as st
 import json
 import time
 from sqlalchemy import text
 from database import run_query, run_action
 from utils import get_baku_now, CAT_ORDER_MAP
-from pos import add_to_cart, calculate_smart_total, get_cached_menu
+from modules.pos import add_to_cart, calculate_smart_total, get_cached_menu
 from auth import admin_confirm_dialog
 
 def render_tables_page():
@@ -28,7 +28,9 @@ def render_tables_page():
             if st.button("🔥 Mətbəxə Göndər", key="kitchen_btn", type="secondary"): 
                 run_action("UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id", 
                            {"i": json.dumps(st.session_state.cart_table), "t": final, "id": tbl['id']})
-                st.success("Mətbəxə göndərildi!"); time.sleep(1); st.rerun()
+                st.success("Mətbəxə göndərildi!")
+                time.sleep(1)
+                st.rerun()
                 
             if st.button("✅ Masanı Ödə və Bağla", key="pay_tbl_btn", type="primary"):
                 if final > 0:
@@ -46,7 +48,9 @@ def render_tables_page():
                         run_action("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id", {"id": tbl['id']})
                         st.session_state.selected_table = None
                         st.session_state.cart_table = []
-                        st.success("Ödəniş qəbul edildi!"); time.sleep(1); st.rerun()
+                        st.success("Ödəniş qəbul edildi!")
+                        time.sleep(1)
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Xəta: {e}")
                 else:
