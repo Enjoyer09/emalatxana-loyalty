@@ -1,11 +1,10 @@
+# customer_menu.py
 import streamlit as st
 import pandas as pd
 from database import run_query, get_setting
 import datetime
 from utils import get_baku_now
 import google.generativeai as genai
-
-# --- 1. POP-UP (DİALOQ) PƏNCƏRƏLƏRİ ---
 
 @st.dialog("📱 Sizin QR Kodunuz")
 def show_qr_dialog(customer_id):
@@ -37,21 +36,24 @@ def show_menu_dialog():
 
 @st.dialog("🎁 Günün Təklifləri")
 def show_promos_dialog():
-    campaigns = run_query("SELECT * FROM campaigns WHERE is_active=TRUE ORDER BY id DESC")
-    if not campaigns.empty:
-        for _, camp in campaigns.iterrows():
-            bg_img = camp['img_url'] if camp['img_url'] else "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=600"
-            badge_html = f"<span style='background:#E88D48; color:#fff; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:bold;'>{camp['badge']}</span>" if camp['badge'] else ""
-            st.markdown(f"""
-            <div style="border-radius:15px; overflow:hidden; border:1px solid #eee; margin-bottom:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05);">
-                <div style="height:120px; background-image:url('{bg_img}'); background-size:cover; background-position:center; padding:10px; display:flex; align-items:flex-start;">{badge_html}</div>
-                <div style="padding:15px;">
-                    <h4 style="margin:0; color:#2A4B2D; font-weight:900;">{camp['title']}</h4>
-                    <p style="margin:5px 0 0 0; font-size:13px; color:#666;">{camp['description']}</p>
+    try:
+        campaigns = run_query("SELECT * FROM campaigns WHERE is_active=TRUE ORDER BY id DESC")
+        if not campaigns.empty:
+            for _, camp in campaigns.iterrows():
+                bg_img = camp['img_url'] if camp['img_url'] else "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=600"
+                badge_html = f"<span style='background:#E88D48; color:#fff; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:bold;'>{camp['badge']}</span>" if camp['badge'] else ""
+                st.markdown(f"""
+                <div style="border-radius:15px; overflow:hidden; border:1px solid #eee; margin-bottom:15px; box-shadow:0 4px 10px rgba(0,0,0,0.05);">
+                    <div style="height:120px; background-image:url('{bg_img}'); background-size:cover; background-position:center; padding:10px; display:flex; align-items:flex-start;">{badge_html}</div>
+                    <div style="padding:15px;">
+                        <h4 style="margin:0; color:#2A4B2D; font-weight:900;">{camp['title']}</h4>
+                        <p style="margin:5px 0 0 0; font-size:13px; color:#666;">{camp['description']}</p>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Hazırda aktiv kampaniya yoxdur.")
+    except Exception as e:
         st.info("Hazırda aktiv kampaniya yoxdur.")
 
 @st.dialog("🤖 AI Barista")
@@ -84,11 +86,9 @@ Müştərinin istəyi: '{user_prompt}'
 Vəzifən: Müştərinin istəyinə ən uyğun olan YALNIZ 1 VƏ YA 2 MƏHSULU bizim menyudan tap və təklif et. Qiymətləri mütləq yaz.
 Çox qısa (3-4 cümlə), şirin və emojilərlə cavab ver. Sonda 'Kassaya yaxınlaşıb sifariş verə bilərsiniz!' yaz."""
 
-                    # --- AĞILLI MODEL SEÇİMİ (XƏTANIN HƏLLİ BURA ƏLAVƏ EDİLDİ) ---
                     genai.configure(api_key=api_key)
                     valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                     
-                    # 'flash' olanı tapırıq, yoxdursa 'gemini-pro', və "models/" prefiksini mütləq silirik
                     chosen_model = next((m for m in valid_models if 'flash' in m.lower()), 'gemini-pro')
                     chosen_model = chosen_model.replace("models/", "") 
                     
@@ -111,7 +111,6 @@ def show_feedback_dialog():
     st.markdown("<h3 style='text-align:center; color:#E88D48;'>Tezliklə! 🚀</h3>", unsafe_allow_html=True)
     st.write("Bu funksiya növbəti yenilənmədə aktiv olacaq. Bizimlə qaldığınız üçün təşəkkürlər!")
 
-# --- 2. ƏSAS EKRAN (DASHBOARD) ---
 def render_customer_app(customer_id=None):
     st.markdown("""
 <style>
