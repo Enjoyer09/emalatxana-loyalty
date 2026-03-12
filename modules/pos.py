@@ -1,3 +1,4 @@
+# pos.py
 import streamlit as st
 from sqlalchemy import text
 from database import run_query, run_action, conn, get_setting
@@ -5,10 +6,7 @@ from utils import clean_qr_code, get_baku_now, get_shift_range, log_system
 import time
 import os
 import bcrypt
-
-# ==========================================================
-# 🛡️ GLOBAL DİALOGLAR (Toqquşmaların qarşısını almaq üçün)
-# ==========================================================
+import json
 
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt):
@@ -44,11 +42,12 @@ def test_auth_dialog():
     if st.button("Təsdiqlə", type="primary", use_container_width=True, key="dlg_test_confirm"):
         r = run_query("SELECT password FROM users WHERE username='admin'")
         db_hash = r.iloc[0]['password'] if not r.empty else ""
-        if (db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode())) or pin == os.environ.get("ADMIN_PASS", "admin123"):
+        if db_hash and bcrypt.checkpw(pin.encode(), db_hash.encode()):
             st.session_state.test_mode = True
             st.session_state.active_dialog = None
             st.rerun()
-        else: st.error("Səhv şifrə!")
+        else: 
+            st.error("Səhv şifrə!")
     if st.button("Ləğv et", use_container_width=True, key="dlg_test_cancel"):
         st.session_state.active_dialog = None
         st.rerun()
@@ -87,10 +86,6 @@ def z_report_dialog():
         time.sleep(1.5)
         st.session_state.active_dialog = None
         st.rerun()
-
-# ==========================================================
-# 🧠 KÖMƏKÇİ FUNKSİYALAR
-# ==========================================================
 
 def add_to_cart(cart, item):
     for i in cart: 
@@ -165,10 +160,6 @@ def clear_customer_data_callback():
     st.session_state.current_customer_ta = None
     st.session_state.search_key_counter += 1
 
-# ==========================================================
-# 🎨 MENYU VƏ UI
-# ==========================================================
-
 def render_menu(cart, key):
     menu_df = get_cached_menu()
     CAT_ORDER_MAP = {cat: i for i, cat in enumerate(["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"])}
@@ -212,10 +203,6 @@ def render_menu(cart, key):
                         add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'})
                         st.rerun()
                 i += 1
-
-# ==========================================================
-# 🏃‍♂️ ƏSAS POS SƏHİFƏSİ
-# ==========================================================
 
 def render_pos_page():
     if st.session_state.get('active_dialog'):
@@ -345,25 +332,30 @@ def render_pos_page():
                 if not st.session_state.cart_takeaway: st.error("Səbət boşdur"); st.stop()
                 is_test_mode = st.session_state.get('test_mode', False)
                 try:
-                    with conn.session as s:
-                        if not is_test_mode:
-                            for it in st.session_state.cart_takeaway:
-                                recs = s.execute(text("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m"), {"m":it['item_name']}).fetchall()
-                                for r in recs: s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"), {"q":float(r[1])*it['qty'], "n":r[0]})
-                        
-                        items_str = ", ".join([f"{x['item_name']} x{x['qty']}" for x in st.session_state.cart_takeaway])
-                        s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip, :tst)"), 
-                                  {"i":items_str,"t":final,"p":pm,"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode})
-                        
-                        if not is_test_mode and cust:
-                            new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
-                            s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": max(0, new_stars), "cid": cust['card_id']})
-                        s.commit()
+                    items_json = json.dumps(st.session_state.cart_takeaway)
+                    
+                    if not is_test_mode:
+                        for it in st.session_state.cart_takeaway:
+                            recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":it['item_name']})
+                            if not recs.empty:
+                                for _, r in recs.iterrows():
+                                    run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n", {"q":float(r['quantity_required'])*it['qty'], "n":r['ingredient_name']})
+                    
+                    run_action("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da, :tip, :tst)", 
+                              {"i":items_json,"t":final,"p":pm,"c":st.session_state.user,"time":get_baku_now(),"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode})
+                    
+                    if not is_test_mode and cust:
+                        new_stars = (cust['stars'] + sum([i['qty'] for i in st.session_state.cart_takeaway if i.get('is_coffee')])) - (free * 10)
+                        run_action("UPDATE customers SET stars = :ns WHERE card_id = :cid", {"ns": max(0, new_stars), "cid": cust['card_id']})
+                    
+                    try:
                         log_system(st.session_state.user, f"{'🧪 TEST ' if is_test_mode else ''}SATIŞ: {final:.2f} AZN")
+                    except: pass
                     
                     receipt_data = {"cart": st.session_state.cart_takeaway.copy(), "total": final}
                     st.session_state.cart_takeaway, st.session_state.current_customer_ta = [], None
                     st.session_state.search_key_counter += 1
                     st.session_state.active_dialog = ("receipt", receipt_data)
                     st.rerun()
-                except Exception as e: st.error(f"Baza xətası: {e}")
+                except Exception as e: 
+                    st.error(f"Baza xətası: {e}")
