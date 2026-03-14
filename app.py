@@ -149,9 +149,11 @@ st.markdown("""
     hr { border-top: 2px solid #3a4149 !important; opacity: 0.5; }
     .stMetric { background: var(--metal-btn); padding: 15px; border-radius: 10px; border: 2px solid #3a4149; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5); }
     .stMetric label { color: #aaa !important; font-weight: 700; } .stMetric div { color: #ffd700 !important; font-family: 'Jura'; font-weight: 900; }
+    
+    /* === VIRTUAL NUMPAD ÜÇÜN XÜSUSİ EKRAN CSS === */
+    .pin-box { background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important; height: 50px; display: flex; align-items: center; justify-content: center; color: #ffd700 !important; font-size: 32px !important; letter-spacing: 15px; margin-bottom: 15px; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
-
 
 def get_receipt_html_string(cart, total):
     return "<div>Çek HTML...</div>"
@@ -166,34 +168,59 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
 
 if not st.session_state.logged_in: check_url_token_login()
 if not st.session_state.logged_in:
-    c1,c2,c3 = st.columns([1,1,1])
+    c1,c2,c3 = st.columns([1,1.1,1]) # Ortadakı sütunu Numpad üçün bir az genişlətdik
     with c2:
         st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
+        
         with t1:
-            with st.form("sl"):
-                p = st.text_input("PIN", type="password")
-                if st.form_submit_button("Giriş", use_container_width=True):
-                    u = get_cached_users()
-                    found = False
-                    matched_user = None
-                    for _,r in u.iterrows():
-                        if r['role'] in ['staff','manager']:
-                            if verify_password(p, r['password']): 
-                                matched_user = r
-                                found = True
-                                break
-                    if matched_user is not None:
-                        st.session_state.logged_in=True
-                        st.session_state.user=matched_user['username']
-                        st.session_state.role=matched_user['role']
-                        token = create_session(matched_user['username'],matched_user['role'])
-                        st.session_state.session_token = token
-                        st.query_params.clear()
-                        st.rerun()
-                    elif not found: 
-                        st.error("Yanlış PIN")
+            # === YENİ VİRTUAL NUMPAD MƏNTİQİ BURADA BAŞLAYIR ===
+            if 'staff_pin' not in st.session_state: 
+                st.session_state.staff_pin = ""
+                
+            def staff_pad_cb(val):
+                if val == 'C': st.session_state.staff_pin = ""
+                elif val == '⌫': st.session_state.staff_pin = st.session_state.staff_pin[:-1]
+                else: 
+                    if len(st.session_state.staff_pin) < 10:
+                        st.session_state.staff_pin += str(val)
+
+            # Ekranı göstər
+            disp = "• " * len(st.session_state.staff_pin) if st.session_state.staff_pin else "<span style='color:#7b8896; font-size:16px; letter-spacing:2px; font-family:Nunito;'>PIN DAXİL EDİN</span>"
+            st.markdown(f"<div class='pin-box'>{disp}</div>", unsafe_allow_html=True)
+            
+            # Düymələri Yığ (Grid)
+            for row in [['1','2','3'], ['4','5','6'], ['7','8','9'], ['C','0','⌫']]:
+                cols = st.columns(3)
+                for i, val in enumerate(row):
+                    cols[i].button(val, key=f"spad_{val}", on_click=staff_pad_cb, args=(val,), use_container_width=True)
+            
+            st.write("")
+            if st.button("Giriş", type="primary", use_container_width=True, key="staff_login_btn"):
+                u = get_cached_users()
+                found = False
+                matched_user = None
+                for _,r in u.iterrows():
+                    if r['role'] in ['staff','manager']:
+                        if verify_password(st.session_state.staff_pin, r['password']): 
+                            matched_user = r
+                            found = True
+                            break
+                if matched_user is not None:
+                    st.session_state.logged_in=True
+                    st.session_state.user=matched_user['username']
+                    st.session_state.role=matched_user['role']
+                    token = create_session(matched_user['username'],matched_user['role'])
+                    st.session_state.session_token = token
+                    st.session_state.staff_pin = "" # Şifrəni təmizlə
+                    st.query_params.clear()
+                    st.rerun()
+                else: 
+                    st.error("Yanlış PIN")
+                    st.session_state.staff_pin = "" # Səhv olanda da təmizlə
+        
         with t2:
+            # ADMIN hissəsi klassik qalır (çünki adminlər hərfli şifrələr istifadə edə bilir)
             with st.form("al"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
