@@ -4,7 +4,7 @@ import pandas as pd
 import time
 import google.generativeai as genai
 from database import run_query, run_action, get_setting
-from utils import PRESET_CATEGORIES
+from utils import PRESET_CATEGORIES, get_baku_now
 
 def render_inventory_page():
     st.subheader("📦 Anbar İdarəetməsi və AI Analiz")
@@ -90,12 +90,10 @@ def render_inventory_page():
         df_page['min_limit'] = 10.0
     df_page['min_limit'] = pd.to_numeric(df_page['min_limit'], errors='coerce').fillna(10.0)
     
-    # STATUS SÜTUNU YARADIRIQ
     df_page['Status'] = df_page.apply(lambda x: "🔴 KRİTİK" if x['stock_qty'] <= x['min_limit'] else "🟢 NORMAL", axis=1)
 
     df_page.insert(0, "Seç", False)
     
-    # MÖHTƏŞƏM CƏDVƏL DİZAYNI 
     edited_df = st.data_editor(
         df_page, 
         hide_index=True, 
@@ -114,16 +112,20 @@ def render_inventory_page():
     sel_rows = edited_df[edited_df["Seç"]]
     sel_ids = sel_rows['id'].tolist()
     
-    c1_btn, c2_btn, c3_btn = st.columns(3)
+    # YENİ DÜYMƏLƏR: MƏDAXİL, MƏXARİC, DÜZƏLİŞ, SİL
+    c1_btn, c2_btn, c3_btn, c4_btn = st.columns(4)
     if len(sel_ids) == 1:
-        if c1_btn.button("➕ Mədaxil", key="anbar_restock_btn"): 
+        if c1_btn.button("➕ Mədaxil", key="anbar_restock_btn", use_container_width=True): 
             st.session_state.restock_item_id = int(sel_ids[0])
             st.rerun()
-        if c2_btn.button("✏️ Düzəliş", key="anbar_edit_btn"): 
+        if c2_btn.button("➖ Məxaric (Zay)", key="anbar_loss_btn", use_container_width=True): 
+            st.session_state.loss_item_id = int(sel_ids[0])
+            st.rerun()
+        if c3_btn.button("✏️ Düzəliş", key="anbar_edit_btn", use_container_width=True): 
             st.session_state.edit_item_id = int(sel_ids[0])
             st.rerun()
             
-    if len(sel_ids) > 0 and c3_btn.button("🗑️ Sil", key="anbar_del_btn"): 
+    if len(sel_ids) > 0 and c4_btn.button("🗑️ Sil", key="anbar_del_btn", use_container_width=True): 
         for i in sel_ids: 
             run_action("DELETE FROM ingredients WHERE id=:id", {"id":int(i)})
         st.success("Silindi!")
@@ -156,6 +158,31 @@ def render_inventory_page():
                         st.session_state.restock_item_id=None
                         st.rerun()
             show_restock(r_item)
+
+    # YENİ MODAL: ZƏRƏR / İTKİ SİLİNMƏSİ
+    if st.session_state.get('loss_item_id'):
+        res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.loss_item_id})
+        if not res.empty:
+            r_item = res.iloc[0]
+            @st.dialog("➖ Məxaric (Zay / İtki)")
+            def show_loss(r):
+                st.warning(f"Zay olan mal: {r['name']}\nMövcud Qalıq: {r['stock_qty']} {r['unit']}\nMaya Dəyəri: {r['unit_cost']} ₼")
+                with st.form("loss_form"):
+                    q = st.number_input(f"Silinəcək Miqdar ({r['unit']})", min_value=0.001, value=1.0, step=0.1)
+                    reason = st.text_input("Səbəb (Açıqlama)", placeholder="Məsələn: Çürüyüb, yerə dağılıb və s.")
+                    if st.form_submit_button("Təsdiqlə və Sil", type="primary"):
+                        run_action("UPDATE ingredients SET stock_qty=stock_qty-:q WHERE id=:id", {"q":q, "id":int(r['id'])})
+                        
+                        loss_amt = q * float(r['unit_cost'])
+                        if loss_amt > 0:
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Anbar İtkisi', :a, 'Anbar', :d, :u, :t, FALSE)",
+                                       {"a": loss_amt, "d": f"{r['name']} - {reason}", "u": st.session_state.user, "t": get_baku_now()})
+                        
+                        st.session_state.loss_item_id = None
+                        st.success(f"Məxaric edildi və {loss_amt:.2f} ₼ şirkət zərəri kimi loqlandı!")
+                        time.sleep(1.5)
+                        st.rerun()
+            show_loss(r_item)
 
     if st.session_state.get('edit_item_id'):
         res = run_query("SELECT * FROM ingredients WHERE id=:id", {"id":st.session_state.edit_item_id})
