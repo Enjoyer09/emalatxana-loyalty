@@ -4,8 +4,10 @@ import pandas as pd
 import datetime, time, io, os
 import plotly.express as px
 import google.generativeai as genai
-from gtts import gTTS
-import bcrypt
+try:
+    from gtts import gTTS
+except ImportError:
+    pass
 from database import run_query, run_action, get_setting, set_setting
 from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log_system
 
@@ -21,6 +23,8 @@ def render_finance_page():
             c_open1, c_open2 = st.columns([3, 1])
             open_amt = c_open1.number_input("Səhər kassada olan məbləğ (Açılış balansı - AZN)", min_value=0.0, step=1.0)
             if c_open2.form_submit_button("Kassanı Aç"):
+                # Açılış balansı ancaq informasiya xarakteri daşıyır ki, balans sonsuz şişməsin
+                set_setting("cash_limit", str(open_amt))
                 run_action(
                     "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılışı', :u, :time, :tst)", 
                     {"a": open_amt, "u": st.session_state.user, "time": get_baku_now(), "tst": is_t_active}
@@ -53,14 +57,17 @@ def render_finance_page():
     cond = f"AND created_at <= :e {test_filter}"
     p = {"e": b_end}
 
+    # 🚨 MƏNTİQ XƏTASI HƏLL EDİLDİ: Sales cədvəli və Finance Cədvəli ikiqat toplanmır
     s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Cash', 'Nəğd') {cond}", p).iloc[0]['s'] or 0.0
-    e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
-    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category != 'Kassa Açılışı' {cond}", p).iloc[0]['i'] or 0.0
-    disp_cash = float(s_cash) + float(i_cash) - float(e_cash)
-    
     s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Card', 'Kart') {cond}", p).iloc[0]['s'] or 0.0
+    
+    e_cash = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
     e_card = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Emalatxana Kartı' AND type='out' {cond}", p).iloc[0]['e'] or 0.0
-    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' AND category != 'Kassa Açılışı' {cond}", p).iloc[0]['i'] or 0.0
+    
+    i_cash = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {cond}", p).iloc[0]['i'] or 0.0
+    i_card = run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Emalatxana Kartı' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Kart)') {cond}", p).iloc[0]['i'] or 0.0
+    
+    disp_cash = float(s_cash) + float(i_cash) - float(e_cash)
     disp_card = float(s_card) + float(i_card) - float(e_card)
 
     inv_out = run_query(f"SELECT SUM(amount) as e FROM finance WHERE source IN ('Investor', 'Laptop Market Kartı') AND type='out' {cond}", p).iloc[0]['e'] or 0.0
@@ -138,25 +145,45 @@ def render_finance_page():
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Təsisçi Çıxarışı', :a, 'Kassa', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('in', 'Təsisçi Çıxarışı', :a, 'Investor', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                     elif t_dir == "💳 Kart ➡️ 🏪 Kassa":
-                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Daxili Transfer', :a, 'Emalatxana Kartı', :d, :n, :is_t)", {"a":t_amt, "d":t_reason, "n":n, "is_t":is_t_active})
                         if has_comm:
                             comm = max(0.60, t_amt * 0.005)
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Nağdlaşdırma', :n, :is_t)", {"a":comm, "n":n, "is_t":is_t_active})
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Daxili Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
                     elif t_dir == "🏪 Kassa ➡️ 💳 Kart":
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
-                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('out', 'Daxili Transfer', :a, 'Kassa', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
+                        run_action("INSERT INTO finance (type, category, amount, source, created_at, is_test) VALUES ('in', 'Daxili Transfer', :a, 'Emalatxana Kartı', :n, :is_t)", {"a":t_amt, "n":n, "is_t":is_t_active})
                     st.success("Transfer uğurla tamamlandı!"); time.sleep(1); st.rerun()
 
     if st.session_state.role in ['admin', 'manager']:
+        
+        # 🚨 KART BALANSININ ÇIXARIŞI VƏ SIFIRLANMASI ÜÇÜN YENİ BÖLMƏ
+        with st.expander("💳 Kart Balansından Çıxarış (Sıfırlama / Təhvil)", expanded=False):
+            st.info("Kartınızda yığılan pulu real həyatda başqa hesaba, təchizatçıya və ya özünüzə çıxardaraq kartı sıfırlaya bilərsiniz.")
+            with st.form("card_withdraw_form"):
+                cw_amt = st.number_input("Çıxarılan Məbləğ (AZN)", max_value=float(disp_card) if float(disp_card) > 0 else 10000.0, value=float(disp_card) if float(disp_card) > 0 else 0.0, step=1.0)
+                cw_reason = st.selectbox("Səbəb", ["Təsisçi Çıxarışı", "Təchizatçı Ödənişi", "Aylıq Xərclərin Ödənişi", "Digər Banka Transfer"])
+                cw_desc = st.text_input("Açıqlama", "Kartdan çıxarış")
+                if st.form_submit_button("Kartdan Çıxarış Et", type="primary"):
+                    if cw_amt > 0:
+                        run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', :c, :a, 'Emalatxana Kartı', :d, :u, :t, FALSE)",
+                                   {"c": cw_reason, "a": cw_amt, "d": cw_desc, "u": st.session_state.user, "t": get_baku_now()})
+                        st.success("Çıxarış qeydə alındı! Kart balansı uğurla azaldıldı.")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("Məbləğ 0 ola bilməz.")
+
+        # ⚖️ SİZİN ÜÇÜN XÜSUSİ BALANS KORREKSİYASI (SİNXRONİZASİYA)
         with st.expander("⚖️ Balans Korreksiyası (Sinxronizasiya)", expanded=True):
-            st.warning("Məcburi balans bərabərləşdirmə (Nağd və Kart balansını bugünkü real məbləğlərə uyğunlaşdırır).")
+            st.warning("Məcburi balans bərabərləşdirmə (Dövr ərzində yaranmış kəsir və ya artığı bu düymə vasitəsilə 1 saniyədə tənzimləyə bilərsiniz).")
             with st.form("sync_balance"):
                 new_cash = st.number_input("Kassada olmalı olan HƏQİQİ nağd məbləğ (AZN):", value=120.20, step=1.0)
                 new_card = st.number_input("Kartda olmalı olan HƏQİQİ məbləğ (AZN):", value=12.78, step=1.0)
                 if st.form_submit_button("Balansları İndi Bərabərləşdir"):
                     u = st.session_state.user
                     now = get_baku_now()
+                    
                     cash_diff = new_cash - disp_cash
                     if abs(cash_diff) > 0.01:
                         c_type = 'in' if cash_diff > 0 else 'out'
@@ -168,7 +195,8 @@ def render_finance_page():
                         c_type = 'in' if card_diff > 0 else 'out'
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, 'Sistem Korreksiyası', :a, 'Emalatxana Kartı', 'Məcburi Balans Sinxronizasiyası', :u, :time, FALSE)", 
                                    {"t": c_type, "a": abs(card_diff), "u": u, "time": now})
-                    st.success("✅ Balanslar uğurla sinxronlaşdırıldı!")
+                    
+                    st.success("✅ Sistem uğurla real pulla sinxronlaşdırıldı!")
                     time.sleep(1.5)
                     st.rerun()
 
@@ -182,7 +210,7 @@ def render_finance_page():
     
     if not fin_df.empty:
         total_comm = fin_df[fin_df['category'] == 'Bank Komissiyası']['amount'].sum()
-        if total_comm > 0: st.warning(f"🏦 Bu aralıqda ödənilən cəmi bank komissiyası: **{total_comm:.2f} ₼**")
+        if total_comm > 0: st.warning(f"🏦 Bu aralıqda ödənilən cəmi bank komissiyası (və ya POS faizi): **{total_comm:.2f} ₼**")
         
         api_key = os.environ.get("GEMINI_API_KEY") or get_setting("gemini_api_key", "")
         if not api_key:
@@ -206,11 +234,18 @@ def render_finance_page():
         
         exp_only = fin_df[fin_df['type'] == 'out']
         if not exp_only.empty:
-            fig = px.pie(exp_only.groupby('category')['amount'].sum().reset_index(), values='amount', names='category', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-            fig.update_layout(height=350, margin=dict(t=0, b=0, l=0, r=0))
-            st.plotly_chart(fig, use_container_width=True)
+            # Transferlər və Korreksiyalar sadəcə texniki hərəkət olduğu üçün xərc Qrafikindən (Pie Chart) çıxarıldı
+            exp_real = exp_only[~exp_only['category'].isin(['Daxili Transfer', 'Borc Ödənişi', 'Sistem Korreksiyası', 'Təsisçi Çıxarışı'])]
+            if not exp_real.empty:
+                fig = px.pie(exp_real.groupby('category')['amount'].sum().reset_index(), values='amount', names='category', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+                fig.update_layout(height=350, margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
             
-        if st.session_state.role in ['admin', 'manager']:
+        hide_pos = st.checkbox("🛒 Cədvəldə kiçik POS Satışlarını gizlət (Ancaq böyük xərcləri göstər)", value=True)
+        if hide_pos:
+            fin_df = fin_df[fin_df['description'] != 'POS Satış']
+
+        if st.session_state.role in ['admin', 'manager'] and not fin_df.empty:
             fin_disp = fin_df.copy()
             fin_disp.insert(0, "Seç", False)
             edited_fin = st.data_editor(fin_disp, hide_index=True, use_container_width=True, disabled=['id', 'created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by'], key="fin_editor")
@@ -266,7 +301,7 @@ def render_finance_page():
                     t_idx = 0 if row['type'] == 'out' else 1
                     e_type = st.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"], index=t_idx)
                     
-                    src_opts = ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor"]
+                    src_opts = ["Kassa", "Emalatxana Kartı", "Laptop Market Kartı", "Seyf", "Investor", "Nisyə / Borc"]
                     s_idx = src_opts.index(row['source']) if row['source'] in src_opts else 0
                     e_src = st.selectbox("Mənbə", src_opts, index=s_idx)
                     
@@ -295,5 +330,5 @@ def render_finance_page():
                             st.error(f"Xəta: {e}")
                 edit_fin_d()
 
-        else:
+        elif not fin_df.empty:
             st.dataframe(fin_df[['created_at', 'type', 'category', 'amount', 'source', 'description', 'created_by']], hide_index=True, use_container_width=True)
