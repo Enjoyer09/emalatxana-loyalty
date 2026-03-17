@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import random
@@ -18,8 +19,8 @@ from modules.analytics import render_analytics_page, render_z_report_page
 from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
 from modules.ai_manager import render_ai_page
-
 from modules.customer_menu import render_customer_app
+from modules.combos import render_combos_page  # 🍔 Kombolar modulu əlavə edildi
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
@@ -168,13 +169,12 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
 
 if not st.session_state.logged_in: check_url_token_login()
 if not st.session_state.logged_in:
-    c1,c2,c3 = st.columns([1,1.1,1]) # Ortadakı sütunu Numpad üçün bir az genişlətdik
+    c1,c2,c3 = st.columns([1,1.1,1])
     with c2:
         st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
         
         with t1:
-            # === YENİ VİRTUAL NUMPAD MƏNTİQİ BURADA BAŞLAYIR ===
             if 'staff_pin' not in st.session_state: 
                 st.session_state.staff_pin = ""
                 
@@ -185,11 +185,9 @@ if not st.session_state.logged_in:
                     if len(st.session_state.staff_pin) < 10:
                         st.session_state.staff_pin += str(val)
 
-            # Ekranı göstər
             disp = "• " * len(st.session_state.staff_pin) if st.session_state.staff_pin else "<span style='color:#7b8896; font-size:16px; letter-spacing:2px; font-family:Nunito;'>PIN DAXİL EDİN</span>"
             st.markdown(f"<div class='pin-box'>{disp}</div>", unsafe_allow_html=True)
             
-            # Düymələri Yığ (Grid)
             for row in [['1','2','3'], ['4','5','6'], ['7','8','9'], ['C','0','⌫']]:
                 cols = st.columns(3)
                 for i, val in enumerate(row):
@@ -212,15 +210,14 @@ if not st.session_state.logged_in:
                     st.session_state.role=matched_user['role']
                     token = create_session(matched_user['username'],matched_user['role'])
                     st.session_state.session_token = token
-                    st.session_state.staff_pin = "" # Şifrəni təmizlə
+                    st.session_state.staff_pin = ""
                     st.query_params.clear()
                     st.rerun()
                 else: 
                     st.error("Yanlış PIN")
-                    st.session_state.staff_pin = "" # Səhv olanda da təmizlə
+                    st.session_state.staff_pin = ""
         
         with t2:
-            # ADMIN hissəsi klassik qalır (çünki adminlər hərfli şifrələr istifadə edə bilir)
             with st.form("al"):
                 u = st.text_input("User")
                 p = st.text_input("Pass", type="password")
@@ -284,7 +281,7 @@ else:
     show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
     if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): tabs_list.append("🍽️ MASALAR")
     if role in ['staff', 'manager', 'admin']: tabs_list.append("📊 Z-Hesabat")
-    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
+    if role in ['admin', 'manager']: tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "🍔 Kombolar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
     if role == 'manager':
         if get_setting("manager_perm_menu", "FALSE") == "TRUE": tabs_list.append("📋 Menyu")
         if get_setting("manager_perm_recipes", "FALSE") == "TRUE": tabs_list.append("📜 Resept")
@@ -301,6 +298,7 @@ else:
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
     elif selected_tab == "📦 Anbar": render_inventory_page()
+    elif selected_tab == "🍔 Kombolar": render_combos_page()
     elif selected_tab == "💰 Maliyyə": render_finance_page()
     elif selected_tab == "📊 Analitika": render_analytics_page()
     elif selected_tab == "👥 CRM": render_crm_page()
