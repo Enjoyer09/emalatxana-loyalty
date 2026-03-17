@@ -96,6 +96,35 @@ def render_settings_page():
                     st.rerun()
                 else:
                     st.error("QR ID boş ola bilməz.")
+                    
+        # 🤖 AI İLƏ KAMPANİYA VƏ MARKETİNQ TƏKLİFLƏRİ YARATMA (YENİ)
+        with st.expander("🤖 AI ilə Kampaniya və Marketinq Təklifləri Yarat", expanded=False):
+            api_key = get_setting("gemini_api_key", "")
+            if not api_key:
+                st.warning("⚠️ AI funksiyası üçün 'Ayarlar' və ya 'AI Menecer' bölməsində API Key daxil edin.")
+            else:
+                camp_goal = st.text_input("🎯 Kampaniyanın Məqsədi (məs: Tələbələri cəlb etmək, Səhər satışlarını artırmaq)")
+                if st.button("🚀 AI Kampaniya Yarat", type="primary"):
+                    if camp_goal:
+                        with st.spinner("🤖 AI müştəri datalarını və məqsədi analiz edir..."):
+                            try:
+                                import google.generativeai as genai
+                                genai.configure(api_key=api_key)
+                                valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                                chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'models/gemini-pro')
+                                model = genai.GenerativeModel(chosen_model)
+                                
+                                cust_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
+                                stats_str = ", ".join([f"{r['type']}: {r['cnt']}" for _, r in cust_stats.iterrows()]) if not cust_stats.empty else "Məlumat yoxdur"
+                                
+                                prompt = f"Sən kofe şopun kreativ marketinq mütəxəssisisən. Mövcud müştəri bazamız: {stats_str}. Kampaniyanın məqsədi: '{camp_goal}'. Zəhmət olmasa, bu məqsədə uyğun 3 fərqli, cəlbedici marketinq mesajı (Instagram və ya SMS üçün) və 1 xüsusi endirim təklifi strategiyası yaz. Mətnlər qısa, səmimi və diqqətçəkici olsun."
+                                
+                                response = model.generate_content(prompt)
+                                st.markdown(f"<div style='background: #1e2226; padding: 15px; border-left: 5px solid #007bff; border-radius:10px;'>{response.text}</div>", unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"Xəta: {e}")
+                    else:
+                        st.warning("Zəhmət olmasa kampaniyanın məqsədini yazın.")
         
         customers_df = run_query("SELECT * FROM customers ORDER BY created_at DESC")
         if not customers_df.empty:
