@@ -126,16 +126,26 @@ def render_analytics_page():
                     reason = st.selectbox("Silinmə Səbəbi:", ["Səhv vurulub / Test idi (Stoka qayıtsın)", "Zay məhsul (Stoka qayıtmasın)"])
                     if st.button("Təsdiqlə və Sil", type="primary"):
                         for sid in st.session_state.sales_to_delete:
-                            if "qayıtsın" in reason:
-                                s_row = run_query("SELECT items, is_test FROM sales WHERE id=:id", {"id":sid})
-                                if not s_row.empty and not s_row.iloc[0]['is_test']:
+                            s_row = run_query("SELECT items, is_test, total, payment_method, created_at FROM sales WHERE id=:id", {"id":sid})
+                            if not s_row.empty:
+                                row_data = s_row.iloc[0]
+                                if "qayıtsın" in reason and not row_data['is_test']:
                                     try:
-                                        parsed = json.loads(s_row.iloc[0]['items'])
+                                        parsed = json.loads(row_data['items'])
                                         for item in parsed:
                                             recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":item.get('item_name')})
                                             for _, rc in recs.iterrows():
                                                 run_action("UPDATE ingredients SET stock_qty = stock_qty + :q WHERE name=:ing", {"q":float(rc['quantity_required'])*item.get('qty', 1), "ing":rc['ingredient_name']})
                                     except: pass
+                                
+                                if not row_data['is_test']:
+                                    t_date = row_data['created_at']
+                                    run_action("""
+                                        DELETE FROM finance 
+                                        WHERE description IN ('POS Satış', 'Masa Satışı', 'Kart Satış Komissiyası', 'Masa Satış Komissiyası', 'Kart Tip', 'Kart Tip (Staffa)') 
+                                        AND ABS(EXTRACT(EPOCH FROM (created_at - :td))) < 60
+                                    """, {"td": t_date})
+
                             run_action("DELETE FROM sales WHERE id=:id", {"id":sid})
                             try: log_system(st.session_state.user, f"Satış silindi (ID:{sid}). Səbəb: {reason}")
                             except: pass
@@ -173,7 +183,7 @@ def render_z_report_page():
     except: s_cogs = 0.0
     
     f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
-    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' {q_cond}", params).iloc[0]['s'] or 0.0
+    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond}", params).iloc[0]['s'] or 0.0
     
     opening_limit = float(get_setting("cash_limit", "0.0"))
     expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
