@@ -216,6 +216,7 @@ def render_z_report_page():
     if st.session_state.role == 'staff':
         my_sales = run_query(f"SELECT * FROM sales WHERE cashier=:u {q_cond} ORDER BY created_at DESC", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
         if not my_sales.empty:
+            my_sales['items'] = my_sales['items'].apply(parse_items_for_display)
             m1, m2, m3 = st.columns(3)
             m1.metric("Mənim Növbə Satışım", f"{my_sales['total'].sum():.2f} ₼")
             m2.metric("Nağd", f"{my_sales[my_sales['payment_method'].isin(['Nəğd', 'Cash'])]['total'].sum():.2f} ₼")
