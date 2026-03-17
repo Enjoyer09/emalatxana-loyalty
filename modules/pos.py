@@ -311,7 +311,9 @@ def render_pos_page():
                     with st.spinner("AI şübhəli satışları incələyir..."):
                         try:
                             genai.configure(api_key=api_key)
-                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                            chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'models/gemini-pro')
+                            model = genai.GenerativeModel(chosen_model)
                             recent_sales = run_query("SELECT id, cashier, total, discount_amount, created_at, is_test FROM sales ORDER BY created_at DESC LIMIT 50")
                             if not recent_sales.empty:
                                 sales_str = "\n".join([f"ID: {r['id']} | İşçi: {r['cashier']} | Məbləğ: {r['total']} | Endirim: {r['discount_amount']} | Test: {r['is_test']}" for _, r in recent_sales.iterrows()])
