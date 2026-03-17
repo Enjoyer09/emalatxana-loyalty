@@ -224,7 +224,7 @@ def clear_customer_data_callback():
 
 def render_menu(cart, key):
     menu_df = get_cached_menu()
-    CAT_ORDER_MAP = {cat: i for i, cat in enumerate(["Kofe (Dənələr)", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"])}
+    CAT_ORDER_MAP = {cat: i for i, cat in enumerate(["Kofe (Dənələr)", "Kombolar", "Süd Məhsulları", "Bar Məhsulları (Su/Buz)", "Siroplar", "Soslar və Pastalar", "Qablaşdırma (Stəkan/Qapaq)", "Şirniyyat (Hazır)", "İçkilər (Hazır)", "Meyvə-Tərəvəz", "Təsərrüfat/Təmizlik", "Mətbəə / Kartlar"])}
     menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER_MAP).fillna(99)
     menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
     
@@ -261,7 +261,8 @@ def render_menu(cart, key):
                         st.rerun()
                 else:
                     r = items[0]
-                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"prod_btn_{r['id']}_{key}_{sc}", use_container_width=True, type="secondary"): 
+                    btn_color = "primary" if r['category'] == "Kombolar" else "secondary"
+                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"prod_btn_{r['id']}_{key}_{sc}", use_container_width=True, type=btn_color): 
                         add_to_cart(cart, {'item_name':r['item_name'], 'price':float(r['price']), 'qty':1, 'is_coffee':r['is_coffee'], 'category':r['category'], 'status':'new'})
                         st.rerun()
                 i += 1
@@ -351,8 +352,10 @@ def render_pos_page():
                 c_head, c_del = st.columns([4,1], vertical_alignment="bottom")
                 c_head.success(f"👤 {cust['card_id']} | ⭐ {cust['stars']}")
                 c_del.button("❌", key="cust_clear_btn", on_click=clear_customer_data_callback)
-                
-            man_disc_val = st.selectbox("Endirim %", [0, 10, 20, 30, 40, 50, 100], index=0, key="cart_disc_sel")
+            
+            disc_options = {"0%": 0, "10%": 10, "15% (Tələbə)": 15, "20%": 20, "30%": 30, "40%": 40, "50%": 50, "100%": 100}
+            man_disc_label = st.selectbox("Endirim %", list(disc_options.keys()), index=0, key="cart_disc_sel")
+            man_disc_val = disc_options[man_disc_label]
             is_table_order = st.checkbox("🍽️ Masada (Servis)", key="cart_table_check")
                 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
