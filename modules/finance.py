@@ -73,7 +73,9 @@ def render_finance_page():
                     with st.spinner("AI şübhəli maliyyə çıxarışlarını incələyir..."):
                         try:
                             genai.configure(api_key=api_key)
-                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                            chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'models/gemini-pro')
+                            model = genai.GenerativeModel(chosen_model)
                             recent_fin = run_query("SELECT id, type, category, amount, source, created_by, description FROM finance ORDER BY created_at DESC LIMIT 50")
                             if not recent_fin.empty:
                                 fin_str = "\n".join([f"ID: {r['id']} | Növ: {r['type']} | Kat: {r['category']} | Məbləğ: {r['amount']} | Mənbə: {r['source']} | Qeyd: {r['description']}" for _, r in recent_fin.iterrows()])
@@ -266,8 +268,8 @@ def render_finance_page():
             else:
                 try:
                     genai.configure(api_key=api_key)
-                    valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                    chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0])
+                    valid_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'gemini-pro')
                     model = genai.GenerativeModel(chosen_model) 
                     
                     with st.spinner("🤖 AI maliyyə datalarınızı oxuyur və səsli cavab hazırlayır..."):
