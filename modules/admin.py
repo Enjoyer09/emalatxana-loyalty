@@ -5,13 +5,14 @@ import bcrypt
 import time
 import json
 import datetime
-from database import run_query, run_action, get_setting, set_setting
+from database import run_query, run_action, get_setting, set_setting, conn
+from sqlalchemy import text
 from utils import log_system, get_baku_now
 
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
     
-    tab_settings, tab_users, tab_app = st.tabs(["🍽️ Restoran Ayarları", "👥 İstifadəçilər", "📱 Müştəri Tətbiqi (App)"])
+    tab_settings, tab_users, tab_crm, tab_app = st.tabs(["🍽️ Restoran Ayarları", "👥 İstifadəçilər", "📱 Müştəri CRM & QR", "📱 Müştəri Tətbiqi (App)"])
     
     with tab_settings:
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
@@ -79,6 +80,27 @@ def render_settings_page():
                         st.success("Silindi!")
                         time.sleep(1); st.rerun()
 
+    with tab_crm:
+        st.markdown("### 📱 Müştəri QR və Loyallıq (CRM)")
+        with st.form("add_customer"):
+            card_id = st.text_input("Müştəri Kartı / QR ID (məs: 1001)")
+            c_type = st.selectbox("Müştəri Tipi / Loyallıq Dərəcəsi", ["standard", "golden", "platinum", "elite", "thermos", "ikram", "telebe"])
+            c_stars = st.number_input("Başlanğıc Ulduz Sayı", min_value=0, value=0, step=1)
+            
+            if st.form_submit_button("Müştərini Qeydiyyata Al"):
+                if card_id:
+                    run_action("INSERT INTO customers (card_id, type, stars) VALUES (:cid, :t, :s) ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
+                               {"cid": card_id, "t": c_type, "s": c_stars})
+                    st.success(f"Müştəri ({card_id}) uğurla qeydiyyata alındı/yeniləndi!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("QR ID boş ola bilməz.")
+        
+        customers_df = run_query("SELECT * FROM customers ORDER BY created_at DESC")
+        if not customers_df.empty:
+            st.dataframe(customers_df, hide_index=True)
+
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı və Məlumatlar")
         st.info("Tezliklə App ayarları bura əlavə olunacaq.")
@@ -87,7 +109,7 @@ def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
-            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'inventory', 'recipes', 'settings', 'logs']
+            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'inventory', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes']
             backup_data = {}
             for t in tables:
                 df = run_query(f"SELECT * FROM {t}")
@@ -105,17 +127,21 @@ def render_database_page():
         if st.button("Bazanı Fayldan Bərpa Et", type="primary", use_container_width=True) and uploaded_json:
             try:
                 data = json.load(uploaded_json)
-                for tbl, recs in data.items():
-                    if recs:
-                        run_action(f"TRUNCATE TABLE {tbl} CASCADE")
-                        for r in recs:
-                            cols = ", ".join(r.keys())
-                            vals = ":" + ", :".join(r.keys())
-                            run_action(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})", r)
+                with conn.session as s:
+                    for tbl, recs in data.items():
+                        if recs and tbl.isidentifier():
+                            s.execute(text(f"TRUNCATE TABLE {tbl} CASCADE"))
+                            for r in recs:
+                                clean_keys = [k for k in r.keys() if k.isidentifier()]
+                                cols = ", ".join(clean_keys)
+                                vals = ":" + ", :".join(clean_keys)
+                                safe_r = {k: r[k] for k in clean_keys}
+                                s.execute(text(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})"), safe_r)
+                    s.commit()
                 st.success("✅ Baza uğurla bərpa edildi!")
                 time.sleep(2); st.rerun()
             except Exception as e:
-                st.error(f"Bərpa xətası: {e}")
+                st.error(f"Bərpa xətası (Rollback edildi): {e}")
 
 def render_logs_page():
     st.subheader("🕵️‍♂️ Sistem Loqları")
@@ -130,6 +156,7 @@ def render_logs_page():
 
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
+    run_action("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, title TEXT, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
     with st.form("new_note", clear_on_submit=True):
         title = st.text_input("Başlıq")
         note = st.text_area("Qeyd")
@@ -148,4 +175,4 @@ def render_notes_page():
                         run_action("DELETE FROM admin_notes WHERE id=:id", {"id": n['id']})
                         st.rerun()
     except Exception:
-        run_action("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, title TEXT, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        pass
