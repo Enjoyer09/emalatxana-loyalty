@@ -2,8 +2,9 @@
 import streamlit as st
 import json
 import time
+import pandas as pd
 from sqlalchemy import text
-from database import run_query, run_action
+from database import run_query, run_action, get_setting
 from utils import get_baku_now, CAT_ORDER_MAP
 from modules.pos import add_to_cart, calculate_smart_total, get_cached_menu
 from auth import admin_confirm_dialog
@@ -31,20 +32,44 @@ def render_tables_page():
                 st.success("Mətbəxə göndərildi!")
                 time.sleep(1)
                 st.rerun()
-                
+            
+            st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
+            pm = st.radio("Ödəniş Metodu", ["Nəğd", "Kart"], horizontal=True, label_visibility="collapsed", key="tbl_pm_radio")
+            
             if st.button("✅ Masanı Ödə və Bağla", key="pay_tbl_btn", type="primary"):
                 if final > 0:
+                    is_test_mode = st.session_state.get('test_mode', False)
                     try:
                         items_json = json.dumps(st.session_state.cart_table)
-                        for it in st.session_state.cart_table:
-                            recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m":it['item_name']})
-                            if not recs.empty:
-                                for _, r in recs.iterrows():
-                                    run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n", {"q":float(r['quantity_required'])*it['qty'], "n":r['ingredient_name']})
-                                    
-                        run_action("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount) VALUES (:i,:t,'Cash',:c,:time,:ot,:da)", 
-                                  {"i": items_json, "t": final, "c": st.session_state.user, "time": get_baku_now(), "ot": raw, "da": raw-final})
+                        total_cogs = 0.0
+                        now = get_baku_now()
                         
+                        if not is_test_mode:
+                            for it in st.session_state.cart_table:
+                                recs = run_query("SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m", {"m":it['item_name']})
+                                if not recs.empty:
+                                    for _, r in recs.iterrows():
+                                        qty_req = float(r['quantity_required']) * it['qty']
+                                        u_cost = float(r['unit_cost']) if pd.notna(r['unit_cost']) else 0.0
+                                        total_cogs += (qty_req * u_cost)
+                                        run_action("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n", {"q":qty_req, "n":r['ingredient_name']})
+                                        
+                        run_action("INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount, is_test, cogs) VALUES (:i,:t,:p,:c,:time,:ot,:da,:tst,:cogs)", 
+                                  {"i": items_json, "t": final, "p": pm, "c": st.session_state.user, "time": now, "ot": raw, "da": raw-final, "tst": is_test_mode, "cogs": total_cogs})
+                        
+                        if not is_test_mode:
+                            db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
+                            pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', :cat, :a, :src, 'Masa Satışı', :u, :t, FALSE)", 
+                                       {"cat": pm_cat, "a": final, "src": db_pm, "u": st.session_state.user, "t": now})
+                            
+                            if pm == "Kart":
+                                min_comm = float(get_setting("bank_comm_min", "0.60"))
+                                pct_comm = float(get_setting("bank_comm_pct", "0.02"))
+                                comm = max(min_comm, final * pct_comm)
+                                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Masa Satış Komissiyası', :u, :t, FALSE)", 
+                                           {"a": comm, "u": st.session_state.user, "t": now})
+
                         run_action("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id", {"id": tbl['id']})
                         st.session_state.selected_table = None
                         st.session_state.cart_table = []
