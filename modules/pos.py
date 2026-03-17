@@ -178,7 +178,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         current_stars = customer.get('stars', 0)
         ctype = customer.get('type', 'standard')
         if ctype == 'ikram': return sum([i['qty']*i['price'] for i in cart]), 0.0, 1.0, 0, 0, 0, True
-        rates = {'golden':0.05, 'platinum':0.10, 'elite':0.20, 'thermos':0.20}
+        rates = {'golden':0.05, 'platinum':0.10, 'elite':0.20, 'thermos':0.20, 'telebe':0.15}
         disc_rate = rates.get(ctype, 0.0)
         
     coffee_qty = sum([i['qty'] for i in cart if i.get('is_coffee')])
