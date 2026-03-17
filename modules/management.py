@@ -292,18 +292,29 @@ def render_recipe_page():
 def render_crm_page():
     st.subheader("👥 CRM və AI Marketoloq")
     crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
+    stat_str = []
     if not crm_stats.empty:
         cols = st.columns(len(crm_stats))
-        stat_str = []
         for idx, row in crm_stats.iterrows():
             lbl = row['type'].upper()
-            icon = "🥇" if lbl=='GOLDEN' else "🥈" if lbl=='PLATINUM' else "💎" if lbl=='ELITE' else "🎁" if lbl=='IKRAM' else "👤"
+            icon = "🥇" if lbl=='GOLDEN' else "🥈" if lbl=='PLATINUM' else "💎" if lbl=='ELITE' else "🎁" if lbl=='IKRAM' else "🎓" if lbl=='TELEBE' else "👤"
             with cols[idx % 4]: 
                 st.metric(f"{icon} {lbl}", row['cnt'])
             stat_str.append(f"{lbl}: {row['cnt']} nəfər")
             
     st.divider()
     
+    with st.expander("🤖 AI Marketoloq (Kampaniya & Mesaj Strategiyası)", expanded=True):
+        camp_goal = st.text_input("🎯 Kampaniya Məqsədi", placeholder="Məs: Tələbələri imtahan ərəfəsində cəlb etmək")
+        if st.button("🚀 AI İdeya və Strategiya Yarat", type="primary", use_container_width=True):
+            if camp_goal:
+                with st.spinner("🤖 AI Marketoloq məlumatları analiz edir və strategiya qurur..."):
+                    prompt = f"Sən 'Füzuli' kofe şopunun Kreativ Marketinq Müdirisən. Müştəri bazası: {', '.join(stat_str)}. Kampaniyanın məqsədi: '{camp_goal}'. Bu məqsədə çatmaq üçün gənclərin və hədəf kütlənin diqqətini çəkəcək şirin, emojilərlə bəzədilmiş 3 fərqli qısa mesaj şablonu (SMS/Müştəri Ekranı üçün) və 1 cəlbedici endirim/kombo strategiyası yaz. Azərbaycan dilində olsun."
+                    ai_msg = call_ai(prompt)
+                    st.markdown(f"<div style='background: #1e2226; padding:25px; border-left:6px solid #e6b800; border-radius:12px; margin-bottom:15px; box-shadow: inset 3px 3px 8px rgba(0,0,0,0.6); font-size: 15px; line-height: 1.6;'>{ai_msg}</div>", unsafe_allow_html=True)
+            else:
+                st.warning("Məqsədi daxil edin!")
+
     if st.session_state.role in ['admin','manager']:
          with st.expander("🎫 Yeni Kupon / Promo Kod Yarat", expanded=False):
             with st.form("new_promo_code_form", clear_on_submit=True):
@@ -326,37 +337,29 @@ def render_crm_page():
     sel_cust_ids = ed_cust[ed_cust["Seç"]]['card_id'].tolist()
     
     st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🤖 AI Mesaj İdeyası (Marketoloq)", type="secondary"):
-            with st.spinner("Marketoloq düşünür..."):
-                prompt = f"Sən 'Füzuli' kofe şopunun Marketinq müdirisən. Müştərilərin yenidən gəlməsini təşviq edəcək, şirin, emojilərlə 3 fərqli qısa mesaj şablonu ver. Azərbaycan dilində yaz."
-                ai_msg = call_ai(prompt)
-                st.markdown(f"<div style='background: #1e2226; padding:20px; border-left:5px solid #ffd700; border-radius:10px; margin-bottom:15px; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5);'>{ai_msg}</div>", unsafe_allow_html=True)
-
-        msg = st.text_area("Ekran Mesajı (Müştərinin QR ekranına gedəcək)")
-        promo_list = ["(Kuponsuz)"] + run_query("SELECT code FROM promo_codes")['code'].tolist() if not run_query("SELECT code FROM promo_codes").empty else ["(Kuponsuz)"]
-        sel_promo = st.selectbox("Promo Yapışdır (Seçilənlərə)", promo_list)
-        if st.button("📢 Seçilənlərə Göndər / Tətbiq Et", key="crm_send_btn", type="primary"):
-            if sel_cust_ids:
-                try:
-                    for cid in sel_cust_ids:
-                        if msg: 
-                            run_action("INSERT INTO notifications (card_id, message) VALUES (:c, :m)", {"c":cid, "m":msg})
-                        if sel_promo != "(Kuponsuz)": 
-                            expires = get_baku_now() + datetime.timedelta(days=30)
-                            run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:c, :t, :e)", {"c":cid, "t":sel_promo, "e":expires})
-                    st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
-                except Exception as e:
-                    st.error(f"Xəta: {e}")
-            else:
-                st.error("Cədvəldən ən azı 1 müştəri seçin!")
+    msg = st.text_area("Ekran Mesajı (Müştərinin QR ekranına gedəcək)")
+    promo_list = ["(Kuponsuz)"] + run_query("SELECT code FROM promo_codes")['code'].tolist() if not run_query("SELECT code FROM promo_codes").empty else ["(Kuponsuz)"]
+    sel_promo = st.selectbox("Promo Yapışdır (Seçilənlərə)", promo_list)
+    if st.button("📢 Seçilənlərə Göndər / Tətbiq Et", key="crm_send_btn", type="primary"):
+        if sel_cust_ids:
+            try:
+                for cid in sel_cust_ids:
+                    if msg: 
+                        run_action("INSERT INTO notifications (card_id, message) VALUES (:c, :m)", {"c":cid, "m":msg})
+                    if sel_promo != "(Kuponsuz)": 
+                        expires = get_baku_now() + datetime.timedelta(days=30)
+                        run_action("INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:c, :t, :e)", {"c":cid, "t":sel_promo, "e":expires})
+                st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
+            except Exception as e:
+                st.error(f"Xəta: {e}")
+        else:
+            st.error("Cədvəldən ən azı 1 müştəri seçin!")
 
 def render_qr_page():
     st.subheader("QR Generator")
     c1, c2 = st.columns(2)
     cnt = c1.number_input("Say", 1, 50, key="qr_cnt")
-    tp = c2.selectbox("Tip", ["Golden (5%)","Platinum (10%)","Elite (20%)","Thermos (20%)","Ikram (100%)"], key="qr_type")
+    tp = c2.selectbox("Tip", ["Golden (5%)", "Platinum (10%)", "Elite (20%)", "Thermos (20%)", "Ikram (100%)", "Tələbə (15%)"], key="qr_type")
     use_inventory = st.checkbox("📦 Fiziki Kartı Anbardan Sil", key="qr_inv")
     selected_card_stock = None
     
@@ -379,7 +382,7 @@ def render_qr_page():
                 
         if can_proceed:
             try:
-                type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram"}
+                type_map = {"Golden (5%)":"golden", "Platinum (10%)":"platinum", "Elite (20%)":"elite", "Thermos (20%)":"thermos", "Ikram (100%)":"ikram", "Tələbə (15%)":"telebe"}
                 generated_qrs = []
                 for _ in range(cnt):
                     cid = str(random.randint(10000000,99999999))
