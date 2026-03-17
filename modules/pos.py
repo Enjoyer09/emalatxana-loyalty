@@ -1,13 +1,14 @@
 # modules/pos.py
 import streamlit as st
 from sqlalchemy import text
-from database import run_query, run_action, conn, get_setting
+from database import run_query, run_action, conn, get_setting, set_setting
 from utils import clean_qr_code, get_baku_now, get_shift_range, log_system
 import time
 import os
 import bcrypt
 import json
 import pandas as pd
+import google.generativeai as genai
 
 @st.dialog("🧾 Satış Çeki")
 def show_receipt_dialog(cart_data, total_amt):
@@ -61,10 +62,53 @@ def variant_dialog(items, cart):
             st.session_state.active_dialog = None
             st.rerun()
 
+def get_current_shift_expected_cash():
+    log_date_z = get_logical_date()
+    sh_start_z, sh_end_z = get_shift_range(log_date_z)
+    q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+    params = {"d":sh_start_z, "e":sh_end_z}
+
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'] or 0.0
+    f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
+    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond}", params).iloc[0]['s'] or 0.0
+    opening_limit = float(get_setting("cash_limit", "0.0"))
+    return opening_limit + float(s_cash) + float(f_in) - float(f_out)
+
+@st.dialog("🤝 X-Hesabat (Smeni Təhvil Ver)")
+def x_report_dialog():
+    st.write("Növbəni növbəti işçiyə və ya kassaya təhvil verin.")
+    expected_cash = get_current_shift_expected_cash()
+    st.info(f"Sistemə görə kassada olmalıdır: **{expected_cash:.2f} ₼**")
+    
+    actual_cash = st.number_input("Kassada olan real məbləğ (AZN):", value=float(expected_cash), min_value=0.0, step=1.0)
+    
+    if st.button("🤝 Təhvil Ver", use_container_width=True, type="primary"):
+        diff = actual_cash - expected_cash
+        u = st.session_state.user
+        now = get_baku_now()
+        
+        if abs(diff) > 0.01:
+            c_type = 'in' if diff > 0 else 'out'
+            cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'X-Hesabat zamanı yaranan fərq', :u, :time, FALSE)", 
+                       {"t": c_type, "c": cat, "a": abs(diff), "u": u, "time": now})
+        
+        run_action("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)", 
+                   {"u": u, "e": expected_cash, "a": actual_cash, "t": now})
+        
+        set_setting("cash_limit", str(actual_cash))
+        st.success(f"Növbə təhvil verildi! Kassa balansı {actual_cash:.2f} ₼ olaraq yeniləndi.")
+        time.sleep(1.5)
+        st.session_state.active_dialog = None
+        st.rerun()
+
 @st.dialog("🔴 Z-Hesabat və Maaş")
 def z_report_dialog():
     st.write("Günü tamamlamaq və kassanı bağlamaq üçün:")
-    next_open = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=100.0, step=1.0, key="z_next_open")
+    expected_cash = get_current_shift_expected_cash()
+    st.info(f"Sistemə görə kassada olmalıdır: **{expected_cash:.2f} ₼**")
+    
+    actual_z = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=float(expected_cash), step=1.0, key="z_next_open")
     default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
     wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0, step=1.0, key="z_wage_amt")
     
@@ -73,16 +117,34 @@ def z_report_dialog():
         u = st.session_state.user
         now = get_baku_now()
         is_t = st.session_state.get('test_mode', False)
+        
+        diff = actual_z - (expected_cash - wage_amt)
+        if abs(diff) > 0.01:
+            c_type = 'in' if diff > 0 else 'out'
+            cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı yaranan fərq', :u, :time, FALSE)", 
+                       {"t": c_type, "c": cat, "a": abs(diff), "u": u, "time": now})
+        
         run_action(
             "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
             {"a": wage_amt, "u": u, "subj": u, "time": now, "tst": is_t}
         )
-        run_action(
-            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Sabah üçün açılış balansı', :u, :time, :tst)", 
-            {"a": next_open, "u": u, "time": now, "tst": is_t}
-        )
-        log_system(u, f"Günü bağladı. Maaş: {wage_amt} AZN, Sabahkı açılış: {next_open} AZN")
-        st.success(f"Uğurlu! Maaş ({wage_amt} AZN) kassadan çıxıldı.")
+        
+        set_setting("cash_limit", str(actual_z))
+        
+        try:
+            log_date_z = get_logical_date()
+            sh_start_z, sh_end_z = get_shift_range(log_date_z)
+            q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+            s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+            s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {q_cond}", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+            s_cogs = run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", {"d":sh_start_z, "e":sh_end_z}).iloc[0]['s'] or 0.0
+            run_action("INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)",
+                       {"ts":float(s_cash)+float(s_card), "cs":float(s_cash), "crs":float(s_card), "cogs":float(s_cogs), "ac":actual_z, "gb":u, "t":now})
+        except: pass
+        
+        log_system(u, f"Günü bağladı. Maaş: {wage_amt} AZN, Sabahkı açılış: {actual_z} AZN")
+        st.success(f"Uğurlu! Maaş ({wage_amt} AZN) kassadan çıxıldı və gün bağlandı.")
         time.sleep(1.5)
         st.session_state.active_dialog = None
         st.rerun()
@@ -211,38 +273,53 @@ def render_pos_page():
         elif d_type == "test_auth": test_auth_dialog()
         elif d_type == "receipt": show_receipt_dialog(d_data['cart'], d_data['total'])
         elif d_type == "z_report": z_report_dialog()
+        elif d_type == "x_report": x_report_dialog()
         st.stop()
 
-    c_carts = st.columns([1, 1, 1, 2, 1])
+    c_carts = st.columns([1, 1, 1, 1, 1, 1])
     for cid in [1, 2, 3]:
         count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
-        if c_carts[cid-1].button(f"🛒 Növbə {cid} ({count})", key=f"nav_cart_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True): 
+        if c_carts[cid-1].button(f"🛒 Səbət {cid} ({count})", key=f"nav_cart_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True): 
             switch_cart(cid)
             st.rerun()
     
     with c_carts[3]:
-        with st.popover("☕ Yalnız Çayvoy Vur"):
-            t_amt = st.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0, key="nav_tip_inp")
-            if st.button("💳 Karta Vur", type="primary", key="nav_tip_btn"):
-                if t_amt > 0:
-                    if st.session_state.get('test_mode'): st.success("🧪 [TEST] Tip qeyd edildi."); time.sleep(1); st.rerun()
-                    else:
-                        try:
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Satışsız Tip', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Satışsız Tip (Staffa)', :u, :t)", {"a":t_amt, "u":st.session_state.user, "t":get_baku_now()})
-                            st.success(f"✅ {t_amt} AZN Tip!"); time.sleep(1); st.rerun()
-                        except Exception as e: st.error(f"Xəta: {e}")
-        if st.button("📊 Günü Bitir (Z)", key="z_report_trigger_btn", use_container_width=True):
-            st.session_state.active_dialog = ("z_report", None)
+        if st.button("🤝 X-Hesabat", key="x_report_trigger_btn", use_container_width=True):
+            st.session_state.active_dialog = ("x_report", None)
             st.rerun()
 
     with c_carts[4]:
+        if st.button("🔴 Z-Hesabat", key="z_report_trigger_btn", use_container_width=True):
+            st.session_state.active_dialog = ("z_report", None)
+            st.rerun()
+
+    with c_carts[5]:
         if st.session_state.get('test_mode'):
             if st.button("🧪 Test: ON", type="primary", use_container_width=True, key="test_off_btn"):
                 st.session_state.test_mode = False; st.rerun()
         else:
             if st.button("🧪 Test: OFF", type="secondary", use_container_width=True, key="test_on_btn"):
                 st.session_state.active_dialog = ("test_auth", None); st.rerun()
+
+    if st.session_state.role in ['admin', 'manager']:
+        with st.expander("🤖 Süni İntellekt: POS Audit (Anormal Endirimlər və Ləğvlər)"):
+            api_key = get_setting("gemini_api_key", "")
+            if not api_key:
+                st.warning("AI funksiyası üçün API Key daxil edin (Ayarlar).")
+            else:
+                if st.button("🔍 POS Datalarını Skan Et", use_container_width=True):
+                    with st.spinner("AI şübhəli satışları incələyir..."):
+                        try:
+                            genai.configure(api_key=api_key)
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            recent_sales = run_query("SELECT id, cashier, total, discount_amount, created_at, is_test FROM sales ORDER BY created_at DESC LIMIT 50")
+                            if not recent_sales.empty:
+                                sales_str = "\n".join([f"ID: {r['id']} | İşçi: {r['cashier']} | Məbləğ: {r['total']} | Endirim: {r['discount_amount']} | Test: {r['is_test']}" for _, r in recent_sales.iterrows()])
+                                prompt = f"Sən kofe şopun auditorusan. Aşağıdakı son 50 satışda anormal endirimləri, çoxlu test satışlarını tap və qısa məlumat ver:\n\n{sales_str}"
+                                response = model.generate_content(prompt)
+                                st.markdown(f"<div style='background: #1e2226; padding: 15px; border-left: 5px solid #dc3545;'>{response.text}</div>", unsafe_allow_html=True)
+                            else: st.info("Kifayət qədər satış yoxdur.")
+                        except Exception as e: st.error(e)
 
     st.markdown("---")
     if st.session_state.get('test_mode'): st.warning("⚠️ TEST REJİMİ AKTİVDİR")
