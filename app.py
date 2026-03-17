@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from database import ensure_schema, run_query, run_action, get_setting, set_setting, conn
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users
-from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift, verify_password
+from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift, verify_password, get_logical_date, get_shift_range
 
 from modules.pos import render_pos_page
 from modules.tables import render_tables_page
@@ -20,7 +20,7 @@ from modules.management import render_menu_page, render_recipe_page, render_crm_
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
 from modules.ai_manager import render_ai_page
 from modules.customer_menu import render_customer_app
-from modules.combos import render_combos_page  # 🍔 Kombolar modulu əlavə edildi
+from modules.combos import render_combos_page 
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
@@ -35,13 +35,58 @@ def shift_modal(mode):
             open_shift(st.session_state.user)
             st.rerun()
     elif mode == "close":
-        st.error("Diqqət! Çıxış etməzdən əvvəl Z-Hesabatı vurduğunuzdan əmin olun.")
-        st.write("Növbəni rəsmən bağlayıb çıxış etmək istəyirsiniz?")
-        if st.button("🚪 Növbəni Bağla və Çıx", use_container_width=True, type="primary"):
-            close_shift(st.session_state.user)
-            st.session_state.clear()
-            st.session_state.logged_in = False
-            st.rerun()
+        st.error("Diqqət! Çıxış etməzdən əvvəl hesabatları vurduğunuzdan əmin olun.")
+        
+        if not st.session_state.get('handover_mode'):
+            st.write("Növbədən necə çıxmaq istəyirsiniz?")
+            c1, c2 = st.columns(2)
+            
+            if c1.button("🤝 Smeni Təhvil Ver", use_container_width=True):
+                log_date_z = get_logical_date()
+                sh_start_z, sh_end_z = get_shift_range(log_date_z)
+                q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+                params = {"d":sh_start_z, "e":sh_end_z}
+
+                s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'] or 0.0
+                f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
+                f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond}", params).iloc[0]['s'] or 0.0
+                opening_limit = float(get_setting("cash_limit", "0.0"))
+                expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+                
+                st.session_state.handover_expected = expected_cash
+                st.session_state.handover_mode = True
+                st.rerun()
+                
+            if c2.button("🚪 Növbəni Bağla və Çıx", type="primary", use_container_width=True):
+                close_shift(st.session_state.user)
+                st.session_state.clear()
+                st.session_state.logged_in = False
+                st.rerun()
+        else:
+            st.info(f"Sistemə görə kassada olmalıdır: **{st.session_state.handover_expected:.2f} ₼**")
+            actual = st.number_input("Kassadakı real nağd (Təhvil verilən):", value=float(st.session_state.handover_expected), min_value=0.0, step=1.0)
+            
+            c_conf1, c_conf2 = st.columns(2)
+            if c_conf1.button("✅ Təsdiqlə və Çıxış Et", type="primary", use_container_width=True):
+                diff = actual - st.session_state.handover_expected
+                if abs(diff) > 0.01:
+                    c_type = 'in' if diff > 0 else 'out'
+                    cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+                    run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Smen Təhvili (Çıxış) zamanı fərq', :u, :time, FALSE)", 
+                               {"t": c_type, "c": cat, "a": abs(diff), "u": st.session_state.user, "time": get_baku_now()})
+                
+                run_action("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)", 
+                           {"u": st.session_state.user, "e": st.session_state.handover_expected, "a": actual, "t": get_baku_now()})
+                
+                set_setting("cash_limit", str(actual))
+                
+                st.session_state.clear()
+                st.session_state.logged_in = False
+                st.rerun()
+                
+            if c_conf2.button("Ləğv Et", use_container_width=True):
+                st.session_state.handover_mode = False
+                st.rerun()
 
 params = st.query_params
 if "id" in params:
@@ -151,7 +196,6 @@ st.markdown("""
     .stMetric { background: var(--metal-btn); padding: 15px; border-radius: 10px; border: 2px solid #3a4149; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5); }
     .stMetric label { color: #aaa !important; font-weight: 700; } .stMetric div { color: #ffd700 !important; font-family: 'Jura'; font-weight: 900; }
     
-    /* === VIRTUAL NUMPAD ÜÇÜN XÜSUSİ EKRAN CSS === */
     .pin-box { background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important; height: 50px; display: flex; align-items: center; justify-content: center; color: #ffd700 !important; font-size: 32px !important; letter-spacing: 15px; margin-bottom: 15px; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
