@@ -1,3 +1,4 @@
+# modules/pos.py
 import streamlit as st
 from sqlalchemy import text
 from database import run_query, run_action, conn, get_setting
@@ -347,7 +348,7 @@ def render_pos_page():
                               {"i":items_json,"t":final,"p":pm,"c":st.session_state.user,"time":now,"cid":cust['card_id'] if cust else None, "ot":raw, "da":raw-final, "tip":card_tips, "tst":is_test_mode, "cogs":total_cogs})
                     
                     if not is_test_mode and final > 0:
-                        db_pm = "Kassa" if pm == "Nəğd" else "Emalatxana Kartı"
+                        db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
                         pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
                         
                         run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', :cat, :a, :src, 'POS Satış', :u, :t, FALSE)", 
@@ -357,11 +358,11 @@ def render_pos_page():
                             min_comm = float(get_setting("bank_comm_min", "0.60"))
                             pct_comm = float(get_setting("bank_comm_pct", "0.02"))
                             comm = max(min_comm, final * pct_comm)
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Emalatxana Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE)", 
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE)", 
                                        {"a": comm, "u": st.session_state.user, "t": now})
 
                         if card_tips > 0:
-                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Emalatxana Kartı', 'Kart Tip', :u, :t)", {"a":card_tips, "u":st.session_state.user, "t":now})
+                            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Kart Tip', :u, :t)", {"a":card_tips, "u":st.session_state.user, "t":now})
                             run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t)", {"a":card_tips, "u":st.session_state.user, "t":now})
                     
                     if not is_test_mode and cust:
