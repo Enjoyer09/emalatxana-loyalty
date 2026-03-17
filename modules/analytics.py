@@ -190,3 +190,93 @@ def render_analytics_page():
                 st.bar_chart(pd.DataFrame(list(item_counts.items()), columns=['Məhsul', 'Say']).set_index('Məhsul'))
     else:
         st.info("Məlumat tapılmadı.")
+
+def render_z_report_page():
+    st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
+    log_date_z = get_logical_date()
+    sh_start_z, sh_end_z = get_shift_range(log_date_z)
+    
+    q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+    params = {"d":sh_start_z, "e":sh_end_z}
+
+    s_cash = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'] or 0.0
+    s_card = run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {q_cond}", params).iloc[0]['s'] or 0.0
+    try: s_cogs = run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", params).iloc[0]['s'] or 0.0
+    except: s_cogs = 0.0
+    
+    f_out = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond}", params).iloc[0]['s'] or 0.0
+    f_in = run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond}", params).iloc[0]['s'] or 0.0
+    
+    opening_limit = float(get_setting("cash_limit", "0.0"))
+    expected_cash = opening_limit + float(s_cash) + float(f_in) - float(f_out)
+
+    if st.session_state.role == 'staff':
+        my_sales = run_query(f"SELECT * FROM sales WHERE cashier=:u {q_cond} ORDER BY created_at DESC", {"u": st.session_state.user, "d": sh_start_z, "e": sh_end_z})
+        if not my_sales.empty:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Mənim Növbə Satışım", f"{my_sales['total'].sum():.2f} ₼")
+            m2.metric("Nağd", f"{my_sales[my_sales['payment_method'].isin(['Nəğd', 'Cash'])]['total'].sum():.2f} ₼")
+            m3.metric("Kart", f"{my_sales[my_sales['payment_method'].isin(['Kart', 'Card'])]['total'].sum():.2f} ₼")
+            disp_cols = ['id', 'created_at', 'items', 'total', 'payment_method']
+            if 'cogs' in my_sales.columns: disp_cols.append('cogs')
+            st.dataframe(my_sales[disp_cols], hide_index=True, use_container_width=True)
+        else:
+            st.warning("Bu növbədə hələ satışınız yoxdur.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Kassa Açılış Balansı", f"{opening_limit:.2f} ₼")
+        c2.metric("Nağd Satış", f"{float(s_cash):.2f} ₼")
+        c3.metric("Kart Satış", f"{float(s_card):.2f} ₼")
+
+        st.markdown("---")
+        c4, c5, c6 = st.columns(3)
+        c4.metric("Kassaya Mədaxil (Satışsız)", f"{float(f_in):.2f} ₼")
+        c5.metric("Kassadan Məxaric (Xərc)", f"{float(f_out):.2f} ₼")
+        c6.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
+
+        if st.session_state.role in ['admin', 'manager']:
+            st.markdown(f"**Günlük Maya Dəyəri (COGS):** {float(s_cogs):.2f} ₼ | **Günlük Brutto Mənfəət:** {(float(s_cash)+float(s_card)) - float(s_cogs):.2f} ₼")
+        
+        with st.expander("💸 GÜNLÜK MAAŞ/AVANS ÖDƏ"):
+            with st.form("salary_form_fix"):
+                emp = st.selectbox("İşçi", run_query("SELECT username FROM users")['username'].tolist())
+                amt = st.number_input("Məbləğ", min_value=0.0)
+                if st.form_submit_button("💰 Ödə"):
+                    run_action("INSERT INTO finance (type, category, amount, source, created_by, description, created_at) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', :u, :d, :t)", {"a":amt, "u":st.session_state.user, "d":f"{emp} avans", "t":get_baku_now()})
+                    st.success("Ödənildi!"); time.sleep(1); st.rerun()
+
+    cx, cz = st.columns(2)
+    if cx.button("🤝 Növbəni Təhvil Ver (X)", use_container_width=True):
+        @st.dialog("🤝 X-Hesabat")
+        def x_dialog_fix():
+            actual = st.number_input("Kassadakı nağd:", value=float(expected_cash))
+            if st.button("Təsdiqlə"):
+                run_action("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:hb, :ec, :ac, :t)", {"hb":st.session_state.user, "ec":expected_cash, "ac":actual, "t":get_baku_now()})
+                st.success("Təhvil verildi!"); time.sleep(1); st.rerun()
+        x_dialog_fix()
+
+    if cz.button("🔴 Günü Bitir (Z)", type="primary", use_container_width=True):
+        @st.dialog("🔴 Z-Hesabat və Maaş")
+        def z_dialog_updated():
+            st.write(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
+            actual_z = st.number_input("Sabahkı açılış balansı (Kassada qalan):", value=float(expected_cash))
+            
+            default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
+            wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0)
+            
+            if st.button("✅ Günü Bağla və Maaşı Çıxar"):
+                u = st.session_state.user
+                now = get_baku_now()
+                is_t = st.session_state.get('test_mode', False)
+                
+                run_action("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", 
+                           {"a": wage_amt, "u": u, "subj": u, "time": now, "tst": is_t})
+                
+                try:
+                    run_action("INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)",
+                               {"ts":float(s_cash)+float(s_card), "cs":float(s_cash), "crs":float(s_card), "cogs":float(s_cogs), "ac":actual_z, "gb":u, "t":now})
+                except: pass
+                
+                set_setting("cash_limit", str(actual_z))
+                st.success("GÜN BAĞLANDI!"); time.sleep(1); st.rerun()
+        z_dialog_updated()
