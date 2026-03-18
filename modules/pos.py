@@ -1,4 +1,4 @@
-# modules/pos.py — FINAL PATCHED v3.2
+# modules/pos.py — FINAL PATCHED v3.3
 import streamlit as st
 import json
 import time
@@ -69,6 +69,7 @@ def test_auth_dialog():
         else:
             st.error("Səhv şifrə!")
             log_system(st.session_state.get('user', 'unknown'), "TEST_MODE_FAILED")
+
     if st.button("Ləğv et", use_container_width=True, key="dlg_test_cancel"):
         st.session_state.active_dialog = None
         st.rerun()
@@ -247,7 +248,7 @@ def add_to_cart(cart, item):
 
 
 # ============================================================
-# TOTAL CALC
+# SMART TOTAL
 # ============================================================
 def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0, is_eco_cup=False):
     total = Decimal("0")
@@ -333,56 +334,87 @@ def clear_customer_data_callback():
 
 
 # ============================================================
-# MENU GRID
+# MENU RENDER — FIXED GRID
 # ============================================================
 def render_menu(cart, key):
     menu_df = get_cached_menu()
+
     CAT_ORDER = {
-        "Kofe (Dənələr)": 0, "Kombolar": 1, "Süd Məhsulları": 2, "Bar Məhsulları (Su/Buz)": 3,
-        "Siroplar": 4, "Soslar və Pastalar": 5, "Qablaşdırma (Stəkan/Qapaq)": 6,
-        "Şirniyyat (Hazır)": 7, "İçkilər (Hazır)": 8, "Meyvə-Tərəvəz": 9,
-        "Təsərrüfat/Təmizlik": 10, "Mətbəə / Kartlar": 11
+        "Kofe (Dənələr)": 0,
+        "Kombolar": 1,
+        "Süd Məhsulları": 2,
+        "Bar Məhsulları (Su/Buz)": 3,
+        "Siroplar": 4,
+        "Soslar və Pastalar": 5,
+        "Qablaşdırma (Stəkan/Qapaq)": 6,
+        "Şirniyyat (Hazır)": 7,
+        "İçkilər (Hazır)": 8,
+        "Meyvə-Tərəvəz": 9,
+        "Təsərrüfat/Təmizlik": 10,
+        "Mətbəə / Kartlar": 11
     }
+
+    if menu_df.empty:
+        st.warning("Menyu boşdur.")
+        return
+
     menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER).fillna(99)
     menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
 
     c_search, _ = st.columns([1, 1])
     pos_search = c_search.text_input("🔍 Axtar...", key=f"pos_s_{key}", label_visibility="collapsed")
+
     if pos_search:
         menu_df = menu_df[menu_df['item_name'].str.contains(pos_search, case=False, na=False)]
 
-    existing_cats = sorted(menu_df['category'].unique().tolist(), key=lambda x: CAT_ORDER.get(x, 99))
+    existing_cats = sorted(menu_df['category'].dropna().unique().tolist(), key=lambda x: CAT_ORDER.get(x, 99))
     cats = ["HAMISI"] + [c.upper() for c in existing_cats]
     sc_upper = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key=f"c_rad_{key}")
     sc = "Hamısı" if sc_upper == "HAMISI" else next((c for c in existing_cats if c.upper() == sc_upper), "Hamısı")
 
     prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
 
-    if not prods.empty:
-        groups = {}
-        for _, r in prods.iterrows():
-            n = r['item_name']
-            base = n
-            for s in [" S", " M", " L", " XL", " Single", " Double"]:
-                if n.endswith(s):
-                    base = n[:-len(s)]
-                    break
-            if base not in groups:
-                groups[base] = []
-            groups[base].append(r)
+    if prods.empty:
+        st.info("Bu kateqoriyada məhsul yoxdur.")
+        return
 
+    groups = {}
+    for _, r in prods.iterrows():
+        n = r['item_name']
+        base = n
+        for s in [" S", " M", " L", " XL", " Single", " Double"]:
+            if n.endswith(s):
+                base = n[:-len(s)]
+                break
+        if base not in groups:
+            groups[base] = []
+        groups[base].append(r)
+
+    group_items = list(groups.items())
+    for row_start in range(0, len(group_items), 4):
         cols = st.columns(4)
-        idx = 0
-        for base, items in groups.items():
-            with cols[idx % 4]:
+        row_slice = group_items[row_start:row_start + 4]
+
+        for col_idx, (base, items) in enumerate(row_slice):
+            with cols[col_idx]:
                 if len(items) > 1:
-                    if st.button(f"{base}\n▾", key=f"grp_btn_{base}_{key}_{sc}", use_container_width=True, type="secondary"):
+                    if st.button(
+                        f"{base}\n▾",
+                        key=f"grp_btn_{base}_{key}_{sc}_{row_start}_{col_idx}",
+                        use_container_width=True,
+                        type="secondary"
+                    ):
                         st.session_state.active_dialog = ("variants", items)
                         st.rerun()
                 else:
                     r = items[0]
                     btn_color = "primary" if r['category'] == "Kombolar" else "secondary"
-                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"prod_btn_{r['id']}_{key}_{sc}", use_container_width=True, type=btn_color):
+                    if st.button(
+                        f"{r['item_name']}\n{r['price']}₼",
+                        key=f"prod_btn_{r['id']}_{key}_{sc}_{row_start}_{col_idx}",
+                        use_container_width=True,
+                        type=btn_color
+                    ):
                         add_to_cart(cart, {
                             'item_name': r['item_name'],
                             'price': float(r['price']),
@@ -491,7 +523,6 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                         if pm != 'Staff':
                             db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
                             pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
-
                             s.execute(
                                 text("""
                                     INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
@@ -504,7 +535,6 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                                 min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                                 pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
                                 comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
                                 s.execute(
                                     text("""
                                         INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
@@ -534,7 +564,6 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                     current_stars = cust.get('stars', 0)
                     free_cof = min(int((current_stars + coffee_qty) // 10), coffee_qty)
                     new_stars = max(0, current_stars + coffee_qty - (free_cof * 10))
-
                     s.execute(
                         text("UPDATE customers SET stars = :ns WHERE card_id = :cid"),
                         {"ns": new_stars, "cid": cust['card_id']}
@@ -566,7 +595,6 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                 s.rollback()
                 logger.error(f"finalize_sale failed: {e}", exc_info=True)
                 raise e
-
     else:
         with conn.session as s:
             try:
@@ -629,9 +657,6 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                 raise e
 
 
-# ============================================================
-# MAIN POS PAGE
-# ============================================================
 def render_pos_page():
     if st.session_state.get('active_dialog'):
         d_type, d_data = st.session_state.active_dialog
@@ -650,12 +675,7 @@ def render_pos_page():
     c_carts = st.columns([1, 1, 1, 1, 1, 1])
     for cid in [1, 2, 3]:
         count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
-        if c_carts[cid - 1].button(
-            f"🛒 Səbət {cid} ({count})",
-            key=f"nav_cart_{cid}",
-            type="primary" if cid == st.session_state.active_cart_id else "secondary",
-            use_container_width=True
-        ):
+        if c_carts[cid - 1].button(f"🛒 Səbət {cid} ({count})", key=f"nav_cart_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True):
             switch_cart(cid)
             st.rerun()
 
