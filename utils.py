@@ -1,4 +1,4 @@
-# utils.py — PATCHED v3.2 (Structured Logging)
+# utils.py — FINAL PATCHED v3.2
 import datetime
 import io
 import base64
@@ -24,9 +24,6 @@ except ImportError:
 
 from database import get_setting, run_action, run_query
 
-# ============================================================
-# CONSTANTS
-# ============================================================
 BRAND_NAME = "Emalatkhana POS AI Powered"
 VERSION = "3.2"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
@@ -59,9 +56,7 @@ SK_SHIFT_START = "shift_start_time"
 SK_SHIFT_END = "shift_end_time"
 SK_CASH_LIMIT = "cash_limit"
 
-# ============================================================
-# DECIMAL HELPERS
-# ============================================================
+
 def safe_decimal(val, default="0"):
     import pandas as pd_check
     if val is None or (isinstance(val, float) and (pd_check.isna(val) or val != val)):
@@ -73,9 +68,6 @@ def format_money(val):
         return f"{val:.2f}"
     return f"{Decimal(str(val)):.2f}"
 
-# ============================================================
-# TIME
-# ============================================================
 def get_baku_now():
     tz_name = get_setting(SK_TIMEZONE, "Asia/Baku")
     if ZoneInfo:
@@ -122,9 +114,6 @@ def get_shift_range(logical_date=None):
         shift_end += datetime.timedelta(days=1)
     return shift_start, shift_end
 
-# ============================================================
-# QR / IMAGE
-# ============================================================
 def clean_qr_code(code):
     if not code:
         return ""
@@ -153,15 +142,7 @@ def generate_styled_qr(data):
         logger.error(f"Error generating QR: {e}")
         return None
 
-# ============================================================
-# STRUCTURED LOGGING
-# ============================================================
 def log_system(user, action, details=None):
-    """
-    Structured audit logging.
-    action -> qısa event kodu (məs: SALE_CREATED)
-    details -> dict / list / str
-    """
     try:
         if isinstance(details, (dict, list)):
             details_str = json.dumps(details, ensure_ascii=False, default=str)
@@ -182,9 +163,6 @@ def log_system(user, action, details=None):
     except Exception as e:
         print(f"System log error: {e}")
 
-# ============================================================
-# PASSWORD
-# ============================================================
 def hash_password(password):
     import bcrypt
     if not password or len(password) < 4:
@@ -206,9 +184,6 @@ def verify_password(plain_password, hashed_password):
     except:
         return False
 
-# ============================================================
-# SHIFT
-# ============================================================
 def get_shift_status():
     try:
         res = run_query("SELECT key, value FROM settings WHERE key IN ('current_shift_status', 'shift_open_time')")
@@ -231,9 +206,6 @@ def close_shift(user):
     log_system(user, "SHIFT_CLOSED", {"closed_at": str(get_baku_now())})
     return True
 
-# ============================================================
-# HAPPY HOUR
-# ============================================================
 def get_active_happy_hour():
     try:
         now = get_baku_now()
