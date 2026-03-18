@@ -1,4 +1,4 @@
-# utils.py — PATCHED v3.0 (+ Happy Hour)
+# utils.py — PATCHED v3.1 (Log Fix)
 import datetime
 import io
 import base64
@@ -27,7 +27,7 @@ from database import get_setting, run_action, run_query
 # CONSTANTS
 # ============================================================
 BRAND_NAME = "Emalatkhana POS AI Powered"
-VERSION = "3.0"
+VERSION = "3.1"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
 APP_URL = "https://emalatxana.ironwaves.store"
 
@@ -83,7 +83,6 @@ def get_baku_now():
             return datetime.datetime.now(zone)
         except:
             pass
-    # Fallback
     offset_str = get_setting(SK_UTC_OFFSET, "4")
     try:
         offset_hours = int(offset_str)
@@ -154,16 +153,31 @@ def generate_styled_qr(data):
         return None
 
 # ============================================================
-# LOGGING
+# LOGGING — FIX
 # ============================================================
 def log_system(user, action, details=None):
     try:
         run_action(
             'INSERT INTO logs ("user", action, details, created_at) VALUES (:u, :a, :d, :t)',
-            {"u": str(user), "a": str(action), "d": str(details) if details else None, "t": get_baku_now()}
+            {
+                "u": str(user) if user is not None else "system",
+                "a": str(action),
+                "d": str(details) if details is not None else None,
+                "t": get_baku_now()
+            }
         )
     except Exception as e:
-        logger.error(f"System log error: {e}")
+        try:
+            run_action(
+                'INSERT INTO logs ("user", action, created_at) VALUES (:u, :a, :t)',
+                {
+                    "u": str(user) if user is not None else "system",
+                    "a": str(action),
+                    "t": get_baku_now()
+                }
+            )
+        except Exception as e2:
+            logger.error(f"System log error: {e2}")
 
 # ============================================================
 # PASSWORD
@@ -215,20 +229,16 @@ def close_shift(user):
     return True
 
 # ============================================================
-# HAPPY HOUR CHECK (YENİ)
+# HAPPY HOUR
 # ============================================================
 def get_active_happy_hour():
-    """Hazırda aktiv happy hour varsa qaytarır, yoxsa None"""
     try:
         now = get_baku_now()
         current_time = now.strftime("%H:%M:%S")
         current_day = str(now.isoweekday())
-
         hh_df = run_query("SELECT * FROM happy_hours WHERE is_active=TRUE")
-
         if hh_df.empty:
             return None
-
         for _, hh in hh_df.iterrows():
             days = str(hh.get('days_of_week', '1,2,3,4,5,6,7')).split(',')
             if current_day not in [d.strip() for d in days]:
