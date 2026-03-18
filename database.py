@@ -1,4 +1,4 @@
-# database.py — PATCHED v4.0
+# database.py — FINAL PATCHED v4.0
 import streamlit as st
 from sqlalchemy import text
 import os
@@ -6,6 +6,7 @@ import pandas as pd
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 # ============================================================
 # CONNECTION
@@ -35,7 +36,9 @@ def get_connection():
         logger.critical(f"DB connection failed: {e}", exc_info=True)
         st.stop()
 
+
 conn = get_connection()
+
 
 # ============================================================
 # QUERY HELPERS
@@ -43,8 +46,10 @@ conn = get_connection()
 def run_query(q, p=None):
     return conn.query(q, params=p if p else {}, ttl=0)
 
+
 def run_query_cached(q, p=None, ttl=60):
     return conn.query(q, params=p if p else {}, ttl=ttl)
+
 
 def run_action(q, p=None, session=None):
     if session:
@@ -55,6 +60,7 @@ def run_action(q, p=None, session=None):
         s.execute(text(q), p if p else {})
         s.commit()
     return True
+
 
 def run_transaction(actions: list):
     with conn.session as s:
@@ -68,6 +74,7 @@ def run_transaction(actions: list):
             logger.error(f"Transaction failed: {e}", exc_info=True)
             raise e
 
+
 # ============================================================
 # SETTINGS HELPERS
 # ============================================================
@@ -79,6 +86,7 @@ def get_setting(key, default=""):
         logger.error(f"get_setting('{key}') failed: {e}")
         return default
 
+
 def set_setting(key, value):
     run_action(
         "INSERT INTO settings (key, value) VALUES (:k, :v) "
@@ -86,15 +94,14 @@ def set_setting(key, value):
         {"k": key, "v": value}
     )
 
+
 # ============================================================
 # SCHEMA
 # ============================================================
 @st.cache_resource
 def ensure_schema():
     with conn.session as s:
-        # --------------------------------------------------------
         # SETTINGS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -102,9 +109,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # USERS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
@@ -116,9 +121,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # ACTIVE SESSIONS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS active_sessions (
                 token TEXT PRIMARY KEY,
@@ -129,9 +132,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # TABLES
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS tables (
                 id SERIAL PRIMARY KEY,
@@ -143,9 +144,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # MENU
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS menu (
                 id SERIAL PRIMARY KEY,
@@ -159,9 +158,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # SALES
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS sales (
                 id SERIAL PRIMARY KEY,
@@ -183,9 +180,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # FINANCE
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS finance (
                 id SERIAL PRIMARY KEY,
@@ -200,13 +195,12 @@ def ensure_schema():
                 is_test BOOLEAN DEFAULT FALSE,
                 is_deleted BOOLEAN DEFAULT FALSE,
                 deleted_by TEXT,
-                deleted_at TIMESTAMP
+                deleted_at TIMESTAMP,
+                sale_id INTEGER
             );
         """))
 
-        # --------------------------------------------------------
         # FINANCE AUDIT LOG
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS finance_audit_log (
                 id SERIAL PRIMARY KEY,
@@ -220,9 +214,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # LOGS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS logs (
                 id SERIAL PRIMARY KEY,
@@ -234,9 +226,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # Z REPORTS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS z_reports (
                 id SERIAL PRIMARY KEY,
@@ -250,9 +240,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # SHIFT HANDOVERS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS shift_handovers (
                 id SERIAL PRIMARY KEY,
@@ -263,9 +251,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # CORRECTION REQUESTS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS correction_requests (
                 id SERIAL PRIMARY KEY,
@@ -279,9 +265,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # REFUNDS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS refunds (
                 id SERIAL PRIMARY KEY,
@@ -296,9 +280,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # KITCHEN ORDERS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS kitchen_orders (
                 id SERIAL PRIMARY KEY,
@@ -316,9 +298,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # HAPPY HOURS
-        # --------------------------------------------------------
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS happy_hours (
                 id SERIAL PRIMARY KEY,
@@ -334,9 +314,7 @@ def ensure_schema():
             );
         """))
 
-        # --------------------------------------------------------
         # SAFE COLUMN ADDITIONS
-        # --------------------------------------------------------
         columns_to_add = [
             ("sales", "is_test", "BOOLEAN DEFAULT FALSE"),
             ("sales", "bank_fee", "DECIMAL(10,2) DEFAULT 0"),
@@ -349,6 +327,7 @@ def ensure_schema():
             ("finance", "deleted_by", "TEXT"),
             ("finance", "deleted_at", "TIMESTAMP"),
             ("finance", "subject", "TEXT"),
+            ("finance", "sale_id", "INTEGER"),
 
             ("logs", "details", "TEXT"),
             ("logs", "ip", "TEXT"),
@@ -368,18 +347,14 @@ def ensure_schema():
                 except Exception as e:
                     logger.warning(f"Column add {tbl}.{col} failed: {e}")
 
-        # --------------------------------------------------------
         # DEFAULT SETTINGS
-        # --------------------------------------------------------
         s.execute(text("""
             INSERT INTO settings (key, value)
             VALUES ('current_shift_status', 'Closed')
             ON CONFLICT DO NOTHING
         """))
 
-        # --------------------------------------------------------
         # DEFAULT ADMIN
-        # --------------------------------------------------------
         existing_admin = s.execute(text("SELECT 1 FROM users WHERE username='admin'")).fetchone()
         if not existing_admin:
             import bcrypt
