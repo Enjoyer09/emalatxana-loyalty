@@ -1,4 +1,4 @@
-# modules/finance.py — PATCHED v2.1
+# modules/finance.py — PATCHED v3.2 (Structured Logging)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -26,7 +26,7 @@ except ImportError:
 
 
 # ============================================================
-# AUDIT TRAIL HELPERS
+# AUDIT HELPERS
 # ============================================================
 def audit_finance_action(original_id, action, original_data, new_data, performed_by, reason=""):
     run_action(
@@ -50,12 +50,25 @@ def soft_delete_finance(record_id, deleted_by, reason):
         raise ValueError(f"Record {record_id} not found")
 
     row_data = original.iloc[0].to_dict()
+
     run_action(
         "UPDATE finance SET is_deleted=TRUE, deleted_by=:by, deleted_at=:at WHERE id=:id",
         {"by": deleted_by, "at": get_baku_now(), "id": record_id}
     )
+
     audit_finance_action(record_id, "DELETE", row_data, None, deleted_by, reason)
-    log_system(deleted_by, f"FINANCE_DELETE: id={record_id}, amount={row_data.get('amount')}, reason={reason}")
+
+    log_system(
+        deleted_by,
+        "FINANCE_DELETE",
+        {
+            "record_id": record_id,
+            "amount": row_data.get('amount'),
+            "category": row_data.get('category'),
+            "source": row_data.get('source'),
+            "reason": reason
+        }
+    )
 
 
 def update_finance_record(record_id, new_values, updated_by):
@@ -64,12 +77,30 @@ def update_finance_record(record_id, new_values, updated_by):
         raise ValueError(f"Record {record_id} not found")
 
     old_data = original.iloc[0].to_dict()
+
     run_action(
         "UPDATE finance SET amount=:a, category=:c, description=:d WHERE id=:id",
-        {"a": new_values['amount'], "c": new_values['category'], "d": new_values['description'], "id": record_id}
+        {
+            "a": str(Decimal(str(new_values['amount']))),
+            "c": new_values['category'],
+            "d": new_values['description'],
+            "id": record_id
+        }
     )
+
     audit_finance_action(record_id, "UPDATE", old_data, new_values, updated_by)
-    log_system(updated_by, f"FINANCE_UPDATE: id={record_id}")
+
+    log_system(
+        updated_by,
+        "FINANCE_UPDATE",
+        {
+            "record_id": record_id,
+            "old_amount": old_data.get('amount'),
+            "new_amount": new_values['amount'],
+            "old_category": old_data.get('category'),
+            "new_category": new_values['category']
+        }
+    )
 
 
 # ============================================================
@@ -84,20 +115,20 @@ def execute_transfer(direction, amount, desc, user, is_test, commission=0):
     directions_map = {
         "card_to_cash": [
             ("out", "Daxili Transfer", amt, "Bank Kartı", desc + " (Kassaya)"),
-            ("in", "Daxili Transfer", amt, "Kassa", desc + " (Kartdan)"),
+            ("in", "Daxili Transfer", amt, "Kassa", desc + " (Kartdan)")
         ],
         "cash_to_card": [
             ("out", "Daxili Transfer", amt, "Kassa", desc + " (Karta)"),
-            ("in", "Daxili Transfer", amt, "Bank Kartı", desc + " (Kassadan)"),
+            ("in", "Daxili Transfer", amt, "Bank Kartı", desc + " (Kassadan)")
         ],
         "cash_to_debt": [
             ("out", "Borc Ödənişi", amt, "Kassa", desc),
-            ("in", "Borc Ödənişi", amt, "Nisyə / Borc", "Kassadan ödənildi"),
+            ("in", "Borc Ödənişi", amt, "Nisyə / Borc", "Kassadan ödənildi")
         ],
         "card_to_debt": [
             ("out", "Borc Ödənişi", amt, "Bank Kartı", desc),
-            ("in", "Borc Ödənişi", amt, "Nisyə / Borc", "Kartdan ödənildi"),
-        ],
+            ("in", "Borc Ödənişi", amt, "Nisyə / Borc", "Kartdan ödənildi")
+        ]
     }
 
     entries = directions_map.get(direction, [])
@@ -116,7 +147,18 @@ def execute_transfer(direction, amount, desc, user, is_test, commission=0):
         ))
 
     run_transaction(actions)
-    log_system(user, f"TRANSFER: {direction}, amount={amt}, commission={comm}")
+
+    log_system(
+        user,
+        "FINANCE_TRANSFER",
+        {
+            "direction": direction,
+            "amount": amt,
+            "commission": comm,
+            "description": desc,
+            "is_test": is_test
+        }
+    )
 
 
 # ============================================================
@@ -133,7 +175,9 @@ def render_finance_page():
     if is_t_active:
         st.warning("⚠️ Hazırda TEST rejimindəsiniz.")
 
-    # ---- Kassa Açılışı ----
+    # ------------------------------------------------------------
+    # Kassa açılışı
+    # ------------------------------------------------------------
     with st.expander("🔓 Səhər Kassanı Aç (Opening Balance)", expanded=False):
         today = get_logical_date()
         existing_open = run_query(
@@ -156,20 +200,26 @@ def render_finance_page():
                         "VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılış balansı', :u, :t, :tst)",
                         {"a": str(open_amt), "u": st.session_state.user, "t": get_baku_now(), "tst": is_t_active}
                     )
-                    log_system(st.session_state.user, f"Kassa açılışı: {open_amt} ₼")
+                    log_system(
+                        st.session_state.user,
+                        "CASH_REGISTER_OPENED",
+                        {
+                            "amount": open_amt,
+                            "is_test": is_t_active
+                        }
+                    )
                     st.success(f"Gün {open_amt} AZN ilə başladı!")
                     time.sleep(1.5)
                     st.rerun()
 
-    # ---- View Mode ----
+    # ------------------------------------------------------------
+    # Görünüş rejimi
+    # ------------------------------------------------------------
     view_mode = st.radio("Görünüş Rejimi:", ["🕒 Bu Növbə (08:00+)", "📅 Ümumi Balans (Yekun)"], horizontal=True)
     log_date = get_logical_date()
     shift_start, shift_end = get_shift_range(log_date)
 
-    # AYRICALIQ: sales table-da is_deleted yoxdur, finance-da var
-    # sales üçün filter:
     sales_test_filter = "AND (is_test IS NULL OR is_test = FALSE OR is_test = TRUE)" if is_t_active else "AND (is_test IS NULL OR is_test = FALSE)"
-    # finance üçün filter (is_deleted daxil):
     finance_test_filter = sales_test_filter + " AND (is_deleted IS NULL OR is_deleted = FALSE)"
 
     if "Növbə" in view_mode:
@@ -181,36 +231,17 @@ def render_finance_page():
         time_cond = "AND created_at > :d"
         params = {"d": last_z_dt}
 
-    # ---- Balans (Decimal) ----
-    # SALES queries — NO is_deleted
-    s_cash = safe_decimal(
-        run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {time_cond} {sales_test_filter}", params).iloc[0]['s']
-    )
-    s_card = safe_decimal(
-        run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {time_cond} {sales_test_filter}", params).iloc[0]['s']
-    )
+    s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {time_cond} {sales_test_filter}", params).iloc[0]['s'])
+    s_card = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') AND (status IS NULL OR status='COMPLETED') {time_cond} {sales_test_filter}", params).iloc[0]['s'])
 
-    # FINANCE queries — WITH is_deleted
-    e_cash = safe_decimal(
-        run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e']
-    )
-    i_cash = safe_decimal(
-        run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {time_cond} {finance_test_filter}", params).iloc[0]['i']
-    )
-    e_card = safe_decimal(
-        run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e']
-    )
-    i_card = safe_decimal(
-        run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Kart)') {time_cond} {finance_test_filter}", params).iloc[0]['i']
-    )
-    debt_out = safe_decimal(
-        run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Nisyə / Borc' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e']
-    )
-    debt_in = safe_decimal(
-        run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Nisyə / Borc' AND type='in' {time_cond} {finance_test_filter}", params).iloc[0]['i']
-    )
+    e_cash = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e'])
+    i_cash = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {time_cond} {finance_test_filter}", params).iloc[0]['i'])
+    e_card = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e'])
+    i_card = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Kart)') {time_cond} {finance_test_filter}", params).iloc[0]['i'])
+    debt_out = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Nisyə / Borc' AND type='out' {time_cond} {finance_test_filter}", params).iloc[0]['e'])
+    debt_in = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Nisyə / Borc' AND type='in' {time_cond} {finance_test_filter}", params).iloc[0]['i'])
 
-    start_lim = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0" if "Növbə" in view_mode else "100.0"))
+    start_lim = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0"))
     disp_cash = start_lim + s_cash + i_cash - e_cash
     disp_card_view = s_card + i_card - e_card
     disp_debt = debt_out - debt_in
@@ -224,12 +255,14 @@ def render_finance_page():
 
     st.markdown("---")
 
-    # ---- AI Audit ----
+    # ------------------------------------------------------------
+    # AI audit
+    # ------------------------------------------------------------
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🤖 Süni İntellekt: Maliyyə Audit"):
             api_key = get_setting("gemini_api_key", "")
             if not api_key:
-                st.warning("AI funksiyası üçün API Key daxil edin (Ayarlar).")
+                st.warning("AI funksiyası üçün API Key daxil edin.")
             elif genai is None:
                 st.warning("google-generativeai paketi quraşdırılmayıb.")
             else:
@@ -245,10 +278,7 @@ def render_finance_page():
                                 "WHERE (is_deleted IS NULL OR is_deleted=FALSE) ORDER BY created_at DESC LIMIT 50"
                             )
                             if not recent_fin.empty:
-                                fin_str = "\n".join([
-                                    f"Növ:{r['type']}|Kat:{r['category']}|Məbləğ:{r['amount']}|Mənbə:{r['source']}"
-                                    for _, r in recent_fin.iterrows()
-                                ])
+                                fin_str = "\n".join([f"Növ:{r['type']}|Kat:{r['category']}|Məbləğ:{r['amount']}|Mənbə:{r['source']}" for _, r in recent_fin.iterrows()])
                                 prompt = f"Biznes auditor kimi son 50 maliyyə əməliyyatında şübhəli xərcləri tap:\n{fin_str}"
                                 response = model.generate_content(prompt)
                                 st.markdown(f"<div style='background:#1e2226;padding:15px;border-left:5px solid #dc3545;'>{response.text}</div>", unsafe_allow_html=True)
@@ -257,14 +287,20 @@ def render_finance_page():
                         except Exception as e:
                             st.error(e)
 
-        # ---- Kart Çıxarış ----
+        # --------------------------------------------------------
+        # Kart çıxarış
+        # --------------------------------------------------------
         with st.expander("💳 Bank Kartından Çıxarış", expanded=False):
             st.info("Kartda yığılan məbləği çıxarış edin.")
             with st.form("card_withdraw_form"):
                 c_amt, c_rsn = st.columns(2)
                 max_wd = max(float(disp_card_view), 0.0)
-                cw_amt = c_amt.number_input("Çıxarılan Məbləğ (AZN)", max_value=max_wd if max_wd > 0 else 10000.0,
-                                            value=max_wd if max_wd > 0 else 0.0, step=1.0)
+                cw_amt = c_amt.number_input(
+                    "Çıxarılan Məbləğ (AZN)",
+                    max_value=max_wd if max_wd > 0 else 10000.0,
+                    value=max_wd if max_wd > 0 else 0.0,
+                    step=1.0
+                )
                 cw_reason = c_rsn.selectbox("Səbəb", ["Təsisçi Çıxarışı", "Xərc Ödənişi", "Transfer", "Digər"])
                 cw_desc = st.text_input("Açıqlama", "Kartdan çıxarış")
 
@@ -273,8 +309,17 @@ def render_finance_page():
                         run_action(
                             "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
                             "VALUES ('out', :c, :a, 'Bank Kartı', :d, :u, :t, :tst)",
-                            {"c": cw_reason, "a": str(Decimal(str(cw_amt))), "d": cw_desc,
-                             "u": st.session_state.user, "t": get_baku_now(), "tst": is_t_active}
+                            {"c": cw_reason, "a": str(Decimal(str(cw_amt))), "d": cw_desc, "u": st.session_state.user, "t": get_baku_now(), "tst": is_t_active}
+                        )
+                        log_system(
+                            st.session_state.user,
+                            "CARD_WITHDRAWAL",
+                            {
+                                "amount": cw_amt,
+                                "reason": cw_reason,
+                                "description": cw_desc,
+                                "is_test": is_t_active
+                            }
                         )
                         st.success(f"{cw_amt} AZN kartdan çıxarıldı!")
                         time.sleep(1.5)
@@ -282,7 +327,9 @@ def render_finance_page():
                     else:
                         st.error("Məbləğ 0-dan böyük olmalıdır.")
 
-        # ---- Balans Korreksiyası ----
+        # --------------------------------------------------------
+        # Balans korreksiyası
+        # --------------------------------------------------------
         MAX_AUTO_CORRECTION = Decimal("50.00")
         with st.expander("⚖️ Balans Korreksiyası (Sinxronizasiya)", expanded=False):
             st.warning("Məcburi balans bərabərləşdirmə.")
@@ -303,8 +350,17 @@ def render_finance_page():
                             run_action(
                                 "INSERT INTO correction_requests (requested_by, cash_diff, card_diff, reason, status, created_at) "
                                 "VALUES (:u, :cd, :crd, :r, 'PENDING', :t)",
-                                {"u": st.session_state.user, "cd": str(cash_diff), "crd": str(card_diff),
-                                 "r": correction_reason, "t": get_baku_now()}
+                                {"u": st.session_state.user, "cd": str(cash_diff), "crd": str(card_diff), "r": correction_reason, "t": get_baku_now()}
+                            )
+                            log_system(
+                                st.session_state.user,
+                                "BALANCE_CORRECTION_REQUEST",
+                                {
+                                    "cash_diff": str(cash_diff),
+                                    "card_diff": str(card_diff),
+                                    "reason": correction_reason,
+                                    "status": "PENDING"
+                                }
                             )
                             st.warning(f"⚠️ Korreksiya ({total_correction:.2f} ₼) həddən yüksəkdir. Admin təsdiqi gözlənilir.")
                         else:
@@ -329,12 +385,22 @@ def render_finance_page():
 
                             if actions:
                                 run_transaction(actions)
-                                log_system(u, f"BALANCE_CORRECTION: cash_diff={cash_diff}, card_diff={card_diff}")
+                                log_system(
+                                    u,
+                                    "BALANCE_CORRECTION_APPLIED",
+                                    {
+                                        "cash_diff": str(cash_diff),
+                                        "card_diff": str(card_diff),
+                                        "reason": correction_reason
+                                    }
+                                )
                             st.success("✅ Sinxronlaşdırıldı!")
                             time.sleep(1.5)
                             st.rerun()
 
-    # ---- Yeni Əməliyyat ----
+    # ------------------------------------------------------------
+    # Yeni əməliyyat / transfer
+    # ------------------------------------------------------------
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=False):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
 
@@ -356,8 +422,30 @@ def render_finance_page():
                     run_action(
                         "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) "
                         "VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)",
-                        {"t": db_type, "c": f_cat, "a": str(Decimal(str(f_amt))), "s": f_source, "d": f_desc,
-                         "u": st.session_state.user, "sb": f_subj, "time": get_baku_now(), "tst": is_t_active}
+                        {
+                            "t": db_type,
+                            "c": f_cat,
+                            "a": str(Decimal(str(f_amt))),
+                            "s": f_source,
+                            "d": f_desc,
+                            "u": st.session_state.user,
+                            "sb": f_subj,
+                            "time": get_baku_now(),
+                            "tst": is_t_active
+                        }
+                    )
+                    log_system(
+                        st.session_state.user,
+                        "FINANCE_ENTRY_CREATED",
+                        {
+                            "type": db_type,
+                            "category": f_cat,
+                            "amount": f_amt,
+                            "source": f_source,
+                            "subject": f_subj,
+                            "description": f_desc,
+                            "is_test": is_t_active
+                        }
                     )
                     st.success("Yazıldı!")
                     time.sleep(1)
@@ -385,7 +473,7 @@ def render_finance_page():
                         "💳 Bank Kartından ➡️ 🏪 Kassaya": "card_to_cash",
                         "🏪 Kassadan ➡️ 💳 Bank Kartına": "cash_to_card",
                         "🏪 Kassadan ➡️ 📝 Borcun Ödənməsinə": "cash_to_debt",
-                        "💳 Bank Kartından ➡️ 📝 Borcun Ödənməsinə": "card_to_debt",
+                        "💳 Bank Kartından ➡️ 📝 Borcun Ödənməsinə": "card_to_debt"
                     }
                     direction = dir_map.get(t_dir_display, "card_to_cash")
                     try:
@@ -396,7 +484,9 @@ def render_finance_page():
                     except Exception as e:
                         st.error(f"Transfer xətası: {e}")
 
-    # ---- Əməliyyat Cədvəli ----
+    # ------------------------------------------------------------
+    # Əməliyyat cədvəli
+    # ------------------------------------------------------------
     st.markdown("---")
     st.subheader("✏️ Maliyyə Əməliyyatları (Düzəliş & Silmə)")
     st.info("Səhv yazılmış əməliyyatları seçin, dəyişib 'Yadda Saxla' basın və ya silin.")
@@ -431,7 +521,6 @@ def render_finance_page():
     else:
         sd, ed = datetime.date(2000, 1, 1), today
 
-    # Build query — finance table (has is_deleted)
     conditions = [
         "DATE(created_at) >= :sd",
         "DATE(created_at) <= :ed",
@@ -454,10 +543,9 @@ def render_finance_page():
     fin_df = run_query(query, q_params)
 
     if hide_pos and not fin_df.empty:
-        pos_descriptions = ['POS Satış', 'Masa Satışı', 'Kart Satış Komissiyası', 'Masa Satış Komissiyası']
+        pos_descriptions = ['POS Satış', 'Masa Satışı', 'Kart Satış Komissiyası', 'Masa Satış Komissiyası', 'POS Satış (Split)', 'Masa Satışı (Split)']
         fin_df = fin_df[~fin_df['description'].isin(pos_descriptions)]
 
-    # ---- Expense chart ----
     if not fin_df.empty and (type_filter in ["Hamısı", "Məxaric (Çıxış)"]):
         expenses_only = fin_df[fin_df['type'] == 'out']
         if not expenses_only.empty:
@@ -469,7 +557,6 @@ def render_finance_page():
                 fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
                 st.plotly_chart(fig, use_container_width=True)
 
-    # ---- Export & AI ----
     action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         if not fin_df.empty:
@@ -500,15 +587,14 @@ def render_finance_page():
                         exp_only = fin_df[fin_df['type'] == 'out']
                         if not exp_only.empty:
                             eg = exp_only.groupby('category')['amount'].sum().sort_values(ascending=False)
-                            expenses_str = ", ".join([f"{cat}: {amt:.2f} AZN" for cat, amt in eg.items()
-                                                      if cat not in ['Daxili Transfer', 'Borc Ödənişi']])
+                            expenses_str = ", ".join([f"{cat}: {amt:.2f} AZN" for cat, amt in eg.items() if cat not in ['Daxili Transfer', 'Borc Ödənişi']])
 
                         prompt = f"""Sən kofe şopunun baş maliyyəçisisən.
 {sd} - {ed} tarixləri arası:
 - Mədaxil: {total_in:.2f} AZN
 - Məxaric: {total_out:.2f} AZN
 - Xərc kateqoriyaları: {expenses_str}
-Qısa professional analiz və 2 cümləlik tövsiyə ver. Azərbaycan dilində."""
+Qısa professional analiz və 2 cümləlik tövsiyə ver."""
 
                         response = model.generate_content(prompt)
                         st.success("✅ AI Analizi Tamamlandı!")
@@ -530,7 +616,6 @@ Qısa professional analiz və 2 cümləlik tövsiyə ver. Azərbaycan dilində."
                 except Exception as e:
                     st.error(f"AI Analiz xətası: {e}")
 
-    # ---- Data Editor ----
     if not fin_df.empty:
         disp_df = fin_df.copy()
         disp_df['Tip'] = disp_df['type'].apply(lambda x: "🟢 Giriş" if x == 'in' else "🔴 Çıxış")
@@ -541,13 +626,15 @@ Qısa professional analiz və 2 cümləlik tövsiyə ver. Azərbaycan dilində."
         display_df.insert(0, "Seç", False)
 
         edited_fin = st.data_editor(
-            display_df, hide_index=True,
+            display_df,
+            hide_index=True,
             column_config={
                 "Seç": st.column_config.CheckboxColumn(required=True),
                 "amount": st.column_config.NumberColumn("Məbləğ (₼)", format="%.2f")
             },
             disabled=['id', 'Tarix', 'Tip', 'source'],
-            use_container_width=True, key="fin_editor"
+            use_container_width=True,
+            key="fin_editor"
         )
 
         sel_fin = edited_fin[edited_fin["Seç"]]
