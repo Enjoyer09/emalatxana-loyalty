@@ -1,58 +1,71 @@
-# auth.py — PATCHED v2.0
+# auth.py — FINAL PATCHED v3.0
 import streamlit as st
 import secrets
 import datetime
 import logging
 import time
-from database import run_query, run_action, run_transaction
+
+from database import run_query, run_action
 from utils import get_baku_now, verify_password, log_system
 
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# CONSTANTS
+# SECURITY CONFIG
 # ============================================================
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_MINUTES = 5
 SESSION_LIFETIME_MINUTES = 480  # 8 saat
 MAX_SESSIONS_PER_USER = 3
 
+
 # ============================================================
-# USER QUERIES
+# USER HELPERS
 # ============================================================
 def get_cached_users():
-    """Users list (UI display only — password hash daxil deyil)"""
+    """
+    UI üçün sadə user list.
+    Password qaytarmır.
+    """
     return run_query("SELECT username, role FROM users")
 
+
 def get_user_for_auth(username):
-    """Auth üçün tam user data"""
+    """
+    Auth üçün tam user record.
+    """
     return run_query(
         "SELECT username, password, role, failed_attempts, locked_until FROM users WHERE username=:u",
         {"u": username}
     )
+
 
 # ============================================================
 # SESSION MANAGEMENT
 # ============================================================
 def create_session(username, role):
     now = get_baku_now()
-    
-    # Köhnə sessiyaları təmizlə (per-user limit)
+
+    # Köhnə sessiyaları təmizlə
     active = run_query(
         "SELECT token FROM active_sessions WHERE username=:u ORDER BY last_activity DESC",
         {"u": username}
     )
-    if len(active) >= MAX_SESSIONS_PER_USER:
+
+    if not active.empty and len(active) >= MAX_SESSIONS_PER_USER:
         old_tokens = active.iloc[MAX_SESSIONS_PER_USER - 1:]['token'].tolist()
         for t in old_tokens:
             run_action("DELETE FROM active_sessions WHERE token=:t", {"t": t})
-    
+
     token = secrets.token_urlsafe(32)
+
     run_action(
         "INSERT INTO active_sessions (token, username, role, created_at, last_activity) VALUES (:t, :u, :r, :c, :c)",
         {"t": token, "u": username, "r": role, "c": now}
     )
+
     return token
+
 
 def validate_session():
     tok = st.session_state.get('session_token')
@@ -68,69 +81,85 @@ def validate_session():
 
     row = res.iloc[0]
     now = get_baku_now()
-
-    # Session expiry check
     last_activity = row['last_activity']
-    if last_activity:
-        if hasattr(last_activity, 'tzinfo') and last_activity.tzinfo is None:
-            last_activity = last_activity.replace(tzinfo=now.tzinfo)
-        if (now - last_activity).total_seconds() > SESSION_LIFETIME_MINUTES * 60:
-            run_action("DELETE FROM active_sessions WHERE token=:t", {"t": tok})
-            log_system(row['username'], "SESSION_EXPIRED")
-            return False
 
-    # Update last activity
+    try:
+        if last_activity:
+            if hasattr(last_activity, 'tzinfo') and last_activity.tzinfo is None and hasattr(now, 'tzinfo'):
+                last_activity = last_activity.replace(tzinfo=now.tzinfo)
+
+            if (now - last_activity).total_seconds() > SESSION_LIFETIME_MINUTES * 60:
+                run_action("DELETE FROM active_sessions WHERE token=:t", {"t": tok})
+                log_system(row['username'], "SESSION_EXPIRED", {"token": tok})
+                return False
+    except Exception as e:
+        logger.warning(f"Session validation warning: {e}")
+
     run_action(
         "UPDATE active_sessions SET last_activity=:n WHERE token=:t",
         {"n": now, "t": tok}
     )
     return True
 
+
 def check_url_token_login():
-    """URL-based login disabled by policy"""
+    """
+    Hazırda deaktivdir.
+    Gələcəkdə secure signed-login üçün istifadə oluna bilər.
+    """
     return False
+
 
 def logout_user():
     tok = st.session_state.get('session_token')
     if tok:
         run_action("DELETE FROM active_sessions WHERE token=:t", {"t": tok})
+        log_system(st.session_state.get("user", "unknown"), "LOGOUT", {"token": tok})
+
     st.session_state.logged_in = False
     st.session_state.session_token = None
     st.query_params.clear()
     st.rerun()
 
+
 # ============================================================
-# SECURE LOGIN FUNCTION
+# LOGIN CORE
 # ============================================================
 def attempt_login(username, pin):
     """
+    Secure login flow
     Returns: (success: bool, token: str|None, error_msg: str|None)
     """
     now = get_baku_now()
-
     user_df = get_user_for_auth(username)
+
     if user_df.empty:
-        log_system(username, "FAILED_LOGIN_UNKNOWN_USER")
+        log_system(username, "FAILED_LOGIN_UNKNOWN_USER", {"username": username})
         return False, None, "Yanlış istifadəçi adı və ya şifrə"
 
     row = user_df.iloc[0]
 
-    # Lockout check
+    # lockout check
     locked_until = row.get('locked_until')
     if locked_until and str(locked_until).strip():
         try:
             if isinstance(locked_until, str):
                 locked_until = datetime.datetime.fromisoformat(locked_until)
-            if hasattr(locked_until, 'tzinfo') and locked_until.tzinfo is None:
+            if hasattr(locked_until, 'tzinfo') and locked_until.tzinfo is None and hasattr(now, 'tzinfo'):
                 locked_until = locked_until.replace(tzinfo=now.tzinfo)
+
             if now < locked_until:
                 remaining = int((locked_until - now).total_seconds())
-                log_system(username, f"LOCKED_LOGIN_ATTEMPT remaining={remaining}s")
+                log_system(
+                    username,
+                    "LOCKED_LOGIN_ATTEMPT",
+                    {"remaining_seconds": remaining}
+                )
                 return False, None, f"⏳ Hesab kilidlənib. {remaining // 60} dəq {remaining % 60} san gözləyin."
         except Exception as e:
             logger.warning(f"Lockout parse error: {e}")
 
-    # Password verify
+    # password verify
     if not verify_password(pin, row['password']):
         fail_count = int(row.get('failed_attempts', 0) or 0) + 1
         lock_until = None
@@ -141,7 +170,12 @@ def attempt_login(username, pin):
             "UPDATE users SET failed_attempts=:f, locked_until=:l WHERE username=:u",
             {"f": fail_count, "l": lock_until, "u": username}
         )
-        log_system(username, f"FAILED_LOGIN_ATTEMPT #{fail_count}")
+
+        log_system(
+            username,
+            "FAILED_LOGIN_ATTEMPT",
+            {"attempt_no": fail_count}
+        )
 
         remaining_attempts = MAX_LOGIN_ATTEMPTS - fail_count
         if remaining_attempts > 0:
@@ -149,18 +183,25 @@ def attempt_login(username, pin):
         else:
             return False, None, f"⏳ Çox cəhd! Hesab {LOCKOUT_MINUTES} dəqiqə kilidləndi."
 
-    # Success — reset counters
+    # success
     run_action(
         "UPDATE users SET failed_attempts=0, locked_until=NULL, last_seen=:t WHERE username=:u",
         {"t": now, "u": username}
     )
 
     token = create_session(username, row['role'])
-    log_system(username, "SUCCESSFUL_LOGIN")
+
+    log_system(
+        username,
+        "SUCCESSFUL_LOGIN",
+        {"role": row['role']}
+    )
+
     return True, token, None
 
+
 # ============================================================
-# ADMIN CONFIRM DIALOG (Kiosk Numpad)
+# ADMIN CONFIRM DIALOG (ORİJİNAL FUNKSİYA QAYTARILDI)
 # ============================================================
 @st.dialog("🔐 Admin Təsdiqi")
 def admin_confirm_dialog(action_name, callback, *args):
@@ -168,9 +209,20 @@ def admin_confirm_dialog(action_name, callback, *args):
 
     st.markdown("""
         <style>
-        .admin-pin-box { font-size: 35px; text-align: center; letter-spacing: 15px; height: 60px;
-            margin-bottom: 15px; background: white; border-radius: 12px; border: 2px solid #E65100;
-            display: flex; align-items: center; justify-content: center; color: #E65100; }
+        .admin-pin-box {
+            font-size: 35px;
+            text-align: center;
+            letter-spacing: 15px;
+            height: 60px;
+            margin-bottom: 15px;
+            background: white;
+            border-radius: 12px;
+            border: 2px solid #E65100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #E65100;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -201,28 +253,40 @@ def admin_confirm_dialog(action_name, callback, *args):
         adm = run_query("SELECT username, password FROM users WHERE role='admin' LIMIT 1")
         if not adm.empty and verify_password(st.session_state.admin_pin_in, adm.iloc[0]['password']):
             admin_user = adm.iloc[0]['username']
-            log_system(admin_user, f"ADMIN_APPROVAL: {action_name}")
+            log_system(admin_user, "ADMIN_APPROVAL_GRANTED", {"action_name": action_name})
             st.session_state.admin_pin_in = ""
             callback(*args)
             st.success("İcra olundu!")
             time.sleep(1)
             st.rerun()
         else:
-            log_system("unknown", f"FAILED_ADMIN_APPROVAL: {action_name}")
+            log_system(st.session_state.get("user", "unknown"), "ADMIN_APPROVAL_FAILED", {"action_name": action_name})
             st.error("Yanlış Şifrə!")
             st.session_state.admin_pin_in = ""
             time.sleep(1)
             st.rerun()
 
+
 # ============================================================
-# LOGIN PAGE (Kiosk Numpad)
+# LOGIN PAGE (ORİJİNAL FUNKSİYA QAYTARILDI)
 # ============================================================
 def render_login_page():
     st.markdown("""
         <style>
-        .login-pin-display { font-size: 60px; text-align: center; letter-spacing: 25px; height: 100px;
-            margin-bottom: 30px; background: #F9F6F0; border-radius: 20px; border: 2px solid #E65100;
-            display: flex; align-items: center; justify-content: center; color: #E65100; }
+        .login-pin-display {
+            font-size: 60px;
+            text-align: center;
+            letter-spacing: 25px;
+            height: 100px;
+            margin-bottom: 30px;
+            background: #F9F6F0;
+            border-radius: 20px;
+            border: 2px solid #E65100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #E65100;
+        }
         </style>
     """, unsafe_allow_html=True)
 
