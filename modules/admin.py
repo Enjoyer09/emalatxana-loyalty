@@ -1,4 +1,4 @@
-# modules/admin.py — PATCHED v2.0
+# modules/admin.py — PATCHED v3.0 (+ Happy Hour)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -21,20 +21,21 @@ except ImportError:
 
 
 # ============================================================
-# AYARLAR SƏHİFƏSİ
+# SETTINGS PAGE
 # ============================================================
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
 
-    tab_settings, tab_users, tab_crm, tab_app = st.tabs([
+    tab_settings, tab_users, tab_crm, tab_happy, tab_app = st.tabs([
         "🍽️ Restoran Ayarları",
         "👥 İstifadəçilər",
         "📱 Müştəri CRM & QR",
+        "⏰ Happy Hour",
         "📱 Müştəri Tətbiqi (App)"
     ])
 
     # ============================================================
-    # RESTORAN AYARLARI (Orijinal)
+    # RESTORAN AYARLARI
     # ============================================================
     with tab_settings:
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
@@ -69,7 +70,7 @@ def render_settings_page():
             st.success("Vaxt ayarları yeniləndi!")
 
     # ============================================================
-    # İSTİFADƏÇİLƏR (Orijinal + Password Policy + Audit)
+    # USERS
     # ============================================================
     with tab_users:
         st.markdown("### 👥 İstifadəçi İdarəetməsi")
@@ -84,22 +85,19 @@ def render_settings_page():
 
             if st.button("Yadda Saxla"):
                 if u_name and u_pass:
-                    # Password policy
                     if len(u_pass) < 4:
                         st.error("⚠️ Şifrə ən azı 4 simvol olmalıdır!")
                     else:
                         try:
                             p_hash = bcrypt.hashpw(u_pass.encode(), bcrypt.gensalt()).decode()
                             run_action(
-                                "INSERT INTO users (username, password, role) VALUES (:u, :p, :r) "
-                                "ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
+                                "INSERT INTO users (username, password, role) VALUES (:u, :p, :r) ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
                                 {"u": u_name.strip(), "p": p_hash, "r": u_role}
                             )
                             log_system(st.session_state.user, f"USER_UPSERT: {u_name}, role={u_role}")
                             st.success("İstifadəçi qeydə alındı!")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"User upsert failed: {e}", exc_info=True)
                 else:
                     st.error("Ad və Şifrə boş ola bilməz.")
 
@@ -111,7 +109,6 @@ def render_settings_page():
                         st.error("Əsas admin istifadəçisi silinə bilməz!")
                     else:
                         try:
-                            # Əvvəlcə active sessions-ı sil
                             actions = [
                                 ("DELETE FROM active_sessions WHERE username=:u", {"u": del_user}),
                                 ("DELETE FROM users WHERE username=:u", {"u": del_user})
@@ -123,10 +120,9 @@ def render_settings_page():
                             st.rerun()
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"User delete failed: {e}", exc_info=True)
 
     # ============================================================
-    # CRM (Orijinal + AI Campaign)
+    # CRM
     # ============================================================
     with tab_crm:
         st.markdown("### 📱 Müştəri QR və Loyallıq (CRM)")
@@ -139,8 +135,7 @@ def render_settings_page():
                 if card_id.strip():
                     try:
                         run_action(
-                            "INSERT INTO customers (card_id, type, stars) VALUES (:cid, :t, :s) "
-                            "ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
+                            "INSERT INTO customers (card_id, type, stars) VALUES (:cid, :t, :s) ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
                             {"cid": card_id.strip(), "t": c_type, "s": c_stars}
                         )
                         log_system(st.session_state.user, f"CUSTOMER_UPSERT: {card_id}, type={c_type}")
@@ -149,13 +144,9 @@ def render_settings_page():
                         st.rerun()
                     except Exception as e:
                         st.error(f"Xəta: {e}")
-                        logger.error(f"Customer upsert failed: {e}", exc_info=True)
                 else:
                     st.error("QR ID boş ola bilməz.")
 
-        # ============================================================
-        # AI KAMPANİYA (Orijinal)
-        # ============================================================
         with st.expander("🤖 AI ilə Kampaniya və Marketinq Təklifləri Yarat", expanded=False):
             api_key = get_setting("gemini_api_key", "")
             if not api_key:
@@ -163,35 +154,125 @@ def render_settings_page():
             elif genai is None:
                 st.warning("⚠️ google-generativeai paketi quraşdırılmayıb.")
             else:
-                camp_goal = st.text_input("🎯 Kampaniyanın Məqsədi (məs: Tələbələri cəlb etmək, Səhər satışlarını artırmaq)")
+                camp_goal = st.text_input("🎯 Kampaniyanın Məqsədi")
                 if st.button("🚀 AI Kampaniya Yarat", type="primary"):
                     if camp_goal:
-                        with st.spinner("🤖 AI müştəri datalarını və məqsədi analiz edir..."):
+                        with st.spinner("🤖 AI analiz edir..."):
                             try:
                                 genai.configure(api_key=api_key)
                                 valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                                 chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'models/gemini-pro')
                                 model = genai.GenerativeModel(chosen_model)
-
                                 cust_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
                                 stats_str = ", ".join([f"{r['type']}: {r['cnt']}" for _, r in cust_stats.iterrows()]) if not cust_stats.empty else "Məlumat yoxdur"
-
-                                prompt = f"Sən kofe şopun kreativ marketinq mütəxəssisisən. Mövcud müştəri bazamız: {stats_str}. Kampaniyanın məqsədi: '{camp_goal}'. Zəhmət olmasa, bu məqsədə uyğun 3 fərqli, cəlbedici marketinq mesajı (Instagram və ya SMS üçün) və 1 xüsusi endirim təklifi strategiyası yaz. Mətnlər qısa, səmimi və diqqətçəkici olsun."
-
+                                prompt = f"Sən kofe şopun marketoloqusən. Müştəri bazası: {stats_str}. Məqsəd: {camp_goal}. 3 kampaniya ideyası yaz."
                                 response = model.generate_content(prompt)
-                                st.markdown(f"<div style='background: #1e2226; padding: 15px; border-left: 5px solid #007bff; border-radius:10px;'>{response.text}</div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='background:#1e2226;padding:15px;border-left:5px solid #007bff;border-radius:10px;'>{response.text}</div>", unsafe_allow_html=True)
                             except Exception as e:
                                 st.error(f"Xəta: {e}")
-                                logger.error(f"AI campaign failed: {e}", exc_info=True)
                     else:
-                        st.warning("Zəhmət olmasa kampaniyanın məqsədini yazın.")
+                        st.warning("Məqsədi yazın.")
 
         customers_df = run_query("SELECT * FROM customers ORDER BY created_at DESC")
         if not customers_df.empty:
             st.dataframe(customers_df, hide_index=True)
 
     # ============================================================
-    # APP TAB (Orijinal)
+    # HAPPY HOUR (YENİ)
+    # ============================================================
+    with tab_happy:
+        st.markdown("### ⏰ Happy Hour / Avtomatik Endirim")
+        st.info("Müəyyən saatlarda avtomatik endirim tətbiq olunur. POS-da kassir heç nə etmir — sistem özü endirim verir.")
+
+        hh_df = run_query("SELECT * FROM happy_hours ORDER BY start_time")
+
+        if not hh_df.empty:
+            for _, hh in hh_df.iterrows():
+                status_icon = "🟢" if hh['is_active'] else "🔴"
+                days = hh.get('days_of_week', '1,2,3,4,5,6,7')
+                day_names = {'1': 'B.e', '2': 'Ç.a', '3': 'Ç', '4': 'C.a', '5': 'C', '6': 'Ş', '7': 'B'}
+                day_display = " ".join([day_names.get(d.strip(), d) for d in str(days).split(',')])
+                cats = hh.get('categories', 'ALL')
+                cat_display = "Bütün menyu" if cats == 'ALL' else cats
+
+                with st.container(border=True):
+                    c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                    c1.markdown(f"**{status_icon} {hh['name']}**")
+                    c2.markdown(f"🕐 {hh['start_time']} — {hh['end_time']}")
+                    c3.markdown(f"🏷️ **{hh['discount_percent']}%**")
+                    if c4.button("🗑️", key=f"del_hh_{hh['id']}"):
+                        run_action("DELETE FROM happy_hours WHERE id=:id", {"id": hh['id']})
+                        log_system(st.session_state.user, f"HAPPY_HOUR_DELETE: {hh['name']}")
+                        st.rerun()
+                    st.caption(f"📅 {day_display} | 📂 {cat_display}")
+
+                    if hh['is_active']:
+                        if st.button("⏸️ Deaktiv Et", key=f"deact_hh_{hh['id']}", use_container_width=True):
+                            run_action("UPDATE happy_hours SET is_active=FALSE WHERE id=:id", {"id": hh['id']})
+                            st.rerun()
+                    else:
+                        if st.button("▶️ Aktivləşdir", key=f"act_hh_{hh['id']}", use_container_width=True):
+                            run_action("UPDATE happy_hours SET is_active=TRUE WHERE id=:id", {"id": hh['id']})
+                            st.rerun()
+        else:
+            st.warning("Heç bir Happy Hour yaradılmayıb.")
+
+        st.markdown("---")
+        st.markdown("#### ➕ Yeni Happy Hour Yarat")
+        with st.form("new_hh_form", clear_on_submit=True):
+            hh_c1, hh_c2 = st.columns(2)
+            hh_name = hh_c1.text_input("Ad (Məs: Səhər Endirimi)")
+            hh_discount = hh_c2.number_input("Endirim %", min_value=1, max_value=100, value=15)
+
+            hh_c3, hh_c4 = st.columns(2)
+            hh_start = hh_c3.time_input("Başlanğıc Saatı", value=datetime.time(14, 0))
+            hh_end = hh_c4.time_input("Bitiş Saatı", value=datetime.time(16, 0))
+
+            st.write("Hansı günlər aktiv olsun?")
+            day_cols = st.columns(7)
+            day_map = {'B.e': '1', 'Ç.a': '2', 'Ç': '3', 'C.a': '4', 'C': '5', 'Ş': '6', 'B': '7'}
+            selected_days = []
+            for i, (name, num) in enumerate(day_map.items()):
+                if day_cols[i].checkbox(name, value=True, key=f"hh_day_{num}"):
+                    selected_days.append(num)
+
+            cat_mode = st.radio("Endirim nəyə tətbiq olunsun?", ["Bütün Menyu", "Yalnız Seçilmiş Kateqoriyalar"], horizontal=True)
+            hh_cats = "ALL"
+            if cat_mode == "Yalnız Seçilmiş Kateqoriyalar":
+                try:
+                    all_cats = run_query("SELECT DISTINCT category FROM menu WHERE is_active=TRUE")['category'].tolist()
+                    selected_cats = st.multiselect("Kateqoriyalar", all_cats)
+                    hh_cats = ",".join(selected_cats) if selected_cats else "ALL"
+                except:
+                    hh_cats = "ALL"
+
+            if st.form_submit_button("✅ Happy Hour Yarat", type="primary"):
+                if hh_name and selected_days:
+                    try:
+                        run_action(
+                            "INSERT INTO happy_hours (name, start_time, end_time, discount_percent, days_of_week, categories, is_active, created_by, created_at) VALUES (:n, :s, :e, :d, :days, :cats, TRUE, :u, :t)",
+                            {
+                                "n": hh_name.strip(),
+                                "s": str(hh_start),
+                                "e": str(hh_end),
+                                "d": hh_discount,
+                                "days": ",".join(selected_days),
+                                "cats": hh_cats,
+                                "u": st.session_state.user,
+                                "t": get_baku_now()
+                            }
+                        )
+                        log_system(st.session_state.user, f"HAPPY_HOUR_CREATE: {hh_name}, {hh_discount}%, {hh_start}-{hh_end}")
+                        st.success(f"'{hh_name}' yaradıldı!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Xəta: {e}")
+                else:
+                    st.error("Ad və ən azı 1 gün seçin!")
+
+    # ============================================================
+    # APP TAB
     # ============================================================
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı və Məlumatlar")
@@ -199,17 +280,13 @@ def render_settings_page():
 
 
 # ============================================================
-# DATABASE BACKUP/RESTORE (Orijinal + Security)
+# DATABASE PAGE
 # ============================================================
 def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
-    
-    # ============================================================
-    # BACKUP (Orijinal)
-    # ============================================================
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
-            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'inventory', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes']
+            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours']
             backup_data = {}
             for t in tables:
                 try:
@@ -217,71 +294,49 @@ def render_database_page():
                     if not df.empty:
                         backup_data[t] = df.to_dict(orient='records')
                 except Exception as e:
-                    logger.warning(f"Table {t} backup failed: {e}")
-
+                    logger.warning(f"Backup warning on {t}: {e}")
             json_str = json.dumps(backup_data, indent=4, default=str)
             log_system(st.session_state.user, "DATABASE_BACKUP_CREATED")
-            st.download_button(
-                "JSON Faylını Yüklə",
-                data=json_str,
-                file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json"
-            )
+            st.download_button("JSON Faylını Yüklə", data=json_str, file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json", mime="application/json")
         except Exception as e:
             st.error(f"Backup xətası: {e}")
-            logger.error(f"Backup failed: {e}", exc_info=True)
 
-    # ============================================================
-    # RESTORE (Orijinal + Transaction + Validation)
-    # ============================================================
     with st.expander("⚠️ Bazanı Bərpa Et (Restore)"):
         st.warning("DİQQƏT: Bu proses mövcud məlumatları silib yenisi ilə əvəz edəcək!")
         uploaded_json = st.file_uploader("JSON Backup faylını seçin", type="json")
-        
         if st.button("Bazanı Fayldan Bərpa Et", type="primary", use_container_width=True) and uploaded_json:
             try:
                 data = json.load(uploaded_json)
-                
-                # Validation
                 if not isinstance(data, dict):
                     st.error("⚠️ JSON formatı səhvdir!")
                     st.stop()
-                
+                allowed_tables = {'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'tables'}
                 with conn.session as s:
                     for tbl, recs in data.items():
-                        # Table name whitelist
-                        allowed_tables = {'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'tables'}
                         if tbl not in allowed_tables:
-                            logger.warning(f"Skipping unknown table: {tbl}")
                             continue
-                        
                         if recs and isinstance(recs, list):
                             s.execute(text(f"TRUNCATE TABLE {tbl} CASCADE"))
                             for r in recs:
                                 if not isinstance(r, dict):
                                     continue
-                                # Column name validation
                                 clean_keys = [k for k in r.keys() if isinstance(k, str) and k.replace('_', '').isalnum()]
                                 if not clean_keys:
                                     continue
-                                    
                                 cols = ", ".join(clean_keys)
                                 vals = ":" + ", :".join(clean_keys)
                                 safe_r = {k: r[k] for k in clean_keys}
                                 s.execute(text(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})"), safe_r)
                     s.commit()
-                
                 log_system(st.session_state.user, "DATABASE_RESTORE_COMPLETED")
                 st.success("✅ Baza uğurla bərpa edildi!")
                 time.sleep(2)
                 st.rerun()
             except Exception as e:
                 st.error(f"Bərpa xətası (Rollback edildi): {e}")
-                logger.error(f"Restore failed: {e}", exc_info=True)
-
 
 # ============================================================
-# LOGLAR (Orijinal)
+# LOGS PAGE
 # ============================================================
 def render_logs_page():
     st.subheader("🕵️‍♂️ Sistem Loqları")
@@ -293,40 +348,25 @@ def render_logs_page():
             st.info("Loq tapılmadı.")
     except Exception as e:
         st.error(f"Loq oxuma xətası: {e}")
-        logger.error(f"Logs fetch failed: {e}", exc_info=True)
-
 
 # ============================================================
-# QEYDLƏR (Orijinal)
+# NOTES PAGE
 # ============================================================
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
-    
-    # Safe table creation
     try:
-        run_action(
-            "CREATE TABLE IF NOT EXISTS admin_notes "
-            "(id SERIAL PRIMARY KEY, title TEXT, note TEXT, "
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-        )
-    except Exception as e:
-        logger.error(f"Notes table creation failed: {e}")
-    
+        run_action("CREATE TABLE IF NOT EXISTS admin_notes (id SERIAL PRIMARY KEY, title TEXT, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    except:
+        pass
+
     with st.form("new_note", clear_on_submit=True):
         title = st.text_input("Başlıq")
         note = st.text_area("Qeyd")
         if st.form_submit_button("Yadda Saxla"):
             if title.strip() and note.strip():
-                try:
-                    run_action(
-                        "INSERT INTO admin_notes (title, note) VALUES (:t, :n)",
-                        {"t": title.strip(), "n": note.strip()}
-                    )
-                    log_system(st.session_state.user, f"NOTE_CREATED: {title[:30]}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Xəta: {e}")
-                    logger.error(f"Note creation failed: {e}", exc_info=True)
+                run_action("INSERT INTO admin_notes (title, note) VALUES (:t, :n)", {"t": title.strip(), "n": note.strip()})
+                log_system(st.session_state.user, f"NOTE_CREATED: {title[:30]}")
+                st.rerun()
 
     try:
         notes = run_query("SELECT * FROM admin_notes ORDER BY created_at DESC")
@@ -335,11 +375,8 @@ def render_notes_page():
                 with st.expander(f"{n['created_at']} - {n['title']}"):
                     st.write(n['note'])
                     if st.button("Sil", key=f"del_note_{n['id']}"):
-                        try:
-                            run_action("DELETE FROM admin_notes WHERE id=:id", {"id": n['id']})
-                            log_system(st.session_state.user, f"NOTE_DELETED: {n['title'][:30]}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Xəta: {e}")
-    except Exception as e:
-        logger.error(f"Notes fetch failed: {e}")
+                        run_action("DELETE FROM admin_notes WHERE id=:id", {"id": n['id']})
+                        log_system(st.session_state.user, f"NOTE_DELETED: {n['title'][:30]}")
+                        st.rerun()
+    except Exception:
+        pass
