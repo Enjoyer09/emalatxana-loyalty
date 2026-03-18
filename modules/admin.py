@@ -1,4 +1,4 @@
-# modules/admin.py — PATCHED v3.0 (+ Happy Hour)
+# modules/admin.py — PATCHED v3.1 (+ Log Fix)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -91,7 +91,8 @@ def render_settings_page():
                         try:
                             p_hash = bcrypt.hashpw(u_pass.encode(), bcrypt.gensalt()).decode()
                             run_action(
-                                "INSERT INTO users (username, password, role) VALUES (:u, :p, :r) ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
+                                "INSERT INTO users (username, password, role) VALUES (:u, :p, :r) "
+                                "ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
                                 {"u": u_name.strip(), "p": p_hash, "r": u_role}
                             )
                             log_system(st.session_state.user, f"USER_UPSERT: {u_name}, role={u_role}")
@@ -135,7 +136,8 @@ def render_settings_page():
                 if card_id.strip():
                     try:
                         run_action(
-                            "INSERT INTO customers (card_id, type, stars) VALUES (:cid, :t, :s) ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
+                            "INSERT INTO customers (card_id, type, stars) VALUES (:cid, :t, :s) "
+                            "ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
                             {"cid": card_id.strip(), "t": c_type, "s": c_stars}
                         )
                         log_system(st.session_state.user, f"CUSTOMER_UPSERT: {card_id}, type={c_type}")
@@ -150,7 +152,7 @@ def render_settings_page():
         with st.expander("🤖 AI ilə Kampaniya və Marketinq Təklifləri Yarat", expanded=False):
             api_key = get_setting("gemini_api_key", "")
             if not api_key:
-                st.warning("⚠️ AI funksiyası üçün 'Ayarlar' və ya 'AI Menecer' bölməsində API Key daxil edin.")
+                st.warning("⚠️ AI funksiyası üçün API Key daxil edin.")
             elif genai is None:
                 st.warning("⚠️ google-generativeai paketi quraşdırılmayıb.")
             else:
@@ -178,7 +180,7 @@ def render_settings_page():
             st.dataframe(customers_df, hide_index=True)
 
     # ============================================================
-    # HAPPY HOUR (YENİ)
+    # HAPPY HOUR
     # ============================================================
     with tab_happy:
         st.markdown("### ⏰ Happy Hour / Avtomatik Endirim")
@@ -250,7 +252,8 @@ def render_settings_page():
                 if hh_name and selected_days:
                     try:
                         run_action(
-                            "INSERT INTO happy_hours (name, start_time, end_time, discount_percent, days_of_week, categories, is_active, created_by, created_at) VALUES (:n, :s, :e, :d, :days, :cats, TRUE, :u, :t)",
+                            "INSERT INTO happy_hours (name, start_time, end_time, discount_percent, days_of_week, categories, is_active, created_by, created_at) "
+                            "VALUES (:n, :s, :e, :d, :days, :cats, TRUE, :u, :t)",
                             {
                                 "n": hh_name.strip(),
                                 "s": str(hh_start),
@@ -284,6 +287,7 @@ def render_settings_page():
 # ============================================================
 def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
+
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
             tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours']
@@ -335,19 +339,47 @@ def render_database_page():
             except Exception as e:
                 st.error(f"Bərpa xətası (Rollback edildi): {e}")
 
+
 # ============================================================
-# LOGS PAGE
+# LOGS PAGE — FIXED
 # ============================================================
 def render_logs_page():
     st.subheader("🕵️‍♂️ Sistem Loqları")
+
+    col1, col2 = st.columns([1, 1])
+    if col1.button("🧪 Test Log Yaz"):
+        log_system(st.session_state.get('user', 'admin'), "TEST_LOG", "Bu test məqsədli log yazısıdır")
+        st.success("Test log yazıldı!")
+        st.rerun()
+
+    limit = col2.selectbox("Limit", [100, 250, 500, 1000], index=2)
+
     try:
-        logs = run_query("SELECT * FROM logs ORDER BY created_at DESC LIMIT 500")
+        logs = run_query(f'SELECT * FROM logs ORDER BY created_at DESC LIMIT {int(limit)}')
         if not logs.empty:
-            st.dataframe(logs, use_container_width=True, hide_index=True)
+            if 'created_at' in logs.columns:
+                try:
+                    logs['created_at'] = pd.to_datetime(logs['created_at']).dt.strftime('%d.%m.%Y %H:%M:%S')
+                except:
+                    pass
+
+            if '"user"' in logs.columns and 'user' not in logs.columns:
+                logs['user'] = logs['"user"']
+
+            display_cols = [c for c in ['created_at', 'user', 'action', 'details', 'ip'] if c in logs.columns]
+
+            if display_cols:
+                st.dataframe(logs[display_cols], use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(logs, use_container_width=True, hide_index=True)
+
+            st.caption(f"Toplam göstərilən log sayı: {len(logs)}")
         else:
             st.info("Loq tapılmadı.")
+            st.warning("Əgər loglar boşdursa, yuxarıdakı **🧪 Test Log Yaz** düyməsini basın.")
     except Exception as e:
         st.error(f"Loq oxuma xətası: {e}")
+
 
 # ============================================================
 # NOTES PAGE
