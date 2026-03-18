@@ -295,4 +295,285 @@ def render_finance_page():
                     if not correction_reason.strip():
                         st.error("Korreksiya səbəbi yazılmalıdır!")
                     else:
-                        
+                        cash_diff = Decimal(str(new_cash)) - disp_cash
+                        card_diff = Decimal(str(new_card)) - disp_card_view
+                        total_correction = abs(cash_diff) + abs(card_diff)
+
+                        if total_correction > MAX_AUTO_CORRECTION:
+                            run_action(
+                                "INSERT INTO correction_requests (requested_by, cash_diff, card_diff, reason, status, created_at) "
+                                "VALUES (:u, :cd, :crd, :r, 'PENDING', :t)",
+                                {"u": st.session_state.user, "cd": str(cash_diff), "crd": str(card_diff),
+                                 "r": correction_reason, "t": get_baku_now()}
+                            )
+                            st.warning(f"⚠️ Korreksiya ({total_correction:.2f} ₼) həddən yüksəkdir. Admin təsdiqi gözlənilir.")
+                        else:
+                            u = st.session_state.user
+                            now = get_baku_now()
+                            actions = []
+
+                            if abs(cash_diff) > Decimal("0.01"):
+                                c_type = 'in' if cash_diff > 0 else 'out'
+                                actions.append((
+                                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                                    "VALUES (:t, 'Sistem Korreksiyası', :a, 'Kassa', :d, :u, :time, FALSE)",
+                                    {"t": c_type, "a": str(abs(cash_diff)), "d": f"Korreksiya: {correction_reason}", "u": u, "time": now}
+                                ))
+                            if abs(card_diff) > Decimal("0.01"):
+                                c_type = 'in' if card_diff > 0 else 'out'
+                                actions.append((
+                                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                                    "VALUES (:t, 'Sistem Korreksiyası', :a, 'Bank Kartı', :d, :u, :time, FALSE)",
+                                    {"t": c_type, "a": str(abs(card_diff)), "d": f"Korreksiya: {correction_reason}", "u": u, "time": now}
+                                ))
+
+                            if actions:
+                                run_transaction(actions)
+                                log_system(u, f"BALANCE_CORRECTION: cash_diff={cash_diff}, card_diff={card_diff}")
+                            st.success("✅ Sinxronlaşdırıldı!")
+                            time.sleep(1.5)
+                            st.rerun()
+
+    # ---- Yeni Əməliyyat ----
+    with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=False):
+        t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
+
+        with t_op:
+            with st.form("new_fin_trx", clear_on_submit=True):
+                st.info("💡 Əgər xərci kartla etmisinizsə, mənbə olaraq mütləq 'Bank Kartı' seçin.")
+                c1, c2, c3 = st.columns(3)
+                f_type = c1.selectbox("Növ", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"])
+                f_source = c2.selectbox("Mənbə (Ödəmə Şəkli)", ["Kassa", "Bank Kartı", "Seyf", "Nisyə / Borc"])
+                f_subj = c3.selectbox("Subyekt", SUBJECTS)
+
+                c4, c5 = st.columns(2)
+                f_cat = c4.selectbox("Kateqoriya", ["Xammal Alışı", "Kassa Açılışı", "Kommunal", "Kirayə", "Maaş/Avans", "Digər", "İnkassasiya (Rəhbərə verilən)"])
+                f_amt = c5.number_input("Məbləğ (AZN)", min_value=0.01, step=0.01)
+                f_desc = st.text_input("Qeyd")
+
+                if st.form_submit_button("Təsdiqlə"):
+                    db_type = 'out' if "Məxaric" in f_type else 'in'
+                    run_action(
+                        "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) "
+                        "VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)",
+                        {"t": db_type, "c": f_cat, "a": str(Decimal(str(f_amt))), "s": f_source, "d": f_desc,
+                         "u": st.session_state.user, "sb": f_subj, "time": get_baku_now(), "tst": is_t_active}
+                    )
+                    st.success("Yazıldı!")
+                    time.sleep(1)
+                    st.rerun()
+
+        with t_tr:
+            with st.form("transfer_trx", clear_on_submit=True):
+                st.info("Kassadan Karta (və ya tərsi) transferlər üçün.")
+                c1, c2 = st.columns(2)
+                t_dir_display = c1.selectbox("Transfer Yönü", [
+                    "💳 Bank Kartından ➡️ 🏪 Kassaya",
+                    "🏪 Kassadan ➡️ 💳 Bank Kartına",
+                    "🏪 Kassadan ➡️ 📝 Borcun Ödənməsinə",
+                    "💳 Bank Kartından ➡️ 📝 Borcun Ödənməsinə"
+                ])
+                t_amt = c2.number_input("Transfer Məbləği (AZN)", min_value=0.01, step=0.01)
+                t_desc = st.text_input("Açıqlama", "Transfer / Ödəniş")
+
+                st.write("---")
+                has_comm = st.checkbox("Bu transfer üçün Bank Komissiyası tutulub?")
+                comm_amt = st.number_input("Komissiya Məbləği (AZN)", min_value=0.0, step=0.01, value=0.0) if has_comm else 0.0
+
+                if st.form_submit_button("Transferi Təsdiqlə"):
+                    dir_map = {
+                        "💳 Bank Kartından ➡️ 🏪 Kassaya": "card_to_cash",
+                        "🏪 Kassadan ➡️ 💳 Bank Kartına": "cash_to_card",
+                        "🏪 Kassadan ➡️ 📝 Borcun Ödənməsinə": "cash_to_debt",
+                        "💳 Bank Kartından ➡️ 📝 Borcun Ödənməsinə": "card_to_debt",
+                    }
+                    direction = dir_map.get(t_dir_display, "card_to_cash")
+                    try:
+                        execute_transfer(direction, t_amt, t_desc, st.session_state.user, is_t_active, comm_amt)
+                        st.success("Transfer İcra Edildi!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Transfer xətası: {e}")
+
+    # ---- Əməliyyat Cədvəli ----
+    st.markdown("---")
+    st.subheader("✏️ Maliyyə Əməliyyatları (Düzəliş & Silmə)")
+    st.info("Səhv yazılmış əməliyyatları seçin, dəyişib 'Yadda Saxla' basın və ya silin.")
+
+    today = get_baku_now().date()
+    start_of_month = today.replace(day=1)
+
+    f_col1, f_col2, f_col3 = st.columns(3)
+    with f_col1:
+        date_filter = st.selectbox("Tarix Aralığı", ["Bu Ay", "Bu Gün", "Keçən Ay", "Bütün Zamanlar", "Xüsusi Aralıq"])
+    with f_col2:
+        type_filter = st.selectbox("Əməliyyat Növü", ["Hamısı", "Məxaric (Çıxış)", "Mədaxil (Giriş)"])
+    with f_col3:
+        src_filter = st.selectbox("Mənbə", ["Hamısı", "Kassa", "Bank Kartı", "Seyf", "Nisyə / Borc"])
+
+    hide_pos = st.checkbox("🛒 Gündəlik POS satışlarını gizlət", value=True)
+
+    if date_filter == "Bu Ay":
+        sd, ed = start_of_month, today
+    elif date_filter == "Bu Gün":
+        sd, ed = today, today
+    elif date_filter == "Keçən Ay":
+        first_day_last = (today.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
+        last_day_last = today.replace(day=1) - datetime.timedelta(days=1)
+        sd, ed = first_day_last, last_day_last
+    elif date_filter == "Xüsusi Aralıq":
+        d_range = st.date_input("Tarix Seçin", [today, today])
+        if len(d_range) == 2:
+            sd, ed = d_range
+        else:
+            sd, ed = today, today
+    else:
+        sd, ed = datetime.date(2000, 1, 1), today
+
+    # Build query — finance table (has is_deleted)
+    conditions = [
+        "DATE(created_at) >= :sd",
+        "DATE(created_at) <= :ed",
+        "(is_deleted IS NULL OR is_deleted = FALSE)"
+    ]
+    q_params = {"sd": sd, "ed": ed}
+
+    if not is_t_active:
+        conditions.append("(is_test IS NULL OR is_test = FALSE)")
+    if type_filter == "Məxaric (Çıxış)":
+        conditions.append("type = 'out'")
+    elif type_filter == "Mədaxil (Giriş)":
+        conditions.append("type = 'in'")
+    if src_filter != "Hamısı":
+        conditions.append("source = :src")
+        q_params["src"] = src_filter
+
+    where_clause = " AND ".join(conditions)
+    query = f"SELECT * FROM finance WHERE {where_clause} ORDER BY created_at DESC"
+    fin_df = run_query(query, q_params)
+
+    if hide_pos and not fin_df.empty:
+        pos_descriptions = ['POS Satış', 'Masa Satışı', 'Kart Satış Komissiyası', 'Masa Satış Komissiyası']
+        fin_df = fin_df[~fin_df['description'].isin(pos_descriptions)]
+
+    # ---- Expense chart ----
+    if not fin_df.empty and (type_filter in ["Hamısı", "Məxaric (Çıxış)"]):
+        expenses_only = fin_df[fin_df['type'] == 'out']
+        if not expenses_only.empty:
+            exclude_cats = ['Daxili Transfer', 'Borc Ödənişi', 'Sistem Korreksiyası', 'Təsisçi Çıxarışı', 'Bank Komissiyası']
+            exp_grouped = expenses_only[~expenses_only['category'].isin(exclude_cats)].groupby('category')['amount'].sum().reset_index()
+            if not exp_grouped.empty:
+                st.markdown("**💸 Xərclərin Kateqoriyalar Üzrə Bölgüsü**")
+                fig = px.pie(exp_grouped, values='amount', names='category', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+                fig.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+    # ---- Export & AI ----
+    action_col1, action_col2 = st.columns([1, 1])
+    with action_col1:
+        if not fin_df.empty:
+            csv = fin_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Excel/CSV kimi Yüklə", data=csv, file_name=f"Maliyye_{sd}_{ed}.csv", mime="text/csv", use_container_width=True)
+
+    with action_col2:
+        api_key = get_setting("gemini_api_key", "")
+        if st.button("🤖 AI Maliyyə Analizi Çıxar", type="primary", use_container_width=True):
+            if fin_df.empty:
+                st.warning("Analiz üçün kifayət qədər data yoxdur.")
+            elif not api_key:
+                st.error("⚠️ AI API Açarı tapılmadı!")
+            elif genai is None:
+                st.error("google-generativeai paketi quraşdırılmayıb.")
+            else:
+                try:
+                    genai.configure(api_key=api_key)
+                    valid_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'gemini-pro')
+                    model = genai.GenerativeModel(chosen_model)
+
+                    with st.spinner("🤖 AI analiz edir..."):
+                        total_in = fin_df[fin_df['type'] == 'in']['amount'].sum()
+                        total_out = fin_df[fin_df['type'] == 'out']['amount'].sum()
+
+                        expenses_str = ""
+                        exp_only = fin_df[fin_df['type'] == 'out']
+                        if not exp_only.empty:
+                            eg = exp_only.groupby('category')['amount'].sum().sort_values(ascending=False)
+                            expenses_str = ", ".join([f"{cat}: {amt:.2f} AZN" for cat, amt in eg.items()
+                                                      if cat not in ['Daxili Transfer', 'Borc Ödənişi']])
+
+                        prompt = f"""Sən kofe şopunun baş maliyyəçisisən.
+{sd} - {ed} tarixləri arası:
+- Mədaxil: {total_in:.2f} AZN
+- Məxaric: {total_out:.2f} AZN
+- Xərc kateqoriyaları: {expenses_str}
+Qısa professional analiz və 2 cümləlik tövsiyə ver. Azərbaycan dilində."""
+
+                        response = model.generate_content(prompt)
+                        st.success("✅ AI Analizi Tamamlandı!")
+
+                        if gTTS is not None:
+                            try:
+                                tts = gTTS(text=response.text, lang='tr')
+                                fp = io.BytesIO()
+                                tts.write_to_fp(fp)
+                                st.audio(fp, format='audio/mp3')
+                            except Exception as audio_e:
+                                st.warning(f"Səs xətası: {audio_e}")
+
+                        st.markdown(f"""
+                        <div style="background:#1e2226;padding:20px;border-left:5px solid #ffd700;border-radius:10px;">
+                            {response.text}
+                        </div>""", unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.error(f"AI Analiz xətası: {e}")
+
+    # ---- Data Editor ----
+    if not fin_df.empty:
+        disp_df = fin_df.copy()
+        disp_df['Tip'] = disp_df['type'].apply(lambda x: "🟢 Giriş" if x == 'in' else "🔴 Çıxış")
+        disp_df['Tarix'] = pd.to_datetime(disp_df['created_at']).dt.strftime('%d.%m.%Y %H:%M')
+
+        edit_cols = ['id', 'Tarix', 'Tip', 'category', 'amount', 'source', 'description']
+        display_df = disp_df[edit_cols].copy()
+        display_df.insert(0, "Seç", False)
+
+        edited_fin = st.data_editor(
+            display_df, hide_index=True,
+            column_config={
+                "Seç": st.column_config.CheckboxColumn(required=True),
+                "amount": st.column_config.NumberColumn("Məbləğ (₼)", format="%.2f")
+            },
+            disabled=['id', 'Tarix', 'Tip', 'source'],
+            use_container_width=True, key="fin_editor"
+        )
+
+        sel_fin = edited_fin[edited_fin["Seç"]]
+        c_f1, c_f2 = st.columns(2)
+
+        if c_f1.button("💾 Seçilənlərə Düzəliş Et", type="primary"):
+            for _, r in sel_fin.iterrows():
+                update_finance_record(
+                    int(r['id']),
+                    {"amount": r['amount'], "category": r['category'], "description": r['description']},
+                    st.session_state.user
+                )
+            st.success("Yeniləndi!")
+            time.sleep(1.5)
+            st.rerun()
+
+        if not sel_fin.empty:
+            delete_reason = st.text_input("Silmə səbəbi (məcburi):", key="del_reason_input")
+            if c_f2.button("🗑️ Seçilənləri Sil"):
+                if not delete_reason.strip():
+                    st.error("❌ Səbəb yazılmadan silmək olmaz!")
+                else:
+                    for i in sel_fin['id'].tolist():
+                        soft_delete_finance(int(i), st.session_state.user, delete_reason)
+                    st.success("Silindi (arxivləndi)!")
+                    time.sleep(1.5)
+                    st.rerun()
+    else:
+        st.write("Seçilmiş filtrlərə uyğun əməliyyat yoxdur.")
