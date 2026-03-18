@@ -1,23 +1,19 @@
-# modules/kitchen.py — KITCHEN DISPLAY SYSTEM v2.0
+# modules/kitchen.py — FINAL PATCHED v2.0
 import streamlit as st
 import pandas as pd
 import json
 import time
 import logging
-from decimal import Decimal
 
-from database import run_query, run_action, get_setting
+from database import run_query, run_action
 from utils import get_baku_now, log_system
 
 logger = logging.getLogger(__name__)
 
 
 def render_kitchen_page():
-    """Mətbəx / Barista Display — Real-time sifariş ekranı"""
-
     st.markdown("""
     <style>
-    /* Kitchen Header */
     .kds-header {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
         padding: 18px 20px;
@@ -35,15 +31,10 @@ def render_kitchen_page():
     .kds-label { font-size: 10px; color: #888; font-weight: 700; letter-spacing: 1px; }
     .kds-time { font-size: 14px; color: #666; font-weight: 700; }
 
-    /* Order Cards */
     .ko-card { border-radius: 16px; padding: 16px; margin-bottom: 12px; border-left: 5px solid; position: relative; }
     .ko-new { background: linear-gradient(135deg, #fff3e0, #ffe0b2); border-color: #FF9800; }
     .ko-preparing { background: linear-gradient(135deg, #e3f2fd, #bbdefb); border-color: #2196F3; }
-    .ko-urgent {
-        background: linear-gradient(135deg, #ffebee, #ffcdd2);
-        border-color: #f44336;
-        animation: urgentPulse 1.5s infinite;
-    }
+    .ko-urgent { background: linear-gradient(135deg, #ffebee, #ffcdd2); border-color: #f44336; animation: urgentPulse 1.5s infinite; }
     .ko-done { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-color: #4CAF50; opacity: 0.75; }
 
     @keyframes urgentPulse {
@@ -53,12 +44,10 @@ def render_kitchen_page():
 
     .ko-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .ko-id { font-weight: 900; font-size: 18px; color: #333; }
-
     .ko-time-badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 800; color: #FFF; }
     .ko-ok { background: #4CAF50; }
     .ko-warn { background: #FF9800; }
     .ko-late { background: #f44336; }
-
     .ko-source { font-size: 12px; color: #777; font-weight: 600; margin-bottom: 8px; }
     .ko-items { margin: 8px 0; }
     .ko-item-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #ddd; font-size: 14px; }
@@ -66,16 +55,11 @@ def render_kitchen_page():
     .ko-item-qty { background: #333; color: #FFF; padding: 2px 10px; border-radius: 10px; font-weight: 900; font-size: 13px; }
     .ko-notes { background: rgba(0,0,0,0.06); padding: 8px 12px; border-radius: 8px; font-size: 12px; color: #666; margin-top: 8px; font-style: italic; }
 
-    /* Done list */
     .done-item { background: #f9f9f9; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; border-left: 3px solid #4CAF50; }
     </style>
     """, unsafe_allow_html=True)
 
     now = get_baku_now()
-
-    # ============================================================
-    # STATİSTİKA
-    # ============================================================
     new_count = 0
     prep_count = 0
     done_count = 0
@@ -93,7 +77,6 @@ def render_kitchen_page():
             elif row['status'] == 'PREPARING': prep_count = int(row['cnt'])
             elif row['status'] == 'DONE': done_count = int(row['cnt'])
 
-        # Orta hazırlama müddəti
         avg_df = run_query("""
             SELECT AVG(EXTRACT(EPOCH FROM (completed_at - created_at))/60) as avg_min
             FROM kitchen_orders
@@ -132,15 +115,11 @@ def render_kitchen_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # Auto refresh toggle
     col_r1, col_r2 = st.columns([3, 1])
     auto_refresh = col_r1.toggle("🔄 Avtomatik Yenilə (10 san)", value=True, key="kitchen_auto")
     if col_r2.button("🔄 İndi Yenilə", use_container_width=True, key="kitchen_manual_refresh"):
         st.rerun()
 
-    # ============================================================
-    # AKTİV SİFARİŞLƏR
-    # ============================================================
     try:
         orders = run_query("""
             SELECT * FROM kitchen_orders
@@ -169,9 +148,6 @@ def render_kitchen_page():
             with cols[idx % 3]:
                 _render_order_card(order, now)
 
-    # ============================================================
-    # TAMAMLANMIŞ SİFARİŞLƏR
-    # ============================================================
     with st.expander(f"✅ Bu gün tamamlananlar ({done_count})", expanded=False):
         try:
             done_orders = run_query("""
@@ -212,19 +188,16 @@ def render_kitchen_page():
         except Exception as e:
             st.warning(f"Tamamlanmış sifarişlər yüklənmədi: {e}")
 
-    # Auto-refresh
     if auto_refresh:
         time.sleep(10)
         st.rerun()
 
 
 def _render_order_card(order, now):
-    """Tək sifariş kartı"""
     order_id = order['id']
     status = order['status']
     priority = order.get('priority', 'NORMAL')
 
-    # Keçən vaxt
     elapsed_min = 0
     try:
         elapsed = now - order['created_at']
@@ -233,7 +206,6 @@ def _render_order_card(order, now):
     except:
         elapsed_min = 0
 
-    # Vaxt badge
     if elapsed_min < 5:
         time_css, time_text = "ko-ok", f"{elapsed_min} dəq"
     elif elapsed_min < 10:
@@ -241,7 +213,6 @@ def _render_order_card(order, now):
     else:
         time_css, time_text = "ko-late", f"🔥 {elapsed_min} dəq!"
 
-    # Card CSS
     if priority == 'URGENT':
         card_css = "ko-urgent"
     elif status == 'PREPARING':
@@ -249,7 +220,6 @@ def _render_order_card(order, now):
     else:
         card_css = "ko-new"
 
-    # Items parse
     try:
         items = json.loads(order['items'])
     except:
@@ -261,9 +231,9 @@ def _render_order_card(order, now):
         <div class="ko-item-row">
             <span class="ko-item-name">{item.get('item_name', '?')}</span>
             <span class="ko-item-qty">×{item.get('qty', 1)}</span>
-        </div>"""
+        </div>
+        """
 
-    # Source
     source = order.get('sale_source', 'POS')
     table_label = order.get('table_label', '')
     source_text = f"🍽️ {table_label}" if table_label else f"🏃 {source}"
@@ -285,7 +255,6 @@ def _render_order_card(order, now):
     </div>
     """, unsafe_allow_html=True)
 
-    # Action buttons
     if status == 'NEW':
         c1, c2 = st.columns(2)
         if c1.button("👨‍🍳 Qəbul Et", key=f"acc_{order_id}", use_container_width=True):
@@ -293,20 +262,22 @@ def _render_order_card(order, now):
                 "UPDATE kitchen_orders SET status='PREPARING', accepted_at=:t WHERE id=:id",
                 {"t": now, "id": order_id}
             )
-            log_system(st.session_state.get('user', 'kitchen'), f"KITCHEN_ACCEPT: #{order_id}")
+            log_system(st.session_state.get('user', 'kitchen'), "KITCHEN_ACCEPTED", {"order_id": order_id})
             st.rerun()
+
         if c2.button("🚨 Təcili!", key=f"urg_{order_id}", use_container_width=True):
             run_action(
                 "UPDATE kitchen_orders SET priority='URGENT', status='PREPARING', accepted_at=:t WHERE id=:id",
                 {"t": now, "id": order_id}
             )
-            log_system(st.session_state.get('user', 'kitchen'), f"KITCHEN_URGENT: #{order_id}")
+            log_system(st.session_state.get('user', 'kitchen'), "KITCHEN_MARKED_URGENT", {"order_id": order_id})
             st.rerun()
+
     elif status == 'PREPARING':
         if st.button("✅ HAZIRDIR!", key=f"done_{order_id}", type="primary", use_container_width=True):
             run_action(
                 "UPDATE kitchen_orders SET status='DONE', completed_at=:t, completed_by=:u WHERE id=:id",
                 {"t": now, "u": st.session_state.get('user', 'kitchen'), "id": order_id}
             )
-            log_system(st.session_state.get('user', 'kitchen'), f"KITCHEN_DONE: #{order_id}")
+            log_system(st.session_state.get('user', 'kitchen'), "KITCHEN_COMPLETED", {"order_id": order_id})
             st.rerun()
