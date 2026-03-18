@@ -1,4 +1,4 @@
-# app.py — ORİJİNAL UI + PATCHED v2.3 (Login Fixed)
+# app.py — ORİJİNAL UI + PATCHED v3.0 (Refund, Kitchen, Happy Hour, Split Payment)
 import streamlit as st
 import pandas as pd
 import random
@@ -21,12 +21,13 @@ from modules.management import render_menu_page, render_recipe_page, render_crm_
 from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
 from modules.ai_manager import render_ai_page
 from modules.customer_menu import render_customer_app
-from modules.combos import render_combos_page 
+from modules.combos import render_combos_page
+from modules.kitchen import render_kitchen_page
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
 # ============================================================
-# SHIFT MODAL (Decimal ilə hesablama + Transaction)
+# SHIFT MODAL
 # ============================================================
 @st.dialog("🕒 Növbə İdarəetməsi")
 def shift_modal(mode):
@@ -51,7 +52,7 @@ def shift_modal(mode):
                 q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
                 params = {"d": sh_start_z, "e": sh_end_z}
 
-                s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'])
+                s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {q_cond}", params).iloc[0]['s'])
                 f_out = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
                 f_in = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
                 opening_limit = safe_decimal(get_setting("cash_limit", "0.0"))
@@ -117,7 +118,7 @@ if "id" in params:
     st.stop()
 
 # ============================================================
-# SESSION STATE DEFAULTS (Orijinal)
+# SESSION STATE DEFAULTS
 # ============================================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
@@ -147,7 +148,7 @@ if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown =
 ensure_schema()
 
 # ============================================================
-# ORİJİNAL CSS (100% orijinal — dəyişilməz)
+# ORİJİNAL CSS (100%)
 # ============================================================
 st.markdown("""
     <style>
@@ -233,7 +234,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# ORİJİNAL RECEIPT DIALOG
+# RECEIPT DIALOG
 # ============================================================
 def get_receipt_html_string(cart, total):
     return "<div>Çek HTML...</div>"
@@ -247,7 +248,7 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
         st.rerun()
 
 # ============================================================
-# LOGIN SCREEN (Orijinal UI + Secure Login)
+# LOGIN
 # ============================================================
 if not st.session_state.logged_in: 
     check_url_token_login()
@@ -258,9 +259,6 @@ if not st.session_state.logged_in:
         st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
         
-        # ============================================
-        # STAFF LOGIN — FİXED: password daxil query
-        # ============================================
         with t1:
             if 'staff_pin' not in st.session_state: 
                 st.session_state.staff_pin = ""
@@ -288,16 +286,12 @@ if not st.session_state.logged_in:
                 if not pin:
                     st.error("PIN daxil edin!")
                 else:
-                    # FIX: password sütunu daxil birbaşa DB sorğusu
-                    all_staff = run_query(
-                        "SELECT username, password, role FROM users WHERE role IN ('staff', 'manager')"
-                    )
+                    all_staff = run_query("SELECT username, password, role FROM users WHERE role IN ('staff', 'manager')")
                     found = False
                     
                     if not all_staff.empty:
                         for _, r in all_staff.iterrows():
                             if verify_password(pin, r['password']):
-                                # PIN uyğundur — secure login
                                 success, token, error_msg = attempt_login(r['username'], pin)
                                 if success:
                                     st.session_state.logged_in = True
@@ -318,9 +312,6 @@ if not st.session_state.logged_in:
                         st.error("Yanlış PIN")
                         st.session_state.staff_pin = ""
         
-        # ============================================
-        # ADMIN LOGIN (Orijinal UI + Secure)
-        # ============================================
         with t2:
             with st.form("al"):
                 u = st.text_input("User")
@@ -342,7 +333,7 @@ if not st.session_state.logged_in:
                             st.error(error_msg or "Səhv ad və ya şifrə")
 
 # ============================================================
-# MAIN APP (Logged In) — Orijinal
+# MAIN APP
 # ============================================================
 else:
     s_info = get_shift_status()
@@ -368,7 +359,6 @@ else:
                 st.rerun()
     st.divider()
 
-    # ---- Low stock alert (Orijinal) ----
     if not st.session_state.low_stock_shown:
         try:
             low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
@@ -386,7 +376,7 @@ else:
         except Exception as e:
             st.session_state.low_stock_shown = True
 
-    # ---- Navigation (Orijinal) ----
+    # ---- Navigation ----
     role = st.session_state.role
     tabs_list = []
     if role in ['admin', 'manager', 'staff']: 
@@ -395,6 +385,8 @@ else:
     show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
     if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): 
         tabs_list.append("🍽️ MASALAR")
+    if role in ['admin', 'manager', 'staff']:
+        tabs_list.append("🍳 Mətbəx")
     if role in ['staff', 'manager', 'admin']: 
         tabs_list.append("📊 Z-Hesabat")
     if role in ['admin', 'manager']: 
@@ -415,9 +407,10 @@ else:
     if selected_tab != st.session_state.current_tab: 
         st.session_state.current_tab = selected_tab
 
-    # ---- Route (Orijinal) ----
+    # ---- Route ----
     if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
     elif selected_tab == "🍽️ MASALAR": render_tables_page()
+    elif selected_tab == "🍳 Mətbəx": render_kitchen_page()
     elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
     elif selected_tab == "📦 Anbar": render_inventory_page()
     elif selected_tab == "🍔 Kombolar": render_combos_page()
@@ -433,5 +426,4 @@ else:
     elif selected_tab == "QR": render_qr_page()
     elif selected_tab == "📜 Loglar": render_logs_page()
 
-    # ---- Footer (Orijinal) ----
     st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
