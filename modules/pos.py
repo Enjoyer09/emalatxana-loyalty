@@ -1,4 +1,4 @@
-# modules/pos.py — PATCHED v2.0
+# modules/pos.py — PATCHED v3.0 (Split Payment + Happy Hour + Kitchen + Refund)
 import streamlit as st
 import json
 import time
@@ -8,7 +8,7 @@ import pandas as pd
 from decimal import Decimal, ROUND_HALF_UP
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting
-from utils import clean_qr_code, get_baku_now, get_logical_date, get_shift_range, log_system, safe_decimal, SK_CASH_LIMIT
+from utils import clean_qr_code, get_baku_now, get_logical_date, get_shift_range, log_system, safe_decimal, SK_CASH_LIMIT, get_active_happy_hour
 
 logger = logging.getLogger(__name__)
 
@@ -77,26 +77,21 @@ def variant_dialog(items, cart):
     for i, it in enumerate(items):
         if st.button(f"{it['item_name']} | {it['price']}₼", use_container_width=True, key=f"dlg_var_{i}"):
             add_to_cart(cart, {
-                'item_name': it['item_name'],
-                'price': float(it['price']),
-                'qty': 1,
-                'is_coffee': it['is_coffee'],
-                'category': it['category'],
-                'status': 'new'
+                'item_name': it['item_name'], 'price': float(it['price']),
+                'qty': 1, 'is_coffee': it['is_coffee'], 'category': it['category'], 'status': 'new'
             })
             st.session_state.active_dialog = None
             st.rerun()
 
 # ============================================================
-# EXPECTED CASH CALCULATION (Decimal-based)
+# EXPECTED CASH
 # ============================================================
 def get_current_shift_expected_cash():
     log_date_z = get_logical_date()
     sh_start_z, sh_end_z = get_shift_range(log_date_z)
     q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
     params = {"d": sh_start_z, "e": sh_end_z}
-
-    s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'])
+    s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {q_cond}", params).iloc[0]['s'])
     f_out = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
     f_in = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
     opening_limit = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0"))
@@ -110,32 +105,22 @@ def x_report_dialog():
     expected_cash = get_current_shift_expected_cash()
     st.info(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
     actual_cash = st.number_input("Kassada olan real məbləğ:", value=float(expected_cash), min_value=0.0, step=1.0)
-
     if st.button("🤝 Təhvil Ver", use_container_width=True, type="primary"):
         actual_d = Decimal(str(actual_cash))
         diff = actual_d - expected_cash
         u = st.session_state.user
         now = get_baku_now()
-
         actions = []
         if abs(diff) > Decimal("0.01"):
             c_type = 'in' if diff > 0 else 'out'
             cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'X-Hesabat zamanı fərq', :u, :time, FALSE)",
-                {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}
-            ))
-
-        actions.append((
-            "INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)",
-            {"u": u, "e": str(expected_cash), "a": str(actual_d), "t": now}
-        ))
-
+            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'X-Hesabat zamanı fərq', :u, :time, FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
+        actions.append(("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)", {"u": u, "e": str(expected_cash), "a": str(actual_d), "t": now}))
         try:
             run_transaction(actions)
             set_setting(SK_CASH_LIMIT, str(actual_d))
             log_system(u, f"X_REPORT: expected={expected_cash}, actual={actual_d}")
-            st.success(f"Növbə təhvil verildi! Kassa: {actual_d:.2f} ₼")
+            st.success(f"Təhvil verildi! Kassa: {actual_d:.2f} ₼")
             time.sleep(1.5)
             st.session_state.active_dialog = None
             st.rerun()
@@ -149,51 +134,33 @@ def x_report_dialog():
 def z_report_dialog():
     expected_cash = get_current_shift_expected_cash()
     st.info(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
-
     actual_z = st.number_input("Sabahkı açılış balansı:", value=float(expected_cash), step=1.0, key="z_next_open")
     default_wage = 25.0 if st.session_state.role in ['manager', 'admin'] else 20.0
     wage_amt = st.number_input("Götürülən Maaş (AZN):", value=default_wage, min_value=0.0, step=1.0, key="z_wage_amt")
-
     if st.button("✅ Günü Bağla və Maaşı Çıxar", use_container_width=True, key="z_confirm_btn"):
         actual_z_d = Decimal(str(actual_z))
         wage_d = Decimal(str(wage_amt))
         u = st.session_state.user
         now = get_baku_now()
         is_t = st.session_state.get('test_mode', False)
-
         diff = actual_z_d - (expected_cash - wage_d)
         actions = []
-
         if abs(diff) > Decimal("0.01"):
             c_type = 'in' if diff > 0 else 'out'
             cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, FALSE)",
-                {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}
-            ))
-
-        actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)",
-            {"a": str(wage_d), "u": u, "subj": u, "time": now, "tst": is_t}
-        ))
-
-        # Z-Report record
+            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
+        actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", {"a": str(wage_d), "u": u, "subj": u, "time": now, "tst": is_t}))
         try:
             log_date_z = get_logical_date()
             sh_start_z, sh_end_z = get_shift_range(log_date_z)
-            q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
+            q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status='COMPLETED')"
             rp = {"d": sh_start_z, "e": sh_end_z}
             s_cash_z = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", rp).iloc[0]['s'])
             s_card_z = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {q_cond}", rp).iloc[0]['s'])
             s_cogs_z = safe_decimal(run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", rp).iloc[0]['s'])
-
-            actions.append((
-                "INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)",
-                {"ts": str(s_cash_z + s_card_z), "cs": str(s_cash_z), "crs": str(s_card_z), "cogs": str(s_cogs_z), "ac": str(actual_z_d), "gb": u, "t": now}
-            ))
+            actions.append(("INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)", {"ts": str(s_cash_z + s_card_z), "cs": str(s_cash_z), "crs": str(s_card_z), "cogs": str(s_cogs_z), "ac": str(actual_z_d), "gb": u, "t": now}))
         except Exception as e:
-            logger.error(f"Z-report data collection error: {e}")
-
+            logger.error(f"Z-report data error: {e}")
         try:
             run_transaction(actions)
             set_setting(SK_CASH_LIMIT, str(actual_z_d))
@@ -216,7 +183,7 @@ def add_to_cart(cart, item):
     cart.append(item)
 
 # ============================================================
-# SMART TOTAL (Decimal-based)
+# SMART TOTAL (Decimal + Happy Hour)
 # ============================================================
 def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_percent=0, is_eco_cup=False):
     total = Decimal("0")
@@ -227,6 +194,15 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     is_ikram = False
 
     has_croissant_promo = customer and "CROISSANT50" in str(customer.get('secret_token', ''))
+
+    # Happy Hour avtomatik endirim
+    active_hh = None
+    if manual_discount_percent == 0:
+        active_hh = get_active_happy_hour()
+        if active_hh:
+            hh_cats = active_hh['categories']
+            if hh_cats == 'ALL':
+                manual_discount_percent = active_hh['discount_percent']
 
     if manual_discount_percent > 0:
         disc_rate = Decimal(str(manual_discount_percent)) / Decimal("100")
@@ -260,11 +236,11 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         total += line_original
 
         if i.get('is_coffee') and free_coffees_to_give > 0:
-            free_from_this_item = min(i['qty'], free_coffees_to_give)
-            paid_qty = i['qty'] - free_from_this_item
+            free_from_this = min(i['qty'], free_coffees_to_give)
+            paid_qty = i['qty'] - free_from_this
             line_paid = (Decimal(str(paid_qty)) * item_price * (Decimal("1") - disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             final_total += line_paid
-            free_coffees_to_give -= free_from_this_item
+            free_coffees_to_give -= free_from_this
         else:
             line_disc = (Decimal(str(i['qty'])) * item_price * (Decimal("1") - disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             final_total += line_disc
@@ -277,7 +253,7 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
     return total, final_total, disc_rate, free_cof, 0, 0, False
 
 # ============================================================
-# MENU CACHE
+# MENU CACHE & CART SWITCH
 # ============================================================
 def get_cached_menu():
     return run_query("SELECT * FROM menu WHERE is_active=TRUE")
@@ -298,10 +274,7 @@ def clear_customer_data_callback():
 # ============================================================
 def render_menu(cart, key):
     menu_df = get_cached_menu()
-    CAT_ORDER = {"Kofe (Dənələr)": 0, "Kombolar": 1, "Süd Məhsulları": 2, "Bar Məhsulları (Su/Buz)": 3,
-                 "Siroplar": 4, "Soslar və Pastalar": 5, "Qablaşdırma (Stəkan/Qapaq)": 6,
-                 "Şirniyyat (Hazır)": 7, "İçkilər (Hazır)": 8, "Meyvə-Tərəvəz": 9,
-                 "Təsərrüfat/Təmizlik": 10, "Mətbəə / Kartlar": 11}
+    CAT_ORDER = {"Kofe (Dənələr)": 0, "Kombolar": 1, "Süd Məhsulları": 2, "Bar Məhsulları (Su/Buz)": 3, "Siroplar": 4, "Soslar və Pastalar": 5, "Qablaşdırma (Stəkan/Qapaq)": 6, "Şirniyyat (Hazır)": 7, "İçkilər (Hazır)": 8, "Meyvə-Tərəvəz": 9, "Təsərrüfat/Təmizlik": 10, "Mətbəə / Kartlar": 11}
     menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER).fillna(99)
     menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
 
@@ -335,25 +308,21 @@ def render_menu(cart, key):
         for base, items in groups.items():
             with cols[idx % 4]:
                 if len(items) > 1:
-                    if st.button(f"{base}\n▾", key=f"grp_btn_{base}_{key}_{sc}", use_container_width=True):
+                    if st.button(f"{base}\n▾", key=f"grp_btn_{base}_{key}_{sc}", use_container_width=True, type="secondary"):
                         st.session_state.active_dialog = ("variants", items)
                         st.rerun()
                 else:
                     r = items[0]
                     btn_color = "primary" if r['category'] == "Kombolar" else "secondary"
                     if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"prod_btn_{r['id']}_{key}_{sc}", use_container_width=True, type=btn_color):
-                        add_to_cart(cart, {
-                            'item_name': r['item_name'], 'price': float(r['price']),
-                            'qty': 1, 'is_coffee': r['is_coffee'], 'category': r['category'], 'status': 'new'
-                        })
+                        add_to_cart(cart, {'item_name': r['item_name'], 'price': float(r['price']), 'qty': 1, 'is_coffee': r['is_coffee'], 'category': r['category'], 'status': 'new'})
                         st.rerun()
                 idx += 1
 
 # ============================================================
-# ATOMIC SALE FINALIZATION
+# ATOMIC SALE (Split Payment + Kitchen + Happy Hour)
 # ============================================================
-def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_tips, is_test):
-    """All-or-nothing sale: sales + finance + stock + customer stars"""
+def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_tips, is_test, split_cash=None, split_card=None):
     now = get_baku_now()
     final_d = Decimal(str(final_total))
     original_d = Decimal(str(original_total))
@@ -363,70 +332,66 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
     total_cogs = Decimal("0")
     actions = []
 
-    # Stock deduction + COGS calculation
+    # Kitchen Order
+    actions.append((
+        "INSERT INTO kitchen_orders (sale_source, items, status, created_by, created_at) VALUES ('POS', :items, 'NEW', :user, :time)",
+        {"items": items_json, "user": user, "time": now}
+    ))
+
+    # Stock + COGS
     if not is_test:
         for it in cart_items:
-            recs = run_query(
-                "SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m",
-                {"m": it['item_name']}
-            )
+            recs = run_query("SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m", {"m": it['item_name']})
             if not recs.empty:
                 for _, r in recs.iterrows():
                     qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
-                    u_cost = Decimal(str(r['unit_cost'])) if pd.notna(r['unit_cost']) else Decimal("0")
+                    u_cost = safe_decimal(r['unit_cost'])
                     total_cogs += qty_req * u_cost
-                    actions.append((
-                        "UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n",
-                        {"q": str(qty_req), "n": r['ingredient_name']}
-                    ))
+                    actions.append(("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n", {"q": str(qty_req), "n": r['ingredient_name']}))
 
-    # Sales INSERT
+    # Sales
     actions.append((
         "INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test, cogs) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:tip,:tst,:cogs)",
-        {"i": items_json, "t": str(final_d), "p": pm, "c": user, "time": now,
-         "cid": cust['card_id'] if cust else None, "ot": str(original_d), "da": str(discount_d),
-         "tip": str(tips_d), "tst": is_test, "cogs": str(total_cogs)}
+        {"i": items_json, "t": str(final_d), "p": pm, "c": user, "time": now, "cid": cust['card_id'] if cust else None, "ot": str(original_d), "da": str(discount_d), "tip": str(tips_d), "tst": is_test, "cogs": str(total_cogs)}
     ))
 
-    # Finance entries
+    # Finance
     if not is_test and final_d > 0:
-        db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
-        pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
-        actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', :cat, :a, :src, 'POS Satış', :u, :t, FALSE)",
-            {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now}
-        ))
+        if split_cash is not None and split_card is not None:
+            # SPLIT PAYMENT
+            if split_cash > 0:
+                actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Satış (Nağd)', :a, 'Kassa', 'POS Satış (Split)', :u, :t, FALSE)", {"a": str(split_cash), "u": user, "t": now}))
+            if split_card > 0:
+                actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Satış (Kart)', :a, 'Bank Kartı', 'POS Satış (Split)', :u, :t, FALSE)", {"a": str(split_card), "u": user, "t": now}))
+                min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
+                pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
+                comm = max(min_comm, (split_card * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Komissiya (Split)', :u, :t, FALSE)", {"a": str(comm), "u": user, "t": now}))
+        else:
+            # NORMAL PAYMENT
+            if pm != 'Staff':
+                db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
+                pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
+                actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', :cat, :a, :src, 'POS Satış', :u, :t, FALSE)", {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now}))
+                if pm == "Kart":
+                    min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
+                    pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
+                    comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                    actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE)", {"a": str(comm), "u": user, "t": now}))
 
-        if pm == "Kart":
-            min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
-            pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
-            comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE)",
-                {"a": str(comm), "u": user, "t": now}
-            ))
-
+        # Tips
         if tips_d > 0:
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Kart Tip', :u, :t)",
-                {"a": str(tips_d), "u": user, "t": now}
-            ))
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t)",
-                {"a": str(tips_d), "u": user, "t": now}
-            ))
+            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Kart Tip', :u, :t)", {"a": str(tips_d), "u": user, "t": now}))
+            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t)", {"a": str(tips_d), "u": user, "t": now}))
 
-    # Customer stars update
+    # Customer stars
     if not is_test and cust:
         coffee_qty = sum([i['qty'] for i in cart_items if i.get('is_coffee')])
-        free_cof = 0  # recalculate if needed
-        new_stars = max(0, cust['stars'] + coffee_qty - (free_cof * 10))
-        actions.append((
-            "UPDATE customers SET stars = :ns WHERE card_id = :cid",
-            {"ns": new_stars, "cid": cust['card_id']}
-        ))
+        current_stars = cust.get('stars', 0)
+        free_cof = min(int((current_stars + coffee_qty) // 10), coffee_qty)
+        new_stars = max(0, current_stars + coffee_qty - (free_cof * 10))
+        actions.append(("UPDATE customers SET stars = :ns WHERE card_id = :cid", {"ns": new_stars, "cid": cust['card_id']}))
 
-    # EXECUTE ALL AT ONCE
     run_transaction(actions)
     log_system(user, f"SALE: total={final_d}, pm={pm}, test={is_test}, items={len(cart_items)}")
 
@@ -436,25 +401,18 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
 def render_pos_page():
     if st.session_state.get('active_dialog'):
         d_type, d_data = st.session_state.active_dialog
-        if d_type == "variants":
-            variant_dialog(d_data, st.session_state.cart_takeaway)
-        elif d_type == "test_auth":
-            test_auth_dialog()
-        elif d_type == "receipt":
-            show_receipt_dialog(d_data['cart'], d_data['total'])
-        elif d_type == "z_report":
-            z_report_dialog()
-        elif d_type == "x_report":
-            x_report_dialog()
+        if d_type == "variants": variant_dialog(d_data, st.session_state.cart_takeaway)
+        elif d_type == "test_auth": test_auth_dialog()
+        elif d_type == "receipt": show_receipt_dialog(d_data['cart'], d_data['total'])
+        elif d_type == "z_report": z_report_dialog()
+        elif d_type == "x_report": x_report_dialog()
         st.stop()
 
     # Cart navigation
     c_carts = st.columns([1, 1, 1, 1, 1, 1])
     for cid in [1, 2, 3]:
         count = len(st.session_state.multi_carts[cid]['cart']) if cid != st.session_state.active_cart_id else len(st.session_state.cart_takeaway)
-        if c_carts[cid - 1].button(f"🛒 Səbət {cid} ({count})", key=f"nav_cart_{cid}",
-                                    type="primary" if cid == st.session_state.active_cart_id else "secondary",
-                                    use_container_width=True):
+        if c_carts[cid - 1].button(f"🛒 Səbət {cid} ({count})", key=f"nav_cart_{cid}", type="primary" if cid == st.session_state.active_cart_id else "secondary", use_container_width=True):
             switch_cart(cid)
             st.rerun()
 
@@ -481,6 +439,17 @@ def render_pos_page():
     if st.session_state.get('test_mode'):
         st.warning("⚠️ TEST REJİMİ AKTİVDİR")
 
+    # Happy Hour Banner
+    active_hh = get_active_happy_hour()
+    if active_hh:
+        hh_end = active_hh['end_time'][:5]
+        st.markdown(f"""
+        <div style="background: linear-gradient(90deg, #FF6B35, #F7C948); color: #000; padding: 12px 20px; border-radius: 12px; margin-bottom: 10px; text-align: center; font-weight: 900; animation: hhPulse 2s infinite;">
+            ⏰ HAPPY HOUR! <b>{active_hh['discount_percent']}% ENDİRİM</b> · {active_hh['name']} · {hh_end}-ə qədər
+        </div>
+        <style>@keyframes hhPulse {{ 0%,100% {{ box-shadow: 0 0 0 0 rgba(255,107,53,0.4); }} 50% {{ box-shadow: 0 0 0 8px rgba(255,107,53,0); }} }}</style>
+        """, unsafe_allow_html=True)
+
     eco_mode = st.toggle("🍃 Eco-Stakan", key="nav_eco_toggle")
     c_menu, c_cart = st.columns([2.5, 1.2])
 
@@ -493,8 +462,7 @@ def render_pos_page():
 
             # Customer search
             c_src, c_btn = st.columns([4, 1], vertical_alignment="bottom")
-            code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan et...",
-                                    key=f"cust_qr_{st.session_state.search_key_counter}")
+            code = c_src.text_input("Müştəri (QR)", label_visibility="collapsed", placeholder="Skan et...", key=f"cust_qr_{st.session_state.search_key_counter}")
             if c_btn.button("🔍", key="cust_search_btn") or code:
                 cid = str(code).split("id=")[1].split("&")[0] if "id=" in str(code) else str(code).strip()
                 r = run_query("SELECT * FROM customers WHERE card_id=:id", {"id": cid})
@@ -519,11 +487,7 @@ def render_pos_page():
             is_table_order = st.checkbox("🍽️ Masada", key="cart_table_check")
 
             st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(
-                st.session_state.cart_takeaway, cust,
-                is_table=is_table_order, manual_discount_percent=man_disc_val,
-                is_eco_cup=eco_mode
-            )
+            raw, final, disc, free, _, _, is_ikram = calculate_smart_total(st.session_state.cart_takeaway, cust, is_table=is_table_order, manual_discount_percent=man_disc_val, is_eco_cup=eco_mode)
 
             if not st.session_state.cart_takeaway:
                 st.markdown("<p style='text-align:center;color:#888;'>Səbət boşdur</p>", unsafe_allow_html=True)
@@ -535,73 +499,89 @@ def render_pos_page():
                     with c_btn_col:
                         btn_min, btn_plus = st.columns(2)
                         if btn_min.button("➖", key=f"cart_dec_{i}"):
-                            if item['qty'] > 1:
-                                item['qty'] -= 1
-                            else:
-                                st.session_state.cart_takeaway.pop(i)
+                            if item['qty'] > 1: item['qty'] -= 1
+                            else: st.session_state.cart_takeaway.pop(i)
                             st.rerun()
                         if btn_plus.button("➕", key=f"cart_inc_{i}"):
                             item['qty'] += 1
                             st.rerun()
 
-            pm = st.radio("Metod", ["Nəğd", "Kart", "Staff"], horizontal=True, label_visibility="collapsed", key="cart_pm_radio")
+            # ============================================================
+            # ÖDƏNİŞ (Split Payment daxil)
+            # ============================================================
+            pm = st.radio("Metod", ["Nəğd", "Kart", "Bölünmüş ✂️", "Staff"], horizontal=True, label_visibility="collapsed", key="cart_pm_radio")
 
-            # Staff benefit
-            if pm == "Staff":
+            split_cash = Decimal("0")
+            split_card = Decimal("0")
+            is_split_valid = True
+
+            if pm == "Bölünmüş ✂️":
+                with st.container(border=True):
+                    st.markdown(f"**Yekun: {final:.2f} ₼**")
+                    col_s1, col_s2 = st.columns(2)
+                    split_cash_input = col_s1.number_input("Nağd hissə (₼):", min_value=0.0, max_value=float(final), value=0.0, step=1.0, key="split_cash_inp")
+                    split_cash = Decimal(str(split_cash_input))
+                    split_card = final - split_cash
+                    col_s2.metric("Kartla", f"{split_card:.2f} ₼")
+                    if split_cash < 0 or split_card < 0:
+                        st.error("Məbləğ mənfi ola bilməz!")
+                        is_split_valid = False
+
+            elif pm == "Staff":
                 DAILY_STAFF_LIMIT = Decimal("6.00")
                 now_date = get_baku_now().date()
-                st_check = run_query(
-                    "SELECT COUNT(*) as count FROM sales WHERE cashier=:u AND payment_method='Staff' AND DATE(created_at)=:d AND (is_test IS NULL OR is_test=FALSE)",
-                    {"u": st.session_state.user, "d": now_date}
-                )
+                st_check = run_query("SELECT COUNT(*) as count FROM sales WHERE cashier=:u AND payment_method='Staff' AND DATE(created_at)=:d AND (is_test IS NULL OR is_test=FALSE)", {"u": st.session_state.user, "d": now_date})
                 staff_calc = Decimal("0")
                 used_discount = (not st_check.empty and st_check.iloc[0]['count'] > 0)
                 nc_applied = used_discount
-
                 for it in st.session_state.cart_takeaway:
                     if it.get('is_coffee'):
                         staff_calc += Decimal(str(it['qty'])) * Decimal(str(it['price']))
                     else:
                         if not nc_applied:
                             staff_calc += Decimal("2.0")
-                            if it['qty'] > 1:
-                                staff_calc += Decimal(str(it['qty'] - 1)) * Decimal(str(it['price']))
+                            if it['qty'] > 1: staff_calc += Decimal(str(it['qty'] - 1)) * Decimal(str(it['price']))
                             nc_applied = True
                         else:
                             staff_calc += Decimal(str(it['qty'])) * Decimal(str(it['price']))
-
                 if staff_calc <= DAILY_STAFF_LIMIT:
                     final = Decimal("0")
                     st.success("✅ Limit daxilində. Ödəniş: 0 ₼")
                 else:
                     final = staff_calc - DAILY_STAFF_LIMIT
-                    st.warning(f"⚠️ Limit keçildi. Ödənilməli: {final:.2f} ₼")
+                    st.warning(f"⚠️ Limit keçildi: {final:.2f} ₼")
 
             st.markdown(f"<h1 style='text-align:center;color:#ffd700;font-size:48px;'>{final:.2f} ₼</h1>", unsafe_allow_html=True)
-            if is_ikram:
-                st.success("🎁 İKRAM")
-            elif free > 0:
-                st.success(f"🎁 {free} Kofe Hədiyyə")
+            if is_ikram: st.success("🎁 İKRAM")
+            elif free > 0: st.success(f"🎁 {free} Kofe Hədiyyə")
 
-            card_tips = st.number_input("Çayvoy?", min_value=0.0, step=0.5, key="cart_tip_inp") if pm == "Kart" else 0.0
+            if active_hh and man_disc_val == 0:
+                st.success(f"⏰ Happy Hour: {active_hh['name']} ({active_hh['discount_percent']}%)")
+
+            card_tips = st.number_input("Çayvoy (₼)?", min_value=0.0, step=0.5, key="cart_tip_inp") if pm in ["Kart", "Bölünmüş ✂️"] else 0.0
 
             if st.button("✅ ÖDƏNİŞİ TAMAMLA", type="primary", use_container_width=True, key="cart_pay_btn"):
                 if not st.session_state.cart_takeaway:
                     st.error("Səbət boşdur")
                     st.stop()
+                if pm == "Bölünmüş ✂️" and not is_split_valid:
+                    st.error("Bölünmüş məbləğləri düzəldin!")
+                    st.stop()
 
                 is_test_mode = st.session_state.get('test_mode', False)
-
                 try:
+                    db_pm = pm
+                    if pm == "Bölünmüş ✂️":
+                        db_pm = f"Split (Cash:{split_cash:.2f}, Card:{split_card:.2f})"
+
                     finalize_sale(
                         cart_items=st.session_state.cart_takeaway,
-                        final_total=final,
-                        original_total=raw,
-                        pm=pm,
-                        user=st.session_state.user,
-                        cust=cust,
-                        card_tips=card_tips,
-                        is_test=is_test_mode
+                        final_total=final, original_total=raw,
+                        pm=db_pm, user=st.session_state.user,
+                        cust=cust, card_tips=card_tips,
+                        is_test=is_test_mode,
+                        split_cash=split_cash if pm == "Bölünmüş ✂️" else None,
+                        split_card=split_card if pm == "Bölünmüş ✂️" else None
                     )
                     receipt_data = {"cart": st.session_state.cart_takeaway.copy(), "total": float(final)}
                     st.session_state.cart_takeaway = []
