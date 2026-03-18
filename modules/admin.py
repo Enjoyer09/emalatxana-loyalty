@@ -1,4 +1,4 @@
-# modules/admin.py — PATCHED v3.1 (+ Log Fix)
+# modules/admin.py — PATCHED v3.2 (Structured Logs)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -6,7 +6,7 @@ import time
 import json
 import datetime
 import logging
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting, conn
 from sqlalchemy import text
@@ -20,9 +20,6 @@ except ImportError:
     genai = None
 
 
-# ============================================================
-# SETTINGS PAGE
-# ============================================================
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
 
@@ -34,9 +31,6 @@ def render_settings_page():
         "📱 Müştəri Tətbiqi (App)"
     ])
 
-    # ============================================================
-    # RESTORAN AYARLARI
-    # ============================================================
     with tab_settings:
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
         current_fee = safe_decimal(get_setting("service_fee_percent", "0.0"))
@@ -44,7 +38,7 @@ def render_settings_page():
 
         if st.button("Servis Haqqını Yenilə"):
             set_setting("service_fee_percent", str(Decimal(str(new_fee))))
-            log_system(st.session_state.user, f"SERVICE_FEE_UPDATE: {new_fee}%")
+            log_system(st.session_state.user, "SERVICE_FEE_UPDATE", {"percent": new_fee})
             st.success("Yeniləndi!")
 
         st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
@@ -66,12 +60,13 @@ def render_settings_page():
             set_setting("shift_start_time", new_start)
             set_setting("shift_end_time", new_end)
             set_setting("utc_offset", str(new_off))
-            log_system(st.session_state.user, f"TIME_SETTINGS_UPDATE: start={new_start}, end={new_end}, offset={new_off}")
+            log_system(st.session_state.user, "TIME_SETTINGS_UPDATE", {
+                "shift_start": new_start,
+                "shift_end": new_end,
+                "utc_offset": new_off
+            })
             st.success("Vaxt ayarları yeniləndi!")
 
-    # ============================================================
-    # USERS
-    # ============================================================
     with tab_users:
         st.markdown("### 👥 İstifadəçi İdarəetməsi")
         users = run_query("SELECT username, role, last_seen FROM users")
@@ -95,7 +90,11 @@ def render_settings_page():
                                 "ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
                                 {"u": u_name.strip(), "p": p_hash, "r": u_role}
                             )
-                            log_system(st.session_state.user, f"USER_UPSERT: {u_name}, role={u_role}")
+                            log_system(
+                                st.session_state.user,
+                                "USER_UPSERT",
+                                {"target_user": u_name.strip(), "role": u_role}
+                            )
                             st.success("İstifadəçi qeydə alındı!")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
@@ -115,16 +114,17 @@ def render_settings_page():
                                 ("DELETE FROM users WHERE username=:u", {"u": del_user})
                             ]
                             run_transaction(actions)
-                            log_system(st.session_state.user, f"USER_DELETE: {del_user}")
+                            log_system(
+                                st.session_state.user,
+                                "USER_DELETE",
+                                {"target_user": del_user}
+                            )
                             st.success("Silindi!")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
                             st.error(f"Xəta: {e}")
 
-    # ============================================================
-    # CRM
-    # ============================================================
     with tab_crm:
         st.markdown("### 📱 Müştəri QR və Loyallıq (CRM)")
         with st.form("add_customer"):
@@ -140,7 +140,11 @@ def render_settings_page():
                             "ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
                             {"cid": card_id.strip(), "t": c_type, "s": c_stars}
                         )
-                        log_system(st.session_state.user, f"CUSTOMER_UPSERT: {card_id}, type={c_type}")
+                        log_system(
+                            st.session_state.user,
+                            "CUSTOMER_UPSERT",
+                            {"card_id": card_id.strip(), "type": c_type, "stars": c_stars}
+                        )
                         st.success(f"Müştəri ({card_id}) uğurla qeydiyyata alındı/yeniləndi!")
                         time.sleep(1)
                         st.rerun()
@@ -149,39 +153,10 @@ def render_settings_page():
                 else:
                     st.error("QR ID boş ola bilməz.")
 
-        with st.expander("🤖 AI ilə Kampaniya və Marketinq Təklifləri Yarat", expanded=False):
-            api_key = get_setting("gemini_api_key", "")
-            if not api_key:
-                st.warning("⚠️ AI funksiyası üçün API Key daxil edin.")
-            elif genai is None:
-                st.warning("⚠️ google-generativeai paketi quraşdırılmayıb.")
-            else:
-                camp_goal = st.text_input("🎯 Kampaniyanın Məqsədi")
-                if st.button("🚀 AI Kampaniya Yarat", type="primary"):
-                    if camp_goal:
-                        with st.spinner("🤖 AI analiz edir..."):
-                            try:
-                                genai.configure(api_key=api_key)
-                                valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                                chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'models/gemini-pro')
-                                model = genai.GenerativeModel(chosen_model)
-                                cust_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
-                                stats_str = ", ".join([f"{r['type']}: {r['cnt']}" for _, r in cust_stats.iterrows()]) if not cust_stats.empty else "Məlumat yoxdur"
-                                prompt = f"Sən kofe şopun marketoloqusən. Müştəri bazası: {stats_str}. Məqsəd: {camp_goal}. 3 kampaniya ideyası yaz."
-                                response = model.generate_content(prompt)
-                                st.markdown(f"<div style='background:#1e2226;padding:15px;border-left:5px solid #007bff;border-radius:10px;'>{response.text}</div>", unsafe_allow_html=True)
-                            except Exception as e:
-                                st.error(f"Xəta: {e}")
-                    else:
-                        st.warning("Məqsədi yazın.")
-
         customers_df = run_query("SELECT * FROM customers ORDER BY created_at DESC")
         if not customers_df.empty:
             st.dataframe(customers_df, hide_index=True)
 
-    # ============================================================
-    # HAPPY HOUR
-    # ============================================================
     with tab_happy:
         st.markdown("### ⏰ Happy Hour / Avtomatik Endirim")
         st.info("Müəyyən saatlarda avtomatik endirim tətbiq olunur. POS-da kassir heç nə etmir — sistem özü endirim verir.")
@@ -204,17 +179,31 @@ def render_settings_page():
                     c3.markdown(f"🏷️ **{hh['discount_percent']}%**")
                     if c4.button("🗑️", key=f"del_hh_{hh['id']}"):
                         run_action("DELETE FROM happy_hours WHERE id=:id", {"id": hh['id']})
-                        log_system(st.session_state.user, f"HAPPY_HOUR_DELETE: {hh['name']}")
+                        log_system(
+                            st.session_state.user,
+                            "HAPPY_HOUR_DELETE",
+                            {"id": int(hh['id']), "name": hh['name']}
+                        )
                         st.rerun()
                     st.caption(f"📅 {day_display} | 📂 {cat_display}")
 
                     if hh['is_active']:
                         if st.button("⏸️ Deaktiv Et", key=f"deact_hh_{hh['id']}", use_container_width=True):
                             run_action("UPDATE happy_hours SET is_active=FALSE WHERE id=:id", {"id": hh['id']})
+                            log_system(
+                                st.session_state.user,
+                                "HAPPY_HOUR_DEACTIVATE",
+                                {"id": int(hh['id']), "name": hh['name']}
+                            )
                             st.rerun()
                     else:
                         if st.button("▶️ Aktivləşdir", key=f"act_hh_{hh['id']}", use_container_width=True):
                             run_action("UPDATE happy_hours SET is_active=TRUE WHERE id=:id", {"id": hh['id']})
+                            log_system(
+                                st.session_state.user,
+                                "HAPPY_HOUR_ACTIVATE",
+                                {"id": int(hh['id']), "name": hh['name']}
+                            )
                             st.rerun()
         else:
             st.warning("Heç bir Happy Hour yaradılmayıb.")
@@ -265,7 +254,18 @@ def render_settings_page():
                                 "t": get_baku_now()
                             }
                         )
-                        log_system(st.session_state.user, f"HAPPY_HOUR_CREATE: {hh_name}, {hh_discount}%, {hh_start}-{hh_end}")
+                        log_system(
+                            st.session_state.user,
+                            "HAPPY_HOUR_CREATE",
+                            {
+                                "name": hh_name.strip(),
+                                "discount_percent": hh_discount,
+                                "start_time": str(hh_start),
+                                "end_time": str(hh_end),
+                                "days": selected_days,
+                                "categories": hh_cats
+                            }
+                        )
                         st.success(f"'{hh_name}' yaradıldı!")
                         time.sleep(1)
                         st.rerun()
@@ -274,20 +274,13 @@ def render_settings_page():
                 else:
                     st.error("Ad və ən azı 1 gün seçin!")
 
-    # ============================================================
-    # APP TAB
-    # ============================================================
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı və Məlumatlar")
         st.info("Tezliklə App ayarları bura əlavə olunacaq.")
 
 
-# ============================================================
-# DATABASE PAGE
-# ============================================================
 def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
-
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
             tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours']
@@ -297,11 +290,17 @@ def render_database_page():
                     df = run_query(f"SELECT * FROM {t}")
                     if not df.empty:
                         backup_data[t] = df.to_dict(orient='records')
-                except Exception as e:
-                    logger.warning(f"Backup warning on {t}: {e}")
+                except:
+                    pass
+
             json_str = json.dumps(backup_data, indent=4, default=str)
-            log_system(st.session_state.user, "DATABASE_BACKUP_CREATED")
-            st.download_button("JSON Faylını Yüklə", data=json_str, file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json", mime="application/json")
+            log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": tables})
+            st.download_button(
+                "JSON Faylını Yüklə",
+                data=json_str,
+                file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json"
+            )
         except Exception as e:
             st.error(f"Backup xətası: {e}")
 
@@ -314,6 +313,7 @@ def render_database_page():
                 if not isinstance(data, dict):
                     st.error("⚠️ JSON formatı səhvdir!")
                     st.stop()
+
                 allowed_tables = {'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'tables'}
                 with conn.session as s:
                     for tbl, recs in data.items():
@@ -332,6 +332,7 @@ def render_database_page():
                                 safe_r = {k: r[k] for k in clean_keys}
                                 s.execute(text(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})"), safe_r)
                     s.commit()
+
                 log_system(st.session_state.user, "DATABASE_RESTORE_COMPLETED")
                 st.success("✅ Baza uğurla bərpa edildi!")
                 time.sleep(2)
@@ -340,19 +341,25 @@ def render_database_page():
                 st.error(f"Bərpa xətası (Rollback edildi): {e}")
 
 
-# ============================================================
-# LOGS PAGE — FIXED
-# ============================================================
 def render_logs_page():
     st.subheader("🕵️‍♂️ Sistem Loqları")
 
-    col1, col2 = st.columns([1, 1])
-    if col1.button("🧪 Test Log Yaz"):
-        log_system(st.session_state.get('user', 'admin'), "TEST_LOG", "Bu test məqsədli log yazısıdır")
-        st.success("Test log yazıldı!")
+    c1, c2 = st.columns([1, 1])
+
+    if c1.button("🧪 Test Structured Log"):
+        log_system(
+            st.session_state.get('user', 'admin'),
+            "TEST_LOG",
+            {
+                "message": "Bu structured test logudur",
+                "page": "logs",
+                "time": str(get_baku_now())
+            }
+        )
+        st.success("Structured test log yazıldı!")
         st.rerun()
 
-    limit = col2.selectbox("Limit", [100, 250, 500, 1000], index=2)
+    limit = c2.selectbox("Limit", [100, 250, 500, 1000], index=2)
 
     try:
         logs = run_query(f'SELECT * FROM logs ORDER BY created_at DESC LIMIT {int(limit)}')
@@ -366,24 +373,54 @@ def render_logs_page():
             if '"user"' in logs.columns and 'user' not in logs.columns:
                 logs['user'] = logs['"user"']
 
-            display_cols = [c for c in ['created_at', 'user', 'action', 'details', 'ip'] if c in logs.columns]
+            if 'details' in logs.columns:
+                def pretty_details(x):
+                    if pd.isna(x) or x is None or str(x).strip() == "":
+                        return ""
+                    try:
+                        parsed = json.loads(x)
+                        if isinstance(parsed, dict):
+                            return " | ".join([f"{k}: {v}" for k, v in parsed.items()])
+                        return str(parsed)
+                    except:
+                        return str(x)
 
-            if display_cols:
-                st.dataframe(logs[display_cols], use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(logs, use_container_width=True, hide_index=True)
+                logs['details_preview'] = logs['details'].apply(pretty_details)
+
+            display_cols = [c for c in ['created_at', 'user', 'action', 'details_preview'] if c in logs.columns]
+
+            st.dataframe(
+                logs[display_cols] if display_cols else logs,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "created_at": "Tarix",
+                    "user": "İstifadəçi",
+                    "action": "Event",
+                    "details_preview": "Detallar"
+                }
+            )
+
+            with st.expander("📜 Raw Log Məlumatları"):
+                for _, row in logs.iterrows():
+                    st.markdown(f"### {row.get('action', '-')}")
+                    st.write(f"**Tarix:** {row.get('created_at', '-')}")
+                    st.write(f"**User:** {row.get('user', '-')}")
+                    if 'details' in row and row['details']:
+                        try:
+                            parsed = json.loads(row['details'])
+                            st.json(parsed)
+                        except:
+                            st.code(str(row['details']))
+                    st.markdown("---")
 
             st.caption(f"Toplam göstərilən log sayı: {len(logs)}")
         else:
             st.info("Loq tapılmadı.")
-            st.warning("Əgər loglar boşdursa, yuxarıdakı **🧪 Test Log Yaz** düyməsini basın.")
     except Exception as e:
         st.error(f"Loq oxuma xətası: {e}")
 
 
-# ============================================================
-# NOTES PAGE
-# ============================================================
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
     try:
@@ -397,7 +434,11 @@ def render_notes_page():
         if st.form_submit_button("Yadda Saxla"):
             if title.strip() and note.strip():
                 run_action("INSERT INTO admin_notes (title, note) VALUES (:t, :n)", {"t": title.strip(), "n": note.strip()})
-                log_system(st.session_state.user, f"NOTE_CREATED: {title[:30]}")
+                log_system(
+                    st.session_state.user,
+                    "NOTE_CREATED",
+                    {"title": title[:50]}
+                )
                 st.rerun()
 
     try:
@@ -408,7 +449,11 @@ def render_notes_page():
                     st.write(n['note'])
                     if st.button("Sil", key=f"del_note_{n['id']}"):
                         run_action("DELETE FROM admin_notes WHERE id=:id", {"id": n['id']})
-                        log_system(st.session_state.user, f"NOTE_DELETED: {n['title'][:30]}")
+                        log_system(
+                            st.session_state.user,
+                            "NOTE_DELETED",
+                            {"title": str(n['title'])[:50], "id": int(n['id'])}
+                        )
                         st.rerun()
     except Exception:
         pass
