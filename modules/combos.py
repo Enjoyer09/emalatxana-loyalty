@@ -1,4 +1,4 @@
-# modules/combos.py — FINAL PATCHED v2.0
+# modules/combos.py — FINAL PATCHED v2.1
 import streamlit as st
 import time
 import logging
@@ -47,7 +47,10 @@ def render_combos_page():
                             ]
 
                             for item in selected_items:
-                                recs = run_query("SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m", {"m": item})
+                                recs = run_query(
+                                    "SELECT ingredient_name, quantity_required FROM recipes WHERE menu_item_name=:m",
+                                    {"m": item}
+                                )
                                 for _, r in recs.iterrows():
                                     actions.append((
                                         "INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)",
@@ -87,8 +90,27 @@ def render_combos_page():
                     {"m": combo['item_name']}
                 )
                 if not combo_recipes.empty:
-                    st.markdown(f"**{combo['item_name']}** ({combo['price']} ₼):")
+                    st.markdown(f"**{combo['item_name']}** ({float(combo['price']):.2f} ₼):")
                     for _, rec in combo_recipes.iterrows():
                         st.write(f"• {rec['ingredient_name']}: {rec['quantity_required']}")
                 else:
-                    st.markdown(f
+                    st.markdown(f"**{combo['item_name']}** — resept yoxdur ⚠️")
+
+        del_col1, del_col2 = st.columns([3, 1])
+        del_combo = del_col1.selectbox("Silinəcək Kombo", combos['item_name'].tolist())
+
+        if del_col2.button("Kombonu Sil", use_container_width=True):
+            try:
+                actions = [
+                    ("DELETE FROM recipes WHERE menu_item_name=:m", {"m": del_combo}),
+                    ("DELETE FROM menu WHERE item_name=:m AND category='Kombolar'", {"m": del_combo})
+                ]
+                run_transaction(actions)
+                log_system(st.session_state.user, "COMBO_DELETED", {"combo_name": del_combo})
+                st.success("Kombo silindi!")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Silmə xətası: {e}")
+    else:
+        st.info("Hələ ki heç bir Kombo yaradılmayıb.")
