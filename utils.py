@@ -1,9 +1,10 @@
-# utils.py — PATCHED v3.1 (Log Fix)
+# utils.py — PATCHED v3.2 (Structured Logging)
 import datetime
 import io
 import base64
 import logging
 import os
+import json
 from decimal import Decimal, ROUND_HALF_UP
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ from database import get_setting, run_action, run_query
 # CONSTANTS
 # ============================================================
 BRAND_NAME = "Emalatkhana POS AI Powered"
-VERSION = "3.1"
+VERSION = "3.2"
 DEFAULT_TERMS = "Bizi seçdiyiniz üçün təşəkkür edirik!"
 APP_URL = "https://emalatxana.ironwaves.store"
 
@@ -73,7 +74,7 @@ def format_money(val):
     return f"{Decimal(str(val)):.2f}"
 
 # ============================================================
-# TIME FUNCTIONS
+# TIME
 # ============================================================
 def get_baku_now():
     tz_name = get_setting(SK_TIMEZONE, "Asia/Baku")
@@ -153,31 +154,33 @@ def generate_styled_qr(data):
         return None
 
 # ============================================================
-# LOGGING — FIX
+# STRUCTURED LOGGING
 # ============================================================
 def log_system(user, action, details=None):
+    """
+    Structured audit logging.
+    action -> qısa event kodu (məs: SALE_CREATED)
+    details -> dict / list / str
+    """
     try:
+        if isinstance(details, (dict, list)):
+            details_str = json.dumps(details, ensure_ascii=False, default=str)
+        elif details is None:
+            details_str = None
+        else:
+            details_str = str(details)
+
         run_action(
             'INSERT INTO logs ("user", action, details, created_at) VALUES (:u, :a, :d, :t)',
             {
                 "u": str(user) if user is not None else "system",
                 "a": str(action),
-                "d": str(details) if details is not None else None,
+                "d": details_str,
                 "t": get_baku_now()
             }
         )
     except Exception as e:
-        try:
-            run_action(
-                'INSERT INTO logs ("user", action, created_at) VALUES (:u, :a, :t)',
-                {
-                    "u": str(user) if user is not None else "system",
-                    "a": str(action),
-                    "t": get_baku_now()
-                }
-            )
-        except Exception as e2:
-            logger.error(f"System log error: {e2}")
+        print(f"System log error: {e}")
 
 # ============================================================
 # PASSWORD
@@ -220,12 +223,12 @@ def open_shift(user):
         return False
     run_action("UPDATE settings SET value = 'Open' WHERE key = 'current_shift_status'")
     run_action("UPDATE settings SET value = :t WHERE key = 'shift_open_time'", {"t": now_str})
-    log_system(user, f"NÖVBƏ AÇILDI: {now_str}")
+    log_system(user, "SHIFT_OPENED", {"opened_at": now_str})
     return True
 
 def close_shift(user):
     run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
-    log_system(user, "NÖVBƏ BAĞLANDI")
+    log_system(user, "SHIFT_CLOSED", {"closed_at": str(get_baku_now())})
     return True
 
 # ============================================================
