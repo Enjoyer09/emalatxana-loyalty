@@ -1,4 +1,4 @@
-# modules/analytics.py — PATCHED v3.0 (Refund + Staff Performance)
+# modules/analytics.py — PATCHED v3.1 (Customer columns restored)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -28,9 +28,6 @@ def parse_items_for_display(items_str):
         return items_str
 
 
-# ============================================================
-# REFUND MODAL
-# ============================================================
 @st.dialog("🔄 Satış Ləğvi / Refund")
 def show_refund_dialog(sale_id):
     sale = run_query("SELECT * FROM sales WHERE id=:id", {"id": sale_id})
@@ -90,14 +87,12 @@ def show_refund_dialog(sale_id):
         is_test = row.get('is_test', False)
         actions = []
 
-        # 1. Sales status update
         new_status = 'VOIDED' if is_full_void else 'PARTIAL_REFUND'
         actions.append((
             "UPDATE sales SET status=:s WHERE id=:id",
             {"s": new_status, "id": sale_id}
         ))
 
-        # 2. Refund record
         actions.append((
             "INSERT INTO refunds (original_sale_id, refund_amount, reason, refund_type, items_returned_to_stock, created_by, created_at) "
             "VALUES (:sid, :amt, :reason, :rtype, :stock, :user, :time)",
@@ -106,7 +101,6 @@ def show_refund_dialog(sale_id):
              "stock": return_to_stock, "user": u, "time": now}
         ))
 
-        # 3. Finance geri qaytarma
         if not is_test and refund_amount > 0:
             pm = row['payment_method']
             source = "Kassa" if pm in ['Nəğd', 'Cash'] else "Bank Kartı"
@@ -116,18 +110,6 @@ def show_refund_dialog(sale_id):
                 {"a": str(refund_amount), "src": source, "desc": f"Satış #{sale_id} ləğvi: {full_reason}", "u": u, "t": now}
             ))
 
-            # Kart komissiyasını geri al
-            if pm in ['Kart', 'Card'] and is_full_void:
-                min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
-                pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
-                original_comm = max(min_comm, (Decimal(str(row['total'])) * pct_comm).quantize(Decimal("0.01")))
-                actions.append((
-                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
-                    "VALUES ('in', 'Refund Komissiya Qaytarma', :a, 'Bank Kartı', :desc, :u, :t, FALSE)",
-                    {"a": str(original_comm), "desc": f"Satış #{sale_id} komissiya qaytarma", "u": u, "t": now}
-                ))
-
-        # 4. Stoka qaytar
         if return_to_stock and not is_test and is_full_void:
             try:
                 parsed = json.loads(row['items'])
@@ -142,7 +124,6 @@ def show_refund_dialog(sale_id):
             except Exception as e:
                 logger.warning(f"Stock return error: {e}")
 
-        # 5. Müştəri ulduzlarını geri al
         if not is_test and row.get('customer_card_id') and is_full_void:
             try:
                 parsed = json.loads(row['items'])
@@ -166,13 +147,9 @@ def show_refund_dialog(sale_id):
             logger.error(f"Refund failed: {e}", exc_info=True)
 
 
-# ============================================================
-# ANALİTİKA SƏHİFƏSİ
-# ============================================================
 def render_analytics_page():
     st.subheader("📊 Analitika və Satışlar (Net Monitor)")
 
-    # AI Analiz
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🤖 Süni İntellekt: Analitika Audit"):
             api_key = get_setting("gemini_api_key", "")
@@ -203,7 +180,6 @@ def render_analytics_page():
                         except Exception as e:
                             st.error(f"Xəta: {e}")
 
-    # Tarix filteri
     c_d1, c_d2 = st.columns(2)
     d1 = c_d1.date_input("Başlanğıc", get_logical_date())
     d2 = c_d2.date_input("Bitiş", get_logical_date())
@@ -212,12 +188,13 @@ def render_analytics_page():
     ts_end = datetime.datetime.combine(d2, datetime.time(23, 59))
 
     query = """
-        SELECT s.*, c.stars as current_stars, c.type as cust_type
-        FROM sales s
-        LEFT JOIN customers c ON s.customer_card_id = c.card_id
+        SELECT s.*, c.stars as current_stars, c.type as cust_type 
+        FROM sales s 
+        LEFT JOIN customers c ON s.customer_card_id = c.card_id 
         WHERE s.created_at BETWEEN :s AND :e
     """
     params = {"s": ts_start, "e": ts_end}
+
     if st.session_state.role == 'staff':
         query += " AND s.cashier = :u"
         params["u"] = st.session_state.user
@@ -226,13 +203,25 @@ def render_analytics_page():
     sales = run_query(query, params)
 
     if not sales.empty:
-        if 'is_test' not in sales.columns: sales['is_test'] = False
-        if 'status' not in sales.columns: sales['status'] = 'COMPLETED'
+        if 'is_test' not in sales.columns:
+            sales['is_test'] = False
+        if 'status' not in sales.columns:
+            sales['status'] = 'COMPLETED'
         sales['status'] = sales['status'].fillna('COMPLETED')
+        if 'discount_amount' not in sales.columns:
+            sales['discount_amount'] = 0.0
+        if 'current_stars' not in sales.columns:
+            sales['current_stars'] = None
+        if 'cust_type' not in sales.columns:
+            sales['cust_type'] = None
+        if 'customer_card_id' not in sales.columns:
+            sales['customer_card_id'] = None
 
         real_sales = sales[(sales['is_test'] != True) & (sales['status'] == 'COMPLETED')].copy()
         voided_sales = sales[sales['status'].isin(['VOIDED', 'PARTIAL_REFUND'])].copy()
-        if 'cogs' not in real_sales.columns: real_sales['cogs'] = 0.0
+
+        if 'cogs' not in real_sales.columns:
+            real_sales['cogs'] = 0.0
 
         total_rev = safe_decimal(real_sales['total'].sum())
         total_cogs = safe_decimal(real_sales['cogs'].sum())
@@ -257,9 +246,6 @@ def render_analytics_page():
         st.divider()
         tab1, tab2, tab3, tab4 = st.tabs(["📋 Çeklər", "☕ Məhsullar", "🔄 Ləğvlər", "👥 Staff"])
 
-        # ============================================================
-        # ÇEKLƏR
-        # ============================================================
         with tab1:
             sales_disp = sales.copy()
             sales_disp['Test?'] = sales_disp['is_test'].apply(lambda x: '🧪' if x else '')
@@ -268,25 +254,40 @@ def render_analytics_page():
             )
             sales_disp['Oxunaqlı_Səbət'] = sales_disp['items'].apply(parse_items_for_display)
 
-            cols_to_disp = ['id', 'created_at', 'cashier', 'Oxunaqlı_Səbət', 'original_total', 'discount_amount', 'total', 'payment_method', 'Status', 'Test?']
+            cols_to_disp = [
+                'id', 'created_at', 'cashier', 'customer_card_id', 'current_stars', 'cust_type',
+                'Oxunaqlı_Səbət', 'original_total', 'discount_amount', 'total'
+            ]
             if 'cogs' in sales_disp.columns:
-                cols_to_disp.insert(-2, 'cogs')
+                cols_to_disp.append('cogs')
+            cols_to_disp.extend(['payment_method', 'Status', 'Test?'])
 
             avail = [c for c in cols_to_disp if c in sales_disp.columns]
             display_df = sales_disp[avail].copy()
             display_df.insert(0, "Seç", False)
 
             edited_sales = st.data_editor(
-                display_df, hide_index=True, use_container_width=True, key="sales_ed_v3",
+                display_df,
+                hide_index=True,
+                use_container_width=True,
+                key="sales_ed_v3_fix",
                 column_config={
-                    "cashier": "İşçi", "Oxunaqlı_Səbət": "Sifariş",
-                    "original_total": "Brutto", "discount_amount": "Endirim",
-                    "total": "Net", "cogs": "Maya", "payment_method": "Ödəniş",
+                    "cashier": "İşçi",
+                    "customer_card_id": "Müştəri QR",
+                    "current_stars": "Ulduz",
+                    "cust_type": "Tip",
+                    "Oxunaqlı_Səbət": "Sifariş",
+                    "original_total": "Brutto",
+                    "discount_amount": "Endirim",
+                    "total": "Net",
+                    "cogs": "Maya",
+                    "payment_method": "Ödəniş",
                     "created_at": st.column_config.DatetimeColumn("Tarix", format="DD.MM HH:mm")
                 }
             )
 
             sel_ids = edited_sales[edited_sales["Seç"]]['id'].tolist()
+
             if st.session_state.role in ['admin', 'manager'] and len(sel_ids) > 0:
                 col_b1, col_b2 = st.columns(2)
                 if len(sel_ids) == 1:
@@ -316,9 +317,6 @@ def render_analytics_page():
                                 st.rerun()
                     edit_dialog(s_res.iloc[0])
 
-        # ============================================================
-        # MƏHSULLAR
-        # ============================================================
         with tab2:
             item_counts = {}
             for items_str in real_sales['items']:
@@ -336,9 +334,6 @@ def render_analytics_page():
             else:
                 st.info("Data yoxdur.")
 
-        # ============================================================
-        # LƏĞVLƏR TAB
-        # ============================================================
         with tab3:
             st.markdown("### 🔄 Ləğv və Refund Tarixçəsi")
             try:
@@ -357,35 +352,37 @@ def render_analytics_page():
 
                     st.dataframe(
                         refunds[['id', 'original_sale_id', 'refund_amount', 'reason', 'refund_type', 'items_returned_to_stock', 'created_by', 'created_at']],
-                        hide_index=True, use_container_width=True,
+                        hide_index=True,
+                        use_container_width=True,
                         column_config={
                             "original_sale_id": "Satış #",
                             "refund_amount": st.column_config.NumberColumn("Məbləğ", format="%.2f ₼"),
-                            "reason": "Səbəb", "refund_type": "Növ",
+                            "reason": "Səbəb",
+                            "refund_type": "Növ",
                             "items_returned_to_stock": "Stoka Qaytarıldı?",
                             "created_by": "Kim Ləğv Etdi",
                             "created_at": st.column_config.DatetimeColumn("Tarix", format="DD.MM HH:mm")
                         }
                     )
 
-                    if st.session_state.role == 'admin' and not refunds.empty:
+                    if st.session_state.role == 'admin':
+                        by_user = refunds.groupby('created_by').agg(
+                            sayi=('id', 'count'),
+                            meblegi=('refund_amount', 'sum')
+                        ).sort_values('sayi', ascending=False)
                         st.markdown("**İşçi üzrə ləğv statistikası:**")
-                        by_user = refunds.groupby('created_by').agg(sayi=('id', 'count'), meblegi=('refund_amount', 'sum')).sort_values('sayi', ascending=False)
                         st.dataframe(by_user, use_container_width=True)
                 else:
                     st.success("✅ Bu dövrdə heç bir ləğv/refund yoxdur.")
             except Exception as e:
-                st.warning(f"Ləğv tarixçəsi yüklənmədi: {e}. Əvvəlcə Neon-da 'refunds' cədvəlini yaradın.")
+                st.warning(f"Ləğv tarixçəsi yüklənmədi: {e}")
 
-        # ============================================================
-        # STAFF PERFORMANS
-        # ============================================================
         with tab4:
             st.markdown("### 👥 Staff Performans Hesabatı")
             if st.session_state.role in ['admin', 'manager']:
                 try:
                     staff_stats = run_query(f"""
-                        SELECT
+                        SELECT 
                             cashier,
                             COUNT(*) as satis_sayi,
                             SUM(total) as toplam_satis,
@@ -395,8 +392,8 @@ def render_analytics_page():
                             SUM(CASE WHEN payment_method IN ('Kart', 'Card') THEN total ELSE 0 END) as kart,
                             SUM(CASE WHEN payment_method = 'Staff' THEN total ELSE 0 END) as staff_benefit,
                             SUM(cogs) as toplam_cogs
-                        FROM sales
-                        WHERE created_at BETWEEN :s AND :e
+                        FROM sales 
+                        WHERE created_at BETWEEN :s AND :e 
                         AND (is_test IS NULL OR is_test=FALSE)
                         AND (status IS NULL OR status='COMPLETED')
                         GROUP BY cashier
@@ -409,8 +406,8 @@ def render_analytics_page():
                                 st.markdown(f"#### 👤 {staff['cashier']}")
                                 sc1, sc2, sc3, sc4 = st.columns(4)
                                 sc1.metric("Satış Sayı", int(staff['satis_sayi']))
-                                sc2.metric("Toplam", f"{float(staff['toplam_satis']):.2f} ₼")
-                                sc3.metric("Orta Çek", f"{float(staff['orta_cek']):.2f} ₼")
+                                sc2.metric("Toplam", f"{float(staff['toplam_satis'] or 0):.2f} ₼")
+                                sc3.metric("Orta Çek", f"{float(staff['orta_cek'] or 0):.2f} ₼")
                                 sc4.metric("Endirim", f"{float(staff['toplam_endirim'] or 0):.2f} ₼")
 
                                 sc5, sc6, sc7, sc8 = st.columns(4)
@@ -420,7 +417,6 @@ def render_analytics_page():
                                 profit = float(staff['toplam_satis'] or 0) - float(staff['toplam_cogs'] or 0)
                                 sc8.metric("Mənfəət", f"{profit:.2f} ₼")
 
-                        # Void per staff
                         try:
                             void_stats = run_query(
                                 "SELECT created_by, COUNT(*) as cnt, SUM(refund_amount) as total_refund "
@@ -442,9 +438,6 @@ def render_analytics_page():
         st.info("Məlumat tapılmadı.")
 
 
-# ============================================================
-# Z-HESABAT
-# ============================================================
 def render_z_report_page():
     st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
     log_date_z = get_logical_date()
@@ -500,7 +493,7 @@ def render_z_report_page():
             st.markdown(f"**COGS:** {s_cogs:.2f} ₼ | **Mənfəət:** {gross_profit:.2f} ₼ | **Ləğvlər:** {refund_count}")
 
         with st.expander("💸 GÜNLÜK MAAŞ/AVANS ÖDƏ"):
-            with st.form("salary_form_z"):
+            with st.form("salary_form_z_fix"):
                 users_df = run_query("SELECT username FROM users")
                 emp = st.selectbox("İşçi", users_df['username'].tolist() if not users_df.empty else [])
                 amt = st.number_input("Məbləğ", min_value=0.0)
@@ -514,7 +507,6 @@ def render_z_report_page():
                     time.sleep(1)
                     st.rerun()
 
-    # X / Z Buttons
     cx, cz = st.columns(2)
     if cx.button("🤝 X-Hesabat", use_container_width=True):
         @st.dialog("🤝 X-Hesabat")
