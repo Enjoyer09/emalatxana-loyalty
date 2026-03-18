@@ -1,4 +1,4 @@
-# app.py — ORİJİNAL UI + PATCHED v2.2
+# app.py — ORİJİNAL UI + PATCHED v2.3 (Login Fixed)
 import streamlit as st
 import pandas as pd
 import random
@@ -51,7 +51,6 @@ def shift_modal(mode):
                 q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
                 params = {"d": sh_start_z, "e": sh_end_z}
 
-                # Decimal hesablama
                 s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", params).iloc[0]['s'])
                 f_out = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
                 f_in = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
@@ -79,7 +78,6 @@ def shift_modal(mode):
                 now = get_baku_now()
                 u = st.session_state.user
                 
-                # Atomic transaction
                 actions = []
                 if abs(diff) > Decimal("0.01"):
                     c_type = 'in' if diff > 0 else 'out'
@@ -149,7 +147,7 @@ if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown =
 ensure_schema()
 
 # ============================================================
-# ORİJİNAL CSS (100% orijinal)
+# ORİJİNAL CSS (100% orijinal — dəyişilməz)
 # ============================================================
 st.markdown("""
     <style>
@@ -261,7 +259,7 @@ if not st.session_state.logged_in:
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
         
         # ============================================
-        # STAFF LOGIN (Orijinal UI + Secure)
+        # STAFF LOGIN — FİXED: password daxil query
         # ============================================
         with t1:
             if 'staff_pin' not in st.session_state: 
@@ -290,32 +288,33 @@ if not st.session_state.logged_in:
                 if not pin:
                     st.error("PIN daxil edin!")
                 else:
-                    # Əvvəlcə PIN-ə uyğun user tap, sonra secure login
-                    u = get_cached_users()
+                    # FIX: password sütunu daxil birbaşa DB sorğusu
+                    all_staff = run_query(
+                        "SELECT username, password, role FROM users WHERE role IN ('staff', 'manager')"
+                    )
                     found = False
-                    matched_user = None
-                    for _, r in u.iterrows():
-                        if r['role'] in ['staff', 'manager']:
-                            if verify_password(pin, r['password']): 
-                                matched_user = r
-                                found = True
+                    
+                    if not all_staff.empty:
+                        for _, r in all_staff.iterrows():
+                            if verify_password(pin, r['password']):
+                                # PIN uyğundur — secure login
+                                success, token, error_msg = attempt_login(r['username'], pin)
+                                if success:
+                                    st.session_state.logged_in = True
+                                    st.session_state.user = r['username']
+                                    st.session_state.role = r['role']
+                                    st.session_state.session_token = token
+                                    st.session_state.staff_pin = ""
+                                    st.query_params.clear()
+                                    found = True
+                                    st.rerun()
+                                else:
+                                    st.error(error_msg or "Giriş xətası")
+                                    st.session_state.staff_pin = ""
+                                    found = True
                                 break
                     
-                    if matched_user is not None:
-                        # Secure login (brute force protection)
-                        success, token, error_msg = attempt_login(matched_user['username'], pin)
-                        if success:
-                            st.session_state.logged_in = True
-                            st.session_state.user = matched_user['username']
-                            st.session_state.role = matched_user['role']
-                            st.session_state.session_token = token
-                            st.session_state.staff_pin = ""
-                            st.query_params.clear()
-                            st.rerun()
-                        else:
-                            st.error(error_msg or "Giriş xətası")
-                            st.session_state.staff_pin = ""
-                    else: 
+                    if not found:
                         st.error("Yanlış PIN")
                         st.session_state.staff_pin = ""
         
