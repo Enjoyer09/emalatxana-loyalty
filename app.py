@@ -1,4 +1,4 @@
-# app.py — ORİJİNAL UI + PATCHED v3.3 FINAL
+# app.py — FINAL PATCHED v3.3
 import streamlit as st
 import pandas as pd
 import random
@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy import text
 
 from database import ensure_schema, run_query, run_action, run_transaction, get_setting, set_setting, conn
-from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, attempt_login
+from auth import check_url_token_login, validate_session, attempt_login
 from utils import (
     BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code,
     get_baku_now, get_shift_status, open_shift, close_shift, verify_password,
@@ -30,9 +30,6 @@ from modules.kitchen import render_kitchen_page
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
-# ============================================================
-# SHIFT MODAL
-# ============================================================
 @st.dialog("🕒 Növbə İdarəetməsi")
 def shift_modal(mode):
     if mode == "open":
@@ -143,18 +140,11 @@ def shift_modal(mode):
                 st.session_state.handover_mode = False
                 st.rerun()
 
-
-# ============================================================
-# CUSTOMER APP ROUTE
-# ============================================================
 params = st.query_params
 if "id" in params:
     render_customer_app(params.get("id"))
     st.stop()
 
-# ============================================================
-# SESSION STATE DEFAULTS
-# ============================================================
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'session_token' not in st.session_state: st.session_state.session_token = None
 if 'multi_carts' not in st.session_state: st.session_state.multi_carts = {1: {'cart': [], 'customer': None}, 2: {'cart': [], 'customer': None}, 3: {'cart': [], 'customer': None}}
@@ -177,14 +167,8 @@ if 'edit_item_id' not in st.session_state: st.session_state.edit_item_id = None
 if 'menu_edit_id' not in st.session_state: st.session_state.menu_edit_id = None
 if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown = False
 
-# ============================================================
-# SCHEMA
-# ============================================================
 ensure_schema()
 
-# ============================================================
-# ORİJİNAL CSS (QORUNUR)
-# ============================================================
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;800&family=Nunito:wght@400;700;900&display=swap');
@@ -268,9 +252,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# RECEIPT DIALOG
-# ============================================================
 def get_receipt_html_string(cart, total):
     return "<div>Çek HTML...</div>"
 
@@ -282,9 +263,6 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
         st.session_state.show_receipt_popup = False
         st.rerun()
 
-# ============================================================
-# LOGIN
-# ============================================================
 if not st.session_state.logged_in:
     check_url_token_login()
 
@@ -294,7 +272,6 @@ if not st.session_state.logged_in:
         st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
 
-        # STAFF LOGIN
         with t1:
             if 'staff_pin' not in st.session_state:
                 st.session_state.staff_pin = ""
@@ -348,7 +325,6 @@ if not st.session_state.logged_in:
                         st.error("Yanlış PIN")
                         st.session_state.staff_pin = ""
 
-        # ADMIN LOGIN
         with t2:
             with st.form("al"):
                 u = st.text_input("User")
@@ -368,10 +344,6 @@ if not st.session_state.logged_in:
                             st.rerun()
                         else:
                             st.error(error_msg or "Səhv ad və ya şifrə")
-
-# ============================================================
-# MAIN APP
-# ============================================================
 else:
     s_info = get_shift_status()
     if s_info.get('current_shift_status') == 'Closed' and st.session_state.role in ['staff', 'manager']:
@@ -396,7 +368,6 @@ else:
                 st.rerun()
     st.divider()
 
-    # Low stock alert
     if not st.session_state.low_stock_shown:
         try:
             low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
@@ -414,9 +385,7 @@ else:
         except Exception:
             st.session_state.low_stock_shown = True
 
-    # ============================================================
-    # NAVIGATION (ORİJİNAL UI QORUNUR)
-    # ============================================================
+    # Navigation
     role = st.session_state.role
     tabs_list = []
 
@@ -428,7 +397,6 @@ else:
     if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff):
         tabs_list.append("🍽️ MASALAR")
 
-    # NEW: Kitchen visibility for staff
     show_kitchen_staff = get_setting("staff_show_kitchen", "TRUE") == "TRUE"
     if role in ['admin', 'manager'] or (role == 'staff' and show_kitchen_staff):
         tabs_list.append("🍳 Mətbəx")
@@ -437,15 +405,7 @@ else:
         tabs_list.append("📊 Z-Hesabat")
 
     if role in ['admin', 'manager']:
-        tabs_list.extend([
-            "💰 Maliyyə",
-            "📦 Anbar",
-            "🍔 Kombolar",
-            "📊 Analitika",
-            "📜 Loglar",
-            "👥 CRM",
-            "🤖 AI Menecer"
-        ])
+        tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "🍔 Kombolar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
 
     if role == 'manager':
         if get_setting("manager_perm_menu", "FALSE") == "TRUE":
@@ -454,14 +414,7 @@ else:
             tabs_list.append("📜 Resept")
 
     if role == 'admin':
-        tabs_list.extend([
-            "📋 Menyu",
-            "📜 Resept",
-            "📝 Qeydlər",
-            "⚙️ Ayarlar",
-            "💾 Baza",
-            "QR"
-        ])
+        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
 
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
 
@@ -480,9 +433,7 @@ else:
     if selected_tab != st.session_state.current_tab:
         st.session_state.current_tab = selected_tab
 
-    # ============================================================
-    # ROUTES
-    # ============================================================
+    # Routes
     if selected_tab == "🏃‍♂️ AL-APAR":
         render_pos_page()
     elif selected_tab == "🍽️ MASALAR":
