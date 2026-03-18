@@ -1,14 +1,13 @@
-streamlit
-pandas
-sqlalchemy
-psycopg2-binary
-bcrypt
-qrcode[pil]
-openpyxl
-xlsxwriter
-numpy
-requests
-google-generativeai
-gTTS
-plotly
+streamlit==1.32.2
+pandas==2.2.1
+SQLAlchemy==2.0.29
+psycopg2-binary==2.9.9
+bcrypt==4.1.2
+plotly==5.20.0
+google-generativeai==0.5.2
+qrcode==7.4.2
+Pillow==10.2.0
+gTTS==2.5.1
+openpyxl==3.1.2
+XlsxWriter==3.2.0
 
