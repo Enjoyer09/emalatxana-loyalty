@@ -6,7 +6,7 @@ import logging
 import datetime
 
 from database import run_query, run_action, get_setting
-from utils import BRAND_NAME, get_baku_now, safe_decimal
+from utils import get_baku_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def inject_customer_css():
     .block-container { padding: 0 !important; max-width: 100% !important; }
     section.main > div:first-child { padding-top: 0 !important; }
 
-    /* ===== HERO ===== */
+    /* HERO */
     .app-hero {
         background: linear-gradient(160deg, #3C2415 0%, #5C3A28 50%, #8B5E3C 100%);
         padding: 30px 20px 45px;
@@ -58,7 +58,7 @@ def inject_customer_css():
     .app-logo-icon { font-size: 36px; margin-bottom: 5px; }
     .app-greet { font-size: 13px; color: rgba(245,230,211,0.7); margin-top: 5px; }
 
-    /* ===== STAMP CARD ===== */
+    /* STAMP CARD */
     .stamp-card {
         background: #FFFFFF;
         border-radius: 24px;
@@ -93,7 +93,6 @@ def inject_customer_css():
         margin-bottom: 20px;
     }
 
-    /* ===== STAMPS GRID (Şəkildəki kimi) ===== */
     .stamps-grid {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
@@ -111,7 +110,6 @@ def inject_customer_css():
         font-size: 14px;
         font-weight: 900;
         margin: 0 auto;
-        position: relative;
     }
     .stamp-empty {
         background: #F5F0EB;
@@ -143,7 +141,6 @@ def inject_customer_css():
         font-weight: 600;
     }
 
-    /* ===== FREE COFFEE ALERT ===== */
     .free-alert {
         background: linear-gradient(135deg, #E88D48, #D4763A);
         color: #FFF;
@@ -156,7 +153,7 @@ def inject_customer_css():
         box-shadow: 0 6px 20px rgba(232,141,72,0.35);
     }
 
-    /* ===== REWARDS SECTION ===== */
+    /* REWARDS */
     .reward-card {
         background: #FFF;
         border: 1px solid #EDE8E3;
@@ -179,16 +176,12 @@ def inject_customer_css():
     }
     .rw-icon-coffee { background: #F0E4D7; }
     .rw-icon-gift { background: #E8F5E9; }
-    .rw-icon-star { background: #FFF3E0; }
     .rw-title { font-weight: 800; font-size: 14px; color: #2D2926; }
     .rw-desc { font-size: 12px; color: #999; margin-top: 2px; }
     .rw-right { margin-left: auto; text-align: right; }
     .rw-points { font-weight: 900; font-size: 14px; color: #3C2415; }
 
-    /* ===== NAV BUTTONS ===== */
-    .nav-section { padding: 0 16px; margin-bottom: 12px; }
-
-    /* ===== MENYU (Compact + Yalnız Kofe) ===== */
+    /* MENU */
     .coffee-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -201,25 +194,13 @@ def inject_customer_css():
         border-radius: 16px;
         padding: 14px;
         text-align: center;
-        transition: all 0.15s;
     }
-    .cg-item:active { transform: scale(0.97); }
     .cg-emoji { font-size: 32px; margin-bottom: 6px; }
     .cg-name { font-weight: 800; font-size: 13px; color: #2D2926; line-height: 1.3; margin-bottom: 4px; }
     .cg-price { font-weight: 900; font-size: 17px; color: #3C2415; }
     .cg-stamp { font-size: 10px; color: #E88D48; font-weight: 700; margin-top: 4px; }
 
-    /* Menyu kateqoriya başlığı */
-    .menu-head {
-        font-size: 16px;
-        font-weight: 900;
-        color: #3C2415;
-        margin: 15px 16px 8px;
-        padding-bottom: 6px;
-        border-bottom: 2px solid #EDE8E3;
-    }
-
-    /* ===== TARİXÇƏ ===== */
+    /* HISTORY */
     .h-item {
         background: #FFF;
         border: 1px solid #EDE8E3;
@@ -230,18 +211,8 @@ def inject_customer_css():
     .h-date { font-size: 11px; color: #BBB; font-weight: 600; }
     .h-items { font-size: 13px; color: #555; margin-top: 4px; line-height: 1.4; }
     .h-total { font-size: 15px; font-weight: 900; color: #3C2415; margin-top: 6px; }
-    .h-stamp-earned { 
-        display: inline-block;
-        background: #F0E4D7;
-        color: #3C2415;
-        padding: 2px 8px;
-        border-radius: 8px;
-        font-size: 10px;
-        font-weight: 800;
-        margin-top: 4px;
-    }
 
-    /* ===== BANNER ===== */
+    /* BANNER */
     .promo-bar {
         background: linear-gradient(90deg, #E88D48, #F0A060);
         color: #FFF;
@@ -252,44 +223,33 @@ def inject_customer_css():
         font-weight: 800;
         font-size: 13px;
         box-shadow: 0 4px 15px rgba(232,141,72,0.3);
-        animation: slideIn 0.5s ease-out;
     }
-    @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-    /* ===== CHAT ===== */
+    /* CHAT */
     .msg { padding: 12px 16px; border-radius: 18px; margin-bottom: 8px; max-width: 85%; font-size: 14px; line-height: 1.5; }
     .msg-u { background: #3C2415; color: #F5E6D3; margin-left: auto; border-bottom-right-radius: 4px; font-weight: 700; }
     .msg-a { background: #FFF; color: #333; margin-right: auto; border-bottom-left-radius: 4px; border: 1px solid #EDE8E3; }
 
-    /* ===== FORTUNE ===== */
+    /* FORTUNE */
     .fz { border: 2px dashed #DDD5CC; border-radius: 20px; padding: 30px 20px; text-align: center; margin: 15px 16px; background: #FFF; }
     .fr { background: #FFF; border: 2px solid #E88D48; border-radius: 20px; padding: 20px; margin: 15px 16px; }
 
-    /* ===== STREAMLIT ===== */
-    h1,h2,h3,h4 { color: #2D2926 !important; }
+    /* STREAMLIT */
     div[data-baseweb="input"] > div { background: #FFF !important; border: 2px solid #EDE8E3 !important; border-radius: 14px !important; box-shadow: none !important; }
     div[data-baseweb="input"] input { color: #2D2926 !important; font-weight: 600 !important; -webkit-text-fill-color: #2D2926 !important; }
-    div[data-baseweb="input"] input::placeholder { color: #CCC !important; -webkit-text-fill-color: #CCC !important; }
-    
+
     button[kind="primary"] { background: linear-gradient(135deg, #3C2415, #5C3A28) !important; border: none !important; border-radius: 14px !important; box-shadow: 0 4px 15px rgba(60,36,21,0.25) !important; min-height: auto !important; }
     button[kind="primary"] p { color: #F5E6D3 !important; font-weight: 900 !important; font-size: 15px !important; }
-    button[kind="secondary"] { background: #FFF !important; border: 1px solid #EDE8E3 !important; border-radius: 14px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.03) !important; min-height: auto !important; }
+    button[kind="secondary"] { background: #FFF !important; border: 1px solid #EDE8E3 !important; border-radius: 14px !important; min-height: auto !important; }
     button[kind="secondary"] p { color: #333 !important; font-weight: 700 !important; font-size: 14px !important; }
-    
-    div[data-testid="stVerticalBlockBorderWrapper"] { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
 
     .stTabs [data-baseweb="tab-list"] { gap: 0; background: #FFF; border-radius: 14px; padding: 4px; margin: 0 16px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #EDE8E3; }
     .stTabs [data-baseweb="tab"] { border-radius: 11px !important; color: #999 !important; font-weight: 700 !important; font-size: 12px !important; padding: 8px 4px !important; }
     .stTabs [aria-selected="true"] { background: #3C2415 !important; color: #F5E6D3 !important; font-weight: 900 !important; }
 
-    div[role="radiogroup"] > label { background: #FFF !important; border: 1px solid #EDE8E3 !important; border-radius: 10px !important; padding: 6px 12px !important; box-shadow: none !important; min-height: auto !important; }
-    div[role="radiogroup"] > label > div:first-child { display: none !important; }
-    div[role="radiogroup"] > label p { color: #888 !important; font-size: 12px !important; font-weight: 700 !important; }
-    div[role="radiogroup"] label:has(input:checked) { background: #3C2415 !important; border-color: #3C2415 !important; transform: none !important; box-shadow: none !important; }
-    div[role="radiogroup"] label:has(input:checked) p { color: #F5E6D3 !important; }
-
     div[role="dialog"] > div { background: #F5F0EB !important; border: 2px solid #3C2415 !important; border-radius: 20px !important; }
     .stFileUploader > div { background: #FFF !important; border: 2px dashed #DDD5CC !important; border-radius: 14px !important; }
+
     ::-webkit-scrollbar { width: 0px; }
     </style>
     """, unsafe_allow_html=True)
@@ -309,12 +269,13 @@ def get_ai_model():
             return None, None
         chosen = next((m for m in valid if 'flash' in m.lower()), valid[0])
         return genai.GenerativeModel(chosen), valid
-    except:
+    except Exception as e:
+        logger.error(f"AI init error: {e}")
         return None, None
 
 
 # ============================================================
-# STAMP CARD (Şəkildəki kimi 5x2 grid)
+# STAMP CARD
 # ============================================================
 def render_stamp_card(stars, cust_type):
     tier_map = {
@@ -326,12 +287,10 @@ def render_stamp_card(stars, cust_type):
     filled = current % 10
     free_count = current // 10
 
-    # 10 stamp — 5x2 grid (şəkildəki kimi 1-10 nömrəli)
     stamps_html = ""
     for i in range(10):
         num = i + 1
         if i == 9:
-            # 10-cu stamp = hədiyyə ikonu
             if filled >= 10:
                 stamps_html += '<div class="stamp-circle stamp-gift">🎁</div>'
             elif filled == 9:
@@ -343,7 +302,6 @@ def render_stamp_card(stars, cust_type):
         else:
             stamps_html += f'<div class="stamp-circle stamp-empty">{num}</div>'
 
-    # Free alert
     free_html = ""
     if free_count > 0:
         free_html = f'<div class="free-alert">🎉 {free_count} PULSUZ KOFENİZ HAZIRDIR! Kassada istifadə edin</div>'
@@ -363,7 +321,7 @@ def render_stamp_card(stars, cust_type):
 
 
 # ============================================================
-# REWARDS SECTİON (Şəkildəki kimi)
+# REWARDS SECTION
 # ============================================================
 def render_rewards_section(stars, free_count):
     remaining = 10 - (int(stars or 0) % 10)
@@ -395,7 +353,7 @@ def render_rewards_section(stars, free_count):
 
 
 # ============================================================
-# QR DİALOQ
+# QR DIALOG
 # ============================================================
 @st.dialog("📱 QR Kodunuz")
 def show_qr_dialog(cid):
@@ -410,21 +368,19 @@ def show_qr_dialog(cid):
 
 
 # ============================================================
-# MENYU (Yalnız Kofelər — Compact Grid)
+# COFFEE MENU ONLY
 # ============================================================
 def render_coffee_menu():
-    menu_df = run_query("SELECT item_name, price, category, is_coffee FROM menu WHERE is_active=TRUE ORDER BY category, item_name")
+    menu_df = run_query("SELECT item_name, price, category, is_coffee FROM menu WHERE is_active=TRUE AND is_coffee=TRUE ORDER BY category, item_name")
     if menu_df.empty:
-        st.info("Menyu yenilənir...")
+        st.info("Kofe menyusu yenilənir...")
         return
 
-    # Kofe emojisi map
     emoji_map = {
         "latte": "☕", "espresso": "⚡", "americano": "🫗", "cappuccino": "🥛",
         "mocha": "🍫", "macchiato": "🎨", "flat": "☕", "raf": "🧁",
         "turkish": "🫖", "cold": "🧊", "ice": "🧊", "frappe": "🥤",
-        "matcha": "🍵", "hot": "🔥", "chocolate": "🍫", "tea": "🍵",
-        "kombo": "🎁", "combo": "🎁"
+        "matcha": "🍵"
     }
 
     def get_emoji(name):
@@ -434,28 +390,19 @@ def render_coffee_menu():
                 return emoji
         return "☕"
 
-    # Kateqoriya filteri
-    cats = menu_df['category'].dropna().unique().tolist()
-    all_cats = ["☕ Hamısı"] + sorted(cats)
-    sel = st.radio("Kat", all_cats, horizontal=True, label_visibility="collapsed", key="cm_cat")
-
-    filtered = menu_df if "Hamısı" in sel else menu_df[menu_df['category'] == sel.replace("☕ ", "")]
-
-    # Grid render
-    items = filtered.to_dict('records')
+    items = menu_df.to_dict('records')
     for idx in range(0, len(items), 2):
         html = '<div class="coffee-grid">'
         for j in range(2):
             if idx + j < len(items):
                 item = items[idx + j]
                 emoji = get_emoji(item['item_name'])
-                stamp_txt = '<div class="cg-stamp">+1 Stamp ☕</div>' if item['is_coffee'] else ''
                 html += f'''
                 <div class="cg-item">
                     <div class="cg-emoji">{emoji}</div>
                     <div class="cg-name">{item['item_name']}</div>
                     <div class="cg-price">{float(item['price']):.2f} ₼</div>
-                    {stamp_txt}
+                    <div class="cg-stamp">+1 Stamp ☕</div>
                 </div>'''
             else:
                 html += '<div></div>'
@@ -464,13 +411,11 @@ def render_coffee_menu():
 
 
 # ============================================================
-# TARİXÇƏ
+# HISTORY
 # ============================================================
 def render_history(card_id):
     sales = run_query(
-        "SELECT items, total, created_at, payment_method FROM sales "
-        "WHERE customer_card_id=:cid AND (is_test IS NULL OR is_test=FALSE) "
-        "ORDER BY created_at DESC LIMIT 15",
+        "SELECT items, total, created_at, payment_method FROM sales WHERE customer_card_id=:cid AND (is_test IS NULL OR is_test=FALSE) AND (status IS NULL OR status='COMPLETED') ORDER BY created_at DESC LIMIT 15",
         {"cid": card_id}
     )
     if sales.empty:
@@ -489,24 +434,20 @@ def render_history(card_id):
         try:
             items = json.loads(row['items'])
             istr = " · ".join([f"{i['item_name']} ×{i['qty']}" for i in items])
-            coffee_count = sum([i['qty'] for i in items if i.get('is_coffee')])
         except:
             istr = str(row['items'])[:50]
-            coffee_count = 0
         pm = "💵" if row.get('payment_method') in ['Nəğd', 'Cash'] else "💳"
-        stamp_html = f'<div class="h-stamp-earned">+{coffee_count} stamp ☕</div>' if coffee_count > 0 else ""
 
         st.markdown(f"""
         <div class="h-item">
             <div class="h-date">{ds} {pm}</div>
             <div class="h-items">{istr}</div>
             <div class="h-total">{float(row['total']):.2f} ₼</div>
-            {stamp_html}
         </div>""", unsafe_allow_html=True)
 
 
 # ============================================================
-# BİLDİRİŞLƏR
+# NOTIFICATIONS
 # ============================================================
 def check_notifications(card_id):
     try:
@@ -524,7 +465,7 @@ def check_notifications(card_id):
 
 
 # ============================================================
-# AI BARİSTA
+# AI BARISTA
 # ============================================================
 def render_barista():
     st.markdown("""
@@ -574,7 +515,7 @@ Müştəri: '{um}'
 
 
 # ============================================================
-# KOFE FALI
+# COFFEE FORTUNE
 # ============================================================
 def render_fortune():
     st.markdown("""
@@ -606,8 +547,10 @@ def render_fortune():
                     if all_m:
                         for m in all_m:
                             if 'vision' in m.lower() or 'flash' in m.lower():
-                                vm = m; break
-                        if not vm: vm = all_m[0]
+                                vm = m
+                                break
+                        if not vm:
+                            vm = all_m[0]
                     vmodel = genai.GenerativeModel(vm)
                     prompt = """Sən Azərbaycan falçısısan. Kofe fincanının dibini görürsən.
 Müsbət, əyləncəli fal de (4-5 cümlə). Sevgi, iş, pul, səyahətdən birini seç.
@@ -629,7 +572,7 @@ Azərbaycan dilində, emoji ilə, sirli üslubda."""
 
 
 # ============================================================
-# ƏSAS
+# MAIN
 # ============================================================
 def render_customer_app(customer_id=None):
     inject_customer_css()
@@ -649,11 +592,13 @@ def render_customer_app(customer_id=None):
     free_count = stars // 10
 
     hour = get_baku_now().hour
-    if 5 <= hour < 12: greet = "Sabahınız xeyir ☕"
-    elif 12 <= hour < 18: greet = "Günortanız xeyir ☀️"
-    else: greet = "Axşamınız xeyir 🌙"
+    if 5 <= hour < 12: 
+        greet = "Sabahınız xeyir ☕"
+    elif 12 <= hour < 18: 
+        greet = "Günortanız xeyir ☀️"
+    else: 
+        greet = "Axşamınız xeyir 🌙"
 
-    # HERO
     st.markdown(f"""
     <div class="app-hero">
         <div class="app-logo-icon">☕</div>
@@ -661,22 +606,15 @@ def render_customer_app(customer_id=None):
         <div class="app-greet">{greet}</div>
     </div>""", unsafe_allow_html=True)
 
-    # Notifications
     check_notifications(customer_id)
-
-    # STAMP CARD
     render_stamp_card(stars, c_type)
-
-    # REWARDS
     render_rewards_section(stars, free_count)
 
-    # QR Button
-    st.markdown('<div class="nav-section">', unsafe_allow_html=True)
+    st.markdown('<div style="padding:0 16px; margin-bottom:12px;">', unsafe_allow_html=True)
     if st.button("📱 QR KODUMU GÖSTƏR", type="primary", use_container_width=True, key="qr_s"):
         show_qr_dialog(customer_id)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # TABS
     t1, t2, t3, t4 = st.tabs(["☕ Menyu", "📜 Tarixçə", "🤖 Barista", "🔮 Fal"])
 
     with t1:
@@ -688,7 +626,6 @@ def render_customer_app(customer_id=None):
     with t4:
         render_fortune()
 
-    # Footer
     st.markdown("""
     <div style="text-align:center; padding:25px 0 15px;">
         <div style="font-weight:900; font-size:11px; letter-spacing:2px; color:#CCC;">☕ EMALATKHANA</div>
