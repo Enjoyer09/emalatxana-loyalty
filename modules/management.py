@@ -1,4 +1,4 @@
-# modules/management.py — PATCHED v2.0
+# modules/management.py — CLEANUP PATCHED v3.0
 import streamlit as st
 import pandas as pd
 import time
@@ -24,8 +24,10 @@ except ImportError:
     genai = None
 
 
+# ============================================================
+# AI HELPER
+# ============================================================
 def call_ai(prompt):
-    """AI helper — returns text response or error message"""
     api_key = get_setting("gemini_api_key", "")
     if not api_key:
         return "⚠️ AI funksiyası üçün 'AI Menecer' səhifəsində API Key daxil edin."
@@ -34,7 +36,7 @@ def call_ai(prompt):
     try:
         genai.configure(api_key=api_key)
         valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0] if valid_models else 'gemini-pro')
+        chosen_model = next((m for m in valid_models if 'flash' in m.lower()), valid_models[0]) if valid_models else 'gemini-pro'
         model = genai.GenerativeModel(chosen_model)
         return model.generate_content(prompt).text
     except Exception as e:
@@ -43,21 +45,22 @@ def call_ai(prompt):
 
 
 # ============================================================
-# MENYU SƏHİFƏSİ
+# MENU PAGE
 # ============================================================
 def render_menu_page():
     st.subheader("📋 Menyu")
+
     try:
-        existing_cats = run_query("SELECT DISTINCT category FROM menu")['category'].tolist()
+        existing_cats = run_query("SELECT DISTINCT category FROM menu")['category'].dropna().tolist()
     except Exception as e:
         logger.error(f"Error fetching categories: {e}")
         existing_cats = []
 
     all_cats = sorted(list(set(PRESET_CATEGORIES + existing_cats)))
 
-    # ============================================================
-    # YENİ MAL ƏLAVƏ ET (Orijinal + Decimal)
-    # ============================================================
+    # ------------------------------------------------------------
+    # Yeni mal əlavə et
+    # ------------------------------------------------------------
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("➕ Tək Mal Əlavə Et (Menyu)"):
             with st.form("nmenu", clear_on_submit=True):
@@ -66,12 +69,13 @@ def render_menu_page():
                 mc_sel = st.selectbox("Kateqoriya", all_cats + ["➕ Yeni Yarat..."])
                 mc = st.text_input("Yeni Kateqoriya Adı") if mc_sel == "➕ Yeni Yarat..." else mc_sel
                 mic = st.checkbox("Kofe (Barista hazırlayır)")
-                
+
                 if st.form_submit_button("Yarat"):
                     if mn and mp >= 0 and mc:
                         try:
                             run_action(
-                                "INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)",
+                                "INSERT INTO menu (item_name, price, category, is_active, is_coffee) "
+                                "VALUES (:n, :p, :c, TRUE, :ic)",
                                 {"n": mn.strip(), "p": str(Decimal(str(mp))), "c": mc.strip(), "ic": mic}
                             )
                             log_system(st.session_state.user, f"MENU_ADD: {mn}, price={mp}, category={mc}")
@@ -80,28 +84,33 @@ def render_menu_page():
                             st.rerun()
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Menu add failed: {e}", exc_info=True)
                     else:
                         st.error("Məlumatları tam doldurun.")
 
-    # ============================================================
-    # MENYU CƏDVƏL (Orijinal)
-    # ============================================================
+    # ------------------------------------------------------------
+    # Menyu cədvəli
+    # ------------------------------------------------------------
     mdf = run_query("SELECT * FROM menu WHERE is_active=TRUE")
     menu_search = st.text_input("🔍 Menyu Axtarış", placeholder="Məhsul adı...")
-    if menu_search:
+    if menu_search and not mdf.empty:
         mdf = mdf[mdf['item_name'].str.contains(menu_search, case=False, na=False)]
 
     if not mdf.empty:
         mdf.insert(0, "Seç", False)
-        mdf['price'] = mdf['price'].astype(float)
+        try:
+            mdf['price'] = mdf['price'].astype(float)
+        except:
+            pass
 
         emd = st.data_editor(
-            mdf, hide_index=True,
+            mdf,
+            hide_index=True,
             column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
             disabled=["id", "item_name", "price", "category", "is_coffee"],
-            use_container_width=True, key="menu_ed_safe"
+            use_container_width=True,
+            key="menu_ed_safe"
         )
+
         smd = emd[emd["Seç"]]
         sm_ids = smd['id'].tolist()
 
@@ -122,11 +131,10 @@ def render_menu_page():
                     st.rerun()
                 except Exception as e:
                     st.error(f"Xəta: {e}")
-                    logger.error(f"Menu delete failed: {e}", exc_info=True)
 
-    # ============================================================
-    # MENYU DÜZƏLİŞ MODAL (Orijinal + Decimal + Audit)
-    # ============================================================
+    # ------------------------------------------------------------
+    # Menyu düzəliş modal
+    # ------------------------------------------------------------
     if st.session_state.get('menu_edit_id'):
         res = run_query("SELECT * FROM menu WHERE id=:id", {"id": st.session_state.menu_edit_id})
         if not res.empty:
@@ -139,25 +147,24 @@ def render_menu_page():
                     np = st.number_input("Qiymət", value=float(r['price']))
                     ec = st.text_input("Kateqoriya", r['category'])
                     eic = st.checkbox("Kofe?", value=r['is_coffee'])
-                    
+
                     if st.form_submit_button("Yadda Saxla"):
                         try:
                             run_action(
                                 "UPDATE menu SET item_name=:n, price=:p, category=:c, is_coffee=:ic WHERE id=:id",
                                 {"n": nn.strip(), "p": str(Decimal(str(np))), "c": ec.strip(), "ic": eic, "id": int(r['id'])}
                             )
-                            log_system(st.session_state.user, f"MENU_EDIT: {r['item_name']} → {nn}")
+                            log_system(st.session_state.user, f"MENU_EDIT: {r['item_name']} -> {nn}")
                             st.session_state.menu_edit_id = None
                             st.rerun()
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Menu edit failed: {e}", exc_info=True)
 
             ed_men_d(mr)
 
-    # ============================================================
-    # IMPORT/EXPORT (Orijinal + Decimal)
-    # ============================================================
+    # ------------------------------------------------------------
+    # Import / Export
+    # ------------------------------------------------------------
     if st.session_state.role == 'admin':
         with st.expander("📤 Menyu İmport / Export (Excel)"):
             with st.form("menu_imp_form"):
@@ -167,10 +174,17 @@ def render_menu_page():
                         try:
                             df_m = pd.read_excel(upl_m)
                             df_m.columns = [str(c).lower().strip() for c in df_m.columns]
-                            menu_map = {"ad": "item_name", "mal": "item_name", "qiymət": "price", "kateqoriya": "category", "kofe": "is_coffee"}
+                            menu_map = {
+                                "ad": "item_name",
+                                "mal": "item_name",
+                                "qiymət": "price",
+                                "kateqoriya": "category",
+                                "kofe": "is_coffee"
+                            }
                             df_m.rename(columns=menu_map, inplace=True)
+
                             for _, r in df_m.iterrows():
-                                if pd.isna(r['item_name']):
+                                if pd.isna(r.get('item_name')):
                                     continue
                                 run_action(
                                     "INSERT INTO menu (item_name, price, category, is_active, is_coffee) VALUES (:n, :p, :c, TRUE, :ic)",
@@ -181,12 +195,11 @@ def render_menu_page():
                                         "ic": bool(r.get('is_coffee', False))
                                     }
                                 )
-                            log_system(st.session_state.user, "MENU_IMPORT: Excel")
+                            log_system(st.session_state.user, "MENU_IMPORT")
                             st.success("Yükləndi!")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Menu import failed: {e}", exc_info=True)
-                            
+
             if st.button("📤 Excel Endir"):
                 out = BytesIO()
                 run_query("SELECT item_name, price, category, is_coffee FROM menu").to_excel(out, index=False)
@@ -194,7 +207,7 @@ def render_menu_page():
 
 
 # ============================================================
-# RESEPT SƏHİFƏSİ
+# RECIPE PAGE
 # ============================================================
 def render_recipe_page():
     st.subheader("📜 Resept və AI Aşpaz")
@@ -207,28 +220,24 @@ def render_recipe_page():
         sale_price = safe_decimal(menu_items[menu_items['item_name'] == sel_p].iloc[0]['price'])
 
         recs = run_query(
-            "SELECT r.id, r.ingredient_name, CAST(r.quantity_required AS FLOAT) AS quantity_required, "
-            "i.unit, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name "
-            "WHERE r.menu_item_name=:n",
+            "SELECT r.id, r.ingredient_name, CAST(r.quantity_required AS FLOAT) AS quantity_required, i.unit, i.unit_cost "
+            "FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:n",
             {"n": sel_p}
         )
 
-        # Decimal hesablama
         total_cost = Decimal("0")
         recs_for_ai = []
+
         if not recs.empty:
             for _, row in recs.iterrows():
                 qty = Decimal(str(row['quantity_required']))
-                u_cost = safe_decimal(row['unit_cost'])
-                cost = (qty * u_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                unit_cost = safe_decimal(row['unit_cost'])
+                cost = (qty * unit_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 total_cost += cost
                 recs_for_ai.append(f"- {row['ingredient_name']}: {row['quantity_required']} {row['unit']} (Maliyet: {cost:.2f} ₼)")
 
         st.markdown(f"**Satış Qiyməti:** {sale_price:.2f} ₼ | **Təxmini Maya Dəyəri:** {total_cost:.2f} ₼")
 
-        # ============================================================
-        # AI ANALİZ VƏ AUTO RESEPT (Orijinal)
-        # ============================================================
         c_ai1, c_ai2 = st.columns(2)
 
         with c_ai1:
@@ -236,25 +245,21 @@ def render_recipe_page():
                 with st.spinner("AI resepti incələyir..."):
                     prompt = f"Sən 'Füzuli' kofe şopunun Baş Aşpazı və Maliyyəçisisən. Məhsul: {sel_p}\nSatış: {sale_price} AZN\nMaya: {total_cost} AZN\nTərkibi:\n{chr(10).join(recs_for_ai)}\n1. Qazanc Marjası necədir?\n2. Qramajlar standartlara uyğundurmu?\n3. Premium etmək üçün gizli toxunuş təklif et."
                     ai_reply = call_ai(prompt)
-                    st.markdown(f"<div style='background: #1e2226; padding:20px; border-left:5px solid #ffd700; border-radius:10px; margin-top:10px;'>{ai_reply}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#1e2226;padding:20px;border-left:5px solid #ffd700;border-radius:10px;margin-top:10px;'>{ai_reply}</div>", unsafe_allow_html=True)
 
         with c_ai2:
             if st.button("🪄 AI ilə Avtomatik Resept Yarat", type="primary", use_container_width=True):
                 with st.spinner("AI anbarı yoxlayır və resept yaradır..."):
                     ing_df = run_query("SELECT name, unit FROM ingredients")
                     if ing_df.empty:
-                        st.error("⚠️ Anbarda heç bir xammal yoxdur. Əvvəlcə anbara mal əlavə edin.")
+                        st.error("⚠️ Anbarda heç bir xammal yoxdur.")
                     else:
                         inv_str = ", ".join([f"'{r['name']}' ({r['unit']})" for _, r in ing_df.iterrows()])
                         prompt = f"""
-                        Sən peşəkar baş baristasan. Mən '{sel_p}' adlı məhsul üçün beynəlxalq standartlara uyğun resept yaratmaq istəyirəm.
-                        Mənim anbarımda YALNIZ bu xammallar var: {inv_str}.
-                        ŞƏRTLƏR:
-                        1. Anbarımda olan xammal adlarından TAM eyni şəkildə istifadə et.
-                        2. Qramajları vahidə uyğun rəqəmlə yaz (məsələn: 18 qram kofe üçün 0.018, 150 ml süd üçün 0.150, 1 ədəd stəkan üçün 1).
-                        3. Yalnız lazım olan əsas maddələri (kofe, süd, stəkan, qapaq və s.) seç.
-                        CAVAB FORMATI (Yalnız JSON qaytar):
-                        [ {{"ingredient": "Ad", "qty": 0.018}} ]
+                        Sən peşəkar baş baristasan. Mən '{sel_p}' üçün standart resept istəyirəm.
+                        Anbarımda olanlar: {inv_str}.
+                        YALNIZ JSON qaytar:
+                        [{{"ingredient": "Ad", "qty": 0.018}}]
                         """
                         ai_res = call_ai(prompt)
                         try:
@@ -269,31 +274,29 @@ def render_recipe_page():
                                     ))
                                 run_transaction(actions)
                                 log_system(st.session_state.user, f"RECIPE_AI_CREATED: {sel_p}")
-                                st.success("✅ Resept avtomatik yaradıldı və cədvələ əlavə olundu!")
-                                time.sleep(1.5)
+                                st.success("✅ Resept yaradıldı!")
+                                time.sleep(1)
                                 st.rerun()
                         except Exception as e:
-                            st.error(f"⚠️ AI düzgün formatda cavab vermədi. Bir daha cəhd edin. Detal: {e}")
-                            logger.error(f"AI recipe parse failed: {e}", exc_info=True)
+                            st.error(f"⚠️ AI düzgün format vermədi: {e}")
 
         st.divider()
 
-        # ============================================================
-        # RESEPT CƏDVƏL (Orijinal)
-        # ============================================================
         if not recs.empty:
             recs_disp = recs[['id', 'ingredient_name', 'quantity_required', 'unit']].copy()
             recs_disp['quantity_required'] = recs_disp['quantity_required'].astype(float)
             recs_disp.insert(0, "Seç", False)
 
             erd = st.data_editor(
-                recs_disp, hide_index=True,
+                recs_disp,
+                hide_index=True,
                 column_config={
                     "Seç": st.column_config.CheckboxColumn(required=True),
                     "quantity_required": st.column_config.NumberColumn("Miqdar", format="%.4f")
                 },
                 disabled=["id", "ingredient_name", "quantity_required", "unit"],
-                key="rec_ed_safe", use_container_width=True
+                key="rec_ed_safe",
+                use_container_width=True
             )
 
             srd = erd[erd["Seç"]]['id'].tolist()
@@ -310,18 +313,13 @@ def render_recipe_page():
                     st.rerun()
                 except Exception as e:
                     st.error(f"Xəta: {e}")
-                    logger.error(f"Recipe delete failed: {e}", exc_info=True)
 
-        # ============================================================
-        # YENİ RESEPT ƏLAVƏ ET (Orijinal + Decimal)
-        # ============================================================
         with st.form("new_recipe_form", clear_on_submit=True):
             ing_df = run_query("SELECT name, unit FROM ingredients ORDER BY name")
             if not ing_df.empty:
                 ing_map = {row['name']: row['unit'] for _, row in ing_df.iterrows()}
                 ing = st.selectbox("Xammal", list(ing_map.keys()), key="new_rec_ing_select")
                 unit_label = ing_map.get(ing, "")
-
                 qty_str = st.text_input(f"Miqdar ({unit_label}) (Məs: 0.018 və ya 0,018)", key="new_rec_qty_input")
 
                 if st.form_submit_button("Əlavə Et"):
@@ -334,19 +332,13 @@ def render_recipe_page():
                             )
                             log_system(st.session_state.user, f"RECIPE_ADD: {sel_p}, {ing}, qty={clean_qty}")
                             st.rerun()
-                        except ValueError:
-                            st.error("⚠️ Lütfən rəqəmi düzgün formatda daxil edin. Hərflərdən istifadə etməyin.")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Recipe add failed: {e}", exc_info=True)
                     else:
                         st.warning("Miqdarı yazın.")
             else:
                 st.warning("Anbarda xammal yoxdur.")
 
-    # ============================================================
-    # RESEPT DÜZƏLİŞ MODAL (Orijinal + Decimal)
-    # ============================================================
     if st.session_state.get('edit_recipe_id'):
         r_res = run_query("SELECT * FROM recipes WHERE id=:id", {"id": st.session_state.edit_recipe_id})
         if not r_res.empty:
@@ -358,7 +350,6 @@ def render_recipe_page():
                     all_ings = run_query("SELECT name FROM ingredients ORDER BY name")['name'].tolist()
                     curr_ing_idx = all_ings.index(r['ingredient_name']) if r['ingredient_name'] in all_ings else 0
                     new_ing = st.selectbox("Xammal", all_ings, index=curr_ing_idx, key="edit_rec_ing")
-
                     new_qty_str = st.text_input("Miqdar (Məsələn: 0.018)", value=str(r['quantity_required']), key="edit_rec_qty")
 
                     if st.form_submit_button("Yadda Saxla"):
@@ -373,22 +364,16 @@ def render_recipe_page():
                             st.success("Yeniləndi!")
                             time.sleep(0.5)
                             st.rerun()
-                        except ValueError:
-                            st.error("⚠️ Düzgün rəqəm formatı daxil edin.")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Recipe edit failed: {e}", exc_info=True)
 
             edit_recipe_dialog(rec_item)
 
-    # ============================================================
-    # IMPORT/EXPORT (Orijinal)
-    # ============================================================
     if st.session_state.role == 'admin':
         with st.expander("📤 Reseptləri İmport / Export (Excel)"):
             if st.button("⚠️ Bütün Reseptləri Sil (Təmizlə)", type="primary"):
                 admin_confirm_dialog("Bütün reseptlər silinsin?", lambda: run_action("DELETE FROM recipes"))
-                
+
             with st.form("recipe_import_form"):
                 upl_rec = st.file_uploader("📥 Import", type="xlsx")
                 if st.form_submit_button("Reseptləri Yüklə"):
@@ -400,7 +385,7 @@ def render_recipe_page():
                             df_r.rename(columns=r_map, inplace=True)
                             cnt = 0
                             for _, r in df_r.iterrows():
-                                if pd.isna(r['menu_item_name']):
+                                if pd.isna(r.get('menu_item_name')):
                                     continue
                                 run_action(
                                     "INSERT INTO recipes (menu_item_name, ingredient_name, quantity_required) VALUES (:m, :i, :q)",
@@ -414,8 +399,7 @@ def render_recipe_page():
                             st.success(f"{cnt} resept sətri yükləndi!")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
-                            logger.error(f"Recipe import failed: {e}", exc_info=True)
-                            
+
             if st.button("📤 Reseptləri Excel Kimi Endir"):
                 out = BytesIO()
                 run_query("SELECT * FROM recipes").to_excel(out, index=False)
@@ -423,13 +407,13 @@ def render_recipe_page():
 
 
 # ============================================================
-# CRM SƏHİFƏSİ
+# CRM PAGE
 # ============================================================
 def render_crm_page():
     st.subheader("👥 CRM və AI Marketoloq")
     crm_stats = run_query("SELECT type, COUNT(*) as cnt FROM customers GROUP BY type")
     stat_str = []
-    
+
     if not crm_stats.empty:
         cols = st.columns(len(crm_stats))
         for idx, row in crm_stats.iterrows():
@@ -441,23 +425,17 @@ def render_crm_page():
 
     st.divider()
 
-    # ============================================================
-    # AI MARKETOLOQ (Orijinal)
-    # ============================================================
     with st.expander("🤖 AI Marketoloq (Kampaniya & Mesaj Strategiyası)", expanded=True):
         camp_goal = st.text_input("🎯 Kampaniya Məqsədi", placeholder="Məs: Tələbələri imtahan ərəfəsində cəlb etmək")
         if st.button("🚀 AI İdeya və Strategiya Yarat", type="primary", use_container_width=True):
             if camp_goal:
-                with st.spinner("🤖 AI Marketoloq məlumatları analiz edir və strategiya qurur..."):
-                    prompt = f"Sən 'Füzuli' kofe şopunun Kreativ Marketinq Müdirisən. Müştəri bazası: {', '.join(stat_str)}. Kampaniyanın məqsədi: '{camp_goal}'. Bu məqsədə çatmaq üçün gənclərin və hədəf kütlənin diqqətini çəkəcək şirin, emojilərlə bəzədilmiş 3 fərqli qısa mesaj şablonu (SMS/Müştəri Ekranı üçün) və 1 cəlbedici endirim/kombo strategiyası yaz. Azərbaycan dilində olsun."
+                with st.spinner("🤖 AI Marketoloq məlumatları analiz edir..."):
+                    prompt = f"Sən 'Füzuli' kofe şopunun Kreativ Marketinq Müdirisən. Müştəri bazası: {', '.join(stat_str)}. Məqsəd: '{camp_goal}'. Bu məqsədə uyğun 3 fərqli qısa mesaj və 1 endirim strategiyası yaz."
                     ai_msg = call_ai(prompt)
-                    st.markdown(f"<div style='background: #1e2226; padding:25px; border-left:6px solid #e6b800; border-radius:12px; margin-bottom:15px; box-shadow: inset 3px 3px 8px rgba(0,0,0,0.6); font-size: 15px; line-height: 1.6;'>{ai_msg}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#1e2226;padding:25px;border-left:6px solid #e6b800;border-radius:12px;box-shadow: inset 3px 3px 8px rgba(0,0,0,0.6);font-size:15px;line-height:1.6;'>{ai_msg}</div>", unsafe_allow_html=True)
             else:
                 st.warning("Məqsədi daxil edin!")
 
-    # ============================================================
-    # PROMO KOD (Orijinal)
-    # ============================================================
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🎫 Yeni Kupon / Promo Kod Yarat", expanded=False):
             with st.form("new_promo_code_form", clear_on_submit=True):
@@ -465,7 +443,6 @@ def render_crm_page():
                 pc_code = c1.text_input("Kod (Məs: YAY2026)")
                 pc_disc = c2.number_input("Endirim %", 1, 100)
                 pc_days = c3.number_input("Gün", 1, 365)
-                
                 if st.form_submit_button("Kodu Yarat"):
                     try:
                         valid_until = get_baku_now() + datetime.timedelta(days=pc_days)
@@ -473,21 +450,18 @@ def render_crm_page():
                             "INSERT INTO promo_codes (code, discount_percent, valid_until, assigned_user_id, is_used) VALUES (:c, :d, :v, 'system', FALSE)",
                             {"c": pc_code, "d": pc_disc, "v": valid_until}
                         )
-                        log_system(st.session_state.user, f"PROMO_CREATE: {pc_code}, discount={pc_disc}%, days={pc_days}")
+                        log_system(st.session_state.user, f"PROMO_CREATE: {pc_code}")
                         st.success("Yaradıldı!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Xəta: {e}")
-                        logger.error(f"Promo creation failed: {e}", exc_info=True)
 
-    # ============================================================
-    # MÜŞTƏRİ CƏDVƏL (Orijinal)
-    # ============================================================
     cust_df = run_query("SELECT card_id, type, stars, email FROM customers")
     if not cust_df.empty:
         cust_df.insert(0, "Seç", False)
         ed_cust = st.data_editor(
-            cust_df, hide_index=True,
+            cust_df,
+            hide_index=True,
             column_config={"Seç": st.column_config.CheckboxColumn(required=True)},
             key="crm_sel"
         )
@@ -495,9 +469,10 @@ def render_crm_page():
 
         st.divider()
         msg = st.text_area("Ekran Mesajı (Müştərinin QR ekranına gedəcək)")
-        promo_list = ["(Kuponsuz)"] + run_query("SELECT code FROM promo_codes")['code'].tolist() if not run_query("SELECT code FROM promo_codes").empty else ["(Kuponsuz)"]
+        promo_df = run_query("SELECT code FROM promo_codes")
+        promo_list = ["(Kuponsuz)"] + promo_df['code'].tolist() if not promo_df.empty else ["(Kuponsuz)"]
         sel_promo = st.selectbox("Promo Yapışdır (Seçilənlərə)", promo_list)
-        
+
         if st.button("📢 Seçilənlərə Göndər / Tətbiq Et", key="crm_send_btn", type="primary"):
             if sel_cust_ids:
                 try:
@@ -510,17 +485,16 @@ def render_crm_page():
                                 "INSERT INTO customer_coupons (card_id, coupon_type, expires_at) VALUES (:c, :t, :e)",
                                 {"c": cid, "t": sel_promo, "e": expires}
                             )
-                    log_system(st.session_state.user, f"CRM_SEND: {len(sel_cust_ids)} customers, promo={sel_promo}")
+                    log_system(st.session_state.user, f"CRM_SEND: {len(sel_cust_ids)} customers")
                     st.success(f"{len(sel_cust_ids)} nəfərə tətbiq edildi!")
                 except Exception as e:
                     st.error(f"Xəta: {e}")
-                    logger.error(f"CRM send failed: {e}", exc_info=True)
             else:
-                st.error("Cədvəldən ən azı 1 müştəri seçin!")
+                st.error("Ən azı 1 müştəri seçin!")
 
 
 # ============================================================
-# QR GENERATOR
+# QR PAGE
 # ============================================================
 def render_qr_page():
     st.subheader("QR Generator")
@@ -549,9 +523,16 @@ def render_qr_page():
 
         if can_proceed:
             try:
-                type_map = {"Golden (5%)": "golden", "Platinum (10%)": "platinum", "Elite (20%)": "elite", "Thermos (20%)": "thermos", "Ikram (100%)": "ikram", "Tələbə (15%)": "telebe"}
+                type_map = {
+                    "Golden (5%)": "golden",
+                    "Platinum (10%)": "platinum",
+                    "Elite (20%)": "elite",
+                    "Thermos (20%)": "thermos",
+                    "Ikram (100%)": "ikram",
+                    "Tələbə (15%)": "telebe"
+                }
+
                 generated_qrs = []
-                
                 for _ in range(cnt):
                     cid = str(random.randint(10000000, 99999999))
                     tok = secrets.token_hex(8)
@@ -580,4 +561,3 @@ def render_qr_page():
                 st.download_button("📦 Hamsını Endir (ZIP)", zip_buf.getvalue(), "qrcodes.zip", "application/zip")
             except Exception as e:
                 st.error(f"Xəta: {e}")
-                logger.error(f"QR generation failed: {e}", exc_info=True)
