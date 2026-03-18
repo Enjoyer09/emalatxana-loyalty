@@ -1,4 +1,4 @@
-# modules/admin.py — PATCHED v3.2 (Structured Logs)
+# modules/admin.py — PATCHED v3.3 (Staff Kitchen Toggle)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -6,7 +6,7 @@ import time
 import json
 import datetime
 import logging
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting, conn
 from sqlalchemy import text
@@ -19,7 +19,9 @@ try:
 except ImportError:
     genai = None
 
-
+# ============================================================
+# SETTINGS PAGE
+# ============================================================
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
 
@@ -31,6 +33,9 @@ def render_settings_page():
         "📱 Müştəri Tətbiqi (App)"
     ])
 
+    # ============================================================
+    # RESTORAN AYARLARI
+    # ============================================================
     with tab_settings:
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
         current_fee = safe_decimal(get_setting("service_fee_percent", "0.0"))
@@ -41,6 +46,35 @@ def render_settings_page():
             log_system(st.session_state.user, "SERVICE_FEE_UPDATE", {"percent": new_fee})
             st.success("Yeniləndi!")
 
+        st.markdown("---")
+        st.markdown("### 👁️ UI Vizuallıq Ayarları")
+        
+        # Mövcud ayarları oxu
+        staff_show_tables = get_setting("staff_show_tables", "TRUE") == "TRUE"
+        manager_show_tables = get_setting("manager_show_tables", "TRUE") == "TRUE"
+        staff_show_kitchen = get_setting("staff_show_kitchen", "TRUE") == "TRUE"  # YENİ
+        
+        c_ui1, c_ui2 = st.columns(2)
+        with c_ui1:
+            new_staff_tables = st.toggle("Staff (Kassir) 'Masalar'ı görsün", value=staff_show_tables)
+            new_mgr_tables = st.toggle("Manager 'Masalar'ı görsün", value=manager_show_tables)
+        with c_ui2:
+            new_staff_kitchen = st.toggle("Staff (Kassir) 'Mətbəx'i görsün", value=staff_show_kitchen)
+            
+        if st.button("UI Ayarlarını Yadda Saxla", type="primary"):
+            set_setting("staff_show_tables", "TRUE" if new_staff_tables else "FALSE")
+            set_setting("manager_show_tables", "TRUE" if new_mgr_tables else "FALSE")
+            set_setting("staff_show_kitchen", "TRUE" if new_staff_kitchen else "FALSE")
+            log_system(st.session_state.user, "UI_SETTINGS_UPDATE", {
+                "staff_tables": new_staff_tables,
+                "mgr_tables": new_mgr_tables,
+                "staff_kitchen": new_staff_kitchen
+            })
+            st.success("Görünüş ayarları yadda saxlanıldı!")
+            time.sleep(1)
+            st.rerun()
+
+        st.markdown("---")
         st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
         time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
 
@@ -67,6 +101,9 @@ def render_settings_page():
             })
             st.success("Vaxt ayarları yeniləndi!")
 
+    # ============================================================
+    # USERS
+    # ============================================================
     with tab_users:
         st.markdown("### 👥 İstifadəçi İdarəetməsi")
         users = run_query("SELECT username, role, last_seen FROM users")
@@ -125,6 +162,9 @@ def render_settings_page():
                         except Exception as e:
                             st.error(f"Xəta: {e}")
 
+    # ============================================================
+    # CRM
+    # ============================================================
     with tab_crm:
         st.markdown("### 📱 Müştəri QR və Loyallıq (CRM)")
         with st.form("add_customer"):
@@ -157,6 +197,9 @@ def render_settings_page():
         if not customers_df.empty:
             st.dataframe(customers_df, hide_index=True)
 
+    # ============================================================
+    # HAPPY HOUR
+    # ============================================================
     with tab_happy:
         st.markdown("### ⏰ Happy Hour / Avtomatik Endirim")
         st.info("Müəyyən saatlarda avtomatik endirim tətbiq olunur. POS-da kassir heç nə etmir — sistem özü endirim verir.")
@@ -190,20 +233,10 @@ def render_settings_page():
                     if hh['is_active']:
                         if st.button("⏸️ Deaktiv Et", key=f"deact_hh_{hh['id']}", use_container_width=True):
                             run_action("UPDATE happy_hours SET is_active=FALSE WHERE id=:id", {"id": hh['id']})
-                            log_system(
-                                st.session_state.user,
-                                "HAPPY_HOUR_DEACTIVATE",
-                                {"id": int(hh['id']), "name": hh['name']}
-                            )
                             st.rerun()
                     else:
                         if st.button("▶️ Aktivləşdir", key=f"act_hh_{hh['id']}", use_container_width=True):
                             run_action("UPDATE happy_hours SET is_active=TRUE WHERE id=:id", {"id": hh['id']})
-                            log_system(
-                                st.session_state.user,
-                                "HAPPY_HOUR_ACTIVATE",
-                                {"id": int(hh['id']), "name": hh['name']}
-                            )
                             st.rerun()
         else:
             st.warning("Heç bir Happy Hour yaradılmayıb.")
@@ -274,6 +307,9 @@ def render_settings_page():
                 else:
                     st.error("Ad və ən azı 1 gün seçin!")
 
+    # ============================================================
+    # APP TAB
+    # ============================================================
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı və Məlumatlar")
         st.info("Tezliklə App ayarları bura əlavə olunacaq.")
@@ -292,7 +328,6 @@ def render_database_page():
                         backup_data[t] = df.to_dict(orient='records')
                 except:
                     pass
-
             json_str = json.dumps(backup_data, indent=4, default=str)
             log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": tables})
             st.download_button(
@@ -339,7 +374,6 @@ def render_database_page():
                 st.rerun()
             except Exception as e:
                 st.error(f"Bərpa xətası (Rollback edildi): {e}")
-
 
 def render_logs_page():
     st.subheader("🕵️‍♂️ Sistem Loqları")
@@ -419,7 +453,6 @@ def render_logs_page():
             st.info("Loq tapılmadı.")
     except Exception as e:
         st.error(f"Loq oxuma xətası: {e}")
-
 
 def render_notes_page():
     st.subheader("📝 Admin Qeydləri")
