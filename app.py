@@ -1,4 +1,4 @@
-# app.py — ORİJİNAL UI + PATCHED v3.0 (Refund, Kitchen, Happy Hour, Split Payment)
+# app.py — ORİJİNAL UI + PATCHED v3.3 FINAL
 import streamlit as st
 import pandas as pd
 import random
@@ -10,7 +10,11 @@ from sqlalchemy import text
 
 from database import ensure_schema, run_query, run_action, run_transaction, get_setting, set_setting, conn
 from auth import check_url_token_login, validate_session, logout_user, create_session, get_cached_users, attempt_login
-from utils import BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code, get_baku_now, get_shift_status, open_shift, close_shift, verify_password, get_logical_date, get_shift_range, safe_decimal, log_system
+from utils import (
+    BRAND_NAME, VERSION, CARTOON_QUOTES, DEFAULT_TERMS, clean_qr_code,
+    get_baku_now, get_shift_status, open_shift, close_shift, verify_password,
+    get_logical_date, get_shift_range, safe_decimal, log_system
+)
 
 from modules.pos import render_pos_page
 from modules.tables import render_tables_page
@@ -39,38 +43,60 @@ def shift_modal(mode):
         if st.button("✅ BƏLİ, Növbəni Aç", use_container_width=True, type="primary"):
             open_shift(st.session_state.user)
             st.rerun()
+
     elif mode == "close":
         st.error("Diqqət! Çıxış etməzdən əvvəl hesabatları vurduğunuzdan əmin olun.")
-        
+
         if not st.session_state.get('handover_mode'):
             st.write("Növbədən necə çıxmaq istəyirsiniz?")
             c1, c2 = st.columns(2)
-            
+
             if c1.button("🤝 Smeni Təhvil Ver", use_container_width=True):
                 log_date_z = get_logical_date()
                 sh_start_z, sh_end_z = get_shift_range(log_date_z)
                 q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
                 params = {"d": sh_start_z, "e": sh_end_z}
 
-                s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {q_cond}", params).iloc[0]['s'])
-                f_out = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
-                f_in = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}", params).iloc[0]['s'])
+                s_cash = safe_decimal(
+                    run_query(
+                        f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {q_cond}",
+                        params
+                    ).iloc[0]['s']
+                )
+                f_out = safe_decimal(
+                    run_query(
+                        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}",
+                        params
+                    ).iloc[0]['s']
+                )
+                f_in = safe_decimal(
+                    run_query(
+                        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}",
+                        params
+                    ).iloc[0]['s']
+                )
                 opening_limit = safe_decimal(get_setting("cash_limit", "0.0"))
                 expected_cash = opening_limit + s_cash + f_in - f_out
-                
+
                 st.session_state.handover_expected = float(expected_cash)
                 st.session_state.handover_mode = True
                 st.rerun()
-                
+
             if c2.button("🚪 Növbəni Bağla və Çıx", type="primary", use_container_width=True):
                 close_shift(st.session_state.user)
                 st.session_state.clear()
                 st.session_state.logged_in = False
                 st.rerun()
+
         else:
             st.info(f"Sistemə görə kassada olmalıdır: **{st.session_state.handover_expected:.2f} ₼**")
-            actual = st.number_input("Kassadakı real nağd (Təhvil verilən):", value=float(st.session_state.handover_expected), min_value=0.0, step=1.0)
-            
+            actual = st.number_input(
+                "Kassadakı real nağd (Təhvil verilən):",
+                value=float(st.session_state.handover_expected),
+                min_value=0.0,
+                step=1.0
+            )
+
             c_conf1, c_conf2 = st.columns(2)
             if c_conf1.button("✅ Təsdiqlə və Çıxış Et", type="primary", use_container_width=True):
                 expected_d = Decimal(str(st.session_state.handover_expected))
@@ -78,7 +104,7 @@ def shift_modal(mode):
                 diff = actual_d - expected_d
                 now = get_baku_now()
                 u = st.session_state.user
-                
+
                 actions = []
                 if abs(diff) > Decimal("0.01"):
                     c_type = 'in' if diff > 0 else 'out'
@@ -87,27 +113,36 @@ def shift_modal(mode):
                         "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Smen Təhvili (Çıxış) zamanı fərq', :u, :time, FALSE)",
                         {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}
                     ))
-                
+
                 actions.append((
                     "INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)",
                     {"u": u, "e": str(expected_d), "a": str(actual_d), "t": now}
                 ))
-                
+
                 try:
                     run_transaction(actions)
                     set_setting("cash_limit", str(actual_d))
-                    log_system(u, f"SHIFT_HANDOVER: expected={expected_d}, actual={actual_d}, diff={diff}")
+                    log_system(
+                        u,
+                        "SHIFT_HANDOVER",
+                        {
+                            "expected_cash": str(expected_d),
+                            "actual_cash": str(actual_d),
+                            "difference": str(diff)
+                        }
+                    )
                 except Exception as e:
                     st.error(f"Xəta: {e}")
                     st.stop()
-                
+
                 st.session_state.clear()
                 st.session_state.logged_in = False
                 st.rerun()
-                
+
             if c_conf2.button("Ləğv Et", use_container_width=True):
                 st.session_state.handover_mode = False
                 st.rerun()
+
 
 # ============================================================
 # CUSTOMER APP ROUTE
@@ -148,7 +183,7 @@ if 'low_stock_shown' not in st.session_state: st.session_state.low_stock_shown =
 ensure_schema()
 
 # ============================================================
-# ORİJİNAL CSS (100%)
+# ORİJİNAL CSS (QORUNUR)
 # ============================================================
 st.markdown("""
     <style>
@@ -250,36 +285,37 @@ def show_receipt_dialog(cart_data, total_amt, cust_email):
 # ============================================================
 # LOGIN
 # ============================================================
-if not st.session_state.logged_in: 
+if not st.session_state.logged_in:
     check_url_token_login()
-    
+
 if not st.session_state.logged_in:
     c1, c2, c3 = st.columns([1, 1.1, 1])
     with c2:
         st.markdown(f"<h1 style='text-align:center;'>{BRAND_NAME}</h1><h5 style='text-align:center;'>{VERSION}</h5>", unsafe_allow_html=True)
         t1, t2 = st.tabs(["STAFF", "ADMIN"])
-        
+
+        # STAFF LOGIN
         with t1:
-            if 'staff_pin' not in st.session_state: 
+            if 'staff_pin' not in st.session_state:
                 st.session_state.staff_pin = ""
-                
+
             def staff_pad_cb(val):
-                if val == 'C': 
+                if val == 'C':
                     st.session_state.staff_pin = ""
-                elif val == '⌫': 
+                elif val == '⌫':
                     st.session_state.staff_pin = st.session_state.staff_pin[:-1]
-                else: 
+                else:
                     if len(st.session_state.staff_pin) < 10:
                         st.session_state.staff_pin += str(val)
 
             disp = "• " * len(st.session_state.staff_pin) if st.session_state.staff_pin else "<span style='color:#7b8896; font-size:16px; letter-spacing:2px; font-family:Nunito;'>PIN DAXİL EDİN</span>"
             st.markdown(f"<div class='pin-box'>{disp}</div>", unsafe_allow_html=True)
-            
+
             for row in [['1','2','3'], ['4','5','6'], ['7','8','9'], ['C','0','⌫']]:
                 cols = st.columns(3)
                 for i, val in enumerate(row):
                     cols[i].button(val, key=f"spad_{val}", on_click=staff_pad_cb, args=(val,), use_container_width=True)
-            
+
             st.write("")
             if st.button("Giriş", type="primary", use_container_width=True, key="staff_login_btn"):
                 pin = st.session_state.staff_pin
@@ -288,7 +324,7 @@ if not st.session_state.logged_in:
                 else:
                     all_staff = run_query("SELECT username, password, role FROM users WHERE role IN ('staff', 'manager')")
                     found = False
-                    
+
                     if not all_staff.empty:
                         for _, r in all_staff.iterrows():
                             if verify_password(pin, r['password']):
@@ -307,11 +343,12 @@ if not st.session_state.logged_in:
                                     st.session_state.staff_pin = ""
                                     found = True
                                 break
-                    
+
                     if not found:
                         st.error("Yanlış PIN")
                         st.session_state.staff_pin = ""
-        
+
+        # ADMIN LOGIN
         with t2:
             with st.form("al"):
                 u = st.text_input("User")
@@ -329,7 +366,7 @@ if not st.session_state.logged_in:
                             st.session_state.session_token = token
                             st.query_params.clear()
                             st.rerun()
-                        else: 
+                        else:
                             st.error(error_msg or "Səhv ad və ya şifrə")
 
 # ============================================================
@@ -340,16 +377,16 @@ else:
     if s_info.get('current_shift_status') == 'Closed' and st.session_state.role in ['staff', 'manager']:
         shift_modal("open")
 
-    if not validate_session(): 
+    if not validate_session():
         st.session_state.clear()
         st.rerun()
-        
+
     h1, h2, h3 = st.columns([4, 1, 1], vertical_alignment="center")
-    with h1: 
+    with h1:
         st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
-    with h2: 
+    with h2:
         st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
-    with h3: 
+    with h3:
         if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
             if st.session_state.role == 'staff':
                 shift_modal("close")
@@ -359,6 +396,7 @@ else:
                 st.rerun()
     st.divider()
 
+    # Low stock alert
     if not st.session_state.low_stock_shown:
         try:
             low_stock_df = run_query("SELECT name as \"Xammal\", stock_qty as \"Qalıq\", unit as \"Vahid\" FROM ingredients WHERE stock_qty <= 5.0")
@@ -373,57 +411,111 @@ else:
                 show_low_stock_dialog(low_stock_df)
             else:
                 st.session_state.low_stock_shown = True
-        except Exception as e:
+        except Exception:
             st.session_state.low_stock_shown = True
 
-    # ---- Navigation ----
+    # ============================================================
+    # NAVIGATION (ORİJİNAL UI QORUNUR)
+    # ============================================================
     role = st.session_state.role
     tabs_list = []
-    if role in ['admin', 'manager', 'staff']: 
+
+    if role in ['admin', 'manager', 'staff']:
         tabs_list.append("🏃‍♂️ AL-APAR")
+
     show_tables_staff = get_setting("staff_show_tables", "TRUE") == "TRUE"
     show_tables_mgr = get_setting("manager_show_tables", "TRUE") == "TRUE"
-    if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff): 
+    if role == 'admin' or (role == 'manager' and show_tables_mgr) or (role == 'staff' and show_tables_staff):
         tabs_list.append("🍽️ MASALAR")
-    if role in ['admin', 'manager', 'staff']:
+
+    # NEW: Kitchen visibility for staff
+    show_kitchen_staff = get_setting("staff_show_kitchen", "TRUE") == "TRUE"
+    if role in ['admin', 'manager'] or (role == 'staff' and show_kitchen_staff):
         tabs_list.append("🍳 Mətbəx")
-    if role in ['staff', 'manager', 'admin']: 
+
+    if role in ['staff', 'manager', 'admin']:
         tabs_list.append("📊 Z-Hesabat")
-    if role in ['admin', 'manager']: 
-        tabs_list.extend(["💰 Maliyyə", "📦 Anbar", "🍔 Kombolar", "📊 Analitika", "📜 Loglar", "👥 CRM", "🤖 AI Menecer"])
+
+    if role in ['admin', 'manager']:
+        tabs_list.extend([
+            "💰 Maliyyə",
+            "📦 Anbar",
+            "🍔 Kombolar",
+            "📊 Analitika",
+            "📜 Loglar",
+            "👥 CRM",
+            "🤖 AI Menecer"
+        ])
+
     if role == 'manager':
-        if get_setting("manager_perm_menu", "FALSE") == "TRUE": 
+        if get_setting("manager_perm_menu", "FALSE") == "TRUE":
             tabs_list.append("📋 Menyu")
-        if get_setting("manager_perm_recipes", "FALSE") == "TRUE": 
+        if get_setting("manager_perm_recipes", "FALSE") == "TRUE":
             tabs_list.append("📜 Resept")
+
     if role == 'admin':
-        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
-    
+        tabs_list.extend([
+            "📋 Menyu",
+            "📜 Resept",
+            "📝 Qeydlər",
+            "⚙️ Ayarlar",
+            "💾 Baza",
+            "QR"
+        ])
+
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
 
-    if "current_tab" not in st.session_state: 
+    if "current_tab" not in st.session_state:
         st.session_state.current_tab = tabs_list[0]
-    selected_tab = st.radio("Menu", tabs_list, horizontal=True, label_visibility="collapsed", key="main_nav_radio", index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0)
-    if selected_tab != st.session_state.current_tab: 
+
+    selected_tab = st.radio(
+        "Menu",
+        tabs_list,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="main_nav_radio",
+        index=tabs_list.index(st.session_state.current_tab) if st.session_state.current_tab in tabs_list else 0
+    )
+
+    if selected_tab != st.session_state.current_tab:
         st.session_state.current_tab = selected_tab
 
-    # ---- Route ----
-    if selected_tab == "🏃‍♂️ AL-APAR": render_pos_page()
-    elif selected_tab == "🍽️ MASALAR": render_tables_page()
-    elif selected_tab == "🍳 Mətbəx": render_kitchen_page()
-    elif selected_tab == "📊 Z-Hesabat": render_z_report_page()
-    elif selected_tab == "📦 Anbar": render_inventory_page()
-    elif selected_tab == "🍔 Kombolar": render_combos_page()
-    elif selected_tab == "💰 Maliyyə": render_finance_page()
-    elif selected_tab == "📊 Analitika": render_analytics_page()
-    elif selected_tab == "👥 CRM": render_crm_page()
-    elif selected_tab == "🤖 AI Menecer": render_ai_page()
-    elif selected_tab == "📋 Menyu": render_menu_page()
-    elif selected_tab == "📜 Resept": render_recipe_page()
-    elif selected_tab == "📝 Qeydlər": render_notes_page()
-    elif selected_tab == "⚙️ Ayarlar": render_settings_page()
-    elif selected_tab == "💾 Baza": render_database_page()
-    elif selected_tab == "QR": render_qr_page()
-    elif selected_tab == "📜 Loglar": render_logs_page()
+    # ============================================================
+    # ROUTES
+    # ============================================================
+    if selected_tab == "🏃‍♂️ AL-APAR":
+        render_pos_page()
+    elif selected_tab == "🍽️ MASALAR":
+        render_tables_page()
+    elif selected_tab == "🍳 Mətbəx":
+        render_kitchen_page()
+    elif selected_tab == "📊 Z-Hesabat":
+        render_z_report_page()
+    elif selected_tab == "📦 Anbar":
+        render_inventory_page()
+    elif selected_tab == "🍔 Kombolar":
+        render_combos_page()
+    elif selected_tab == "💰 Maliyyə":
+        render_finance_page()
+    elif selected_tab == "📊 Analitika":
+        render_analytics_page()
+    elif selected_tab == "👥 CRM":
+        render_crm_page()
+    elif selected_tab == "🤖 AI Menecer":
+        render_ai_page()
+    elif selected_tab == "📋 Menyu":
+        render_menu_page()
+    elif selected_tab == "📜 Resept":
+        render_recipe_page()
+    elif selected_tab == "📝 Qeydlər":
+        render_notes_page()
+    elif selected_tab == "⚙️ Ayarlar":
+        render_settings_page()
+    elif selected_tab == "💾 Baza":
+        render_database_page()
+    elif selected_tab == "QR":
+        render_qr_page()
+    elif selected_tab == "📜 Loglar":
+        render_logs_page()
 
     st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)
