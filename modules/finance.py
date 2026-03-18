@@ -1,4 +1,4 @@
-# modules/finance.py — PATCHED v3.2 (Structured Logging)
+# modules/finance.py — FINAL PATCHED v3.2
 import streamlit as st
 import pandas as pd
 import datetime
@@ -103,9 +103,6 @@ def update_finance_record(record_id, new_values, updated_by):
     )
 
 
-# ============================================================
-# TRANSFER HELPER
-# ============================================================
 def execute_transfer(direction, amount, desc, user, is_test, commission=0):
     now = get_baku_now()
     amt = str(Decimal(str(amount)))
@@ -162,7 +159,7 @@ def execute_transfer(direction, amount, desc, user, is_test, commission=0):
 
 
 # ============================================================
-# MAIN PAGE
+# MAIN
 # ============================================================
 def render_finance_page():
     if st.session_state.role not in ['admin', 'manager']:
@@ -175,9 +172,6 @@ def render_finance_page():
     if is_t_active:
         st.warning("⚠️ Hazırda TEST rejimindəsiniz.")
 
-    # ------------------------------------------------------------
-    # Kassa açılışı
-    # ------------------------------------------------------------
     with st.expander("🔓 Səhər Kassanı Aç (Opening Balance)", expanded=False):
         today = get_logical_date()
         existing_open = run_query(
@@ -203,18 +197,12 @@ def render_finance_page():
                     log_system(
                         st.session_state.user,
                         "CASH_REGISTER_OPENED",
-                        {
-                            "amount": open_amt,
-                            "is_test": is_t_active
-                        }
+                        {"amount": open_amt, "is_test": is_t_active}
                     )
                     st.success(f"Gün {open_amt} AZN ilə başladı!")
                     time.sleep(1.5)
                     st.rerun()
 
-    # ------------------------------------------------------------
-    # Görünüş rejimi
-    # ------------------------------------------------------------
     view_mode = st.radio("Görünüş Rejimi:", ["🕒 Bu Növbə (08:00+)", "📅 Ümumi Balans (Yekun)"], horizontal=True)
     log_date = get_logical_date()
     shift_start, shift_end = get_shift_range(log_date)
@@ -250,14 +238,11 @@ def render_finance_page():
     m1, m2, m3 = st.columns(3)
     m1.metric("🏪 Kassa (Cibdə Olan)", f"{disp_cash:.2f} ₼")
     m2.metric(f"💳 Bank Kartı ({'Növbə' if 'Növbə' in view_mode else 'Seçilmiş'})", f"{disp_card_view:.2f} ₼")
-    m3.metric("📝 Ödəniləcək Borc (Nisyə)", f"{disp_debt:.2f} ₼",
-              delta="Bizim Borcumuz" if disp_debt > 0 else "Borc Yoxdur", delta_color="inverse")
+    m3.metric("📝 Ödəniləcək Borc (Nisyə)", f"{disp_debt:.2f} ₼", delta="Bizim Borcumuz" if disp_debt > 0 else "Borc Yoxdur", delta_color="inverse")
 
     st.markdown("---")
 
-    # ------------------------------------------------------------
     # AI audit
-    # ------------------------------------------------------------
     if st.session_state.role in ['admin', 'manager']:
         with st.expander("🤖 Süni İntellekt: Maliyyə Audit"):
             api_key = get_setting("gemini_api_key", "")
@@ -287,20 +272,13 @@ def render_finance_page():
                         except Exception as e:
                             st.error(e)
 
-        # --------------------------------------------------------
-        # Kart çıxarış
-        # --------------------------------------------------------
         with st.expander("💳 Bank Kartından Çıxarış", expanded=False):
             st.info("Kartda yığılan məbləği çıxarış edin.")
             with st.form("card_withdraw_form"):
                 c_amt, c_rsn = st.columns(2)
                 max_wd = max(float(disp_card_view), 0.0)
-                cw_amt = c_amt.number_input(
-                    "Çıxarılan Məbləğ (AZN)",
-                    max_value=max_wd if max_wd > 0 else 10000.0,
-                    value=max_wd if max_wd > 0 else 0.0,
-                    step=1.0
-                )
+                cw_amt = c_amt.number_input("Çıxarılan Məbləğ (AZN)", max_value=max_wd if max_wd > 0 else 10000.0,
+                                            value=max_wd if max_wd > 0 else 0.0, step=1.0)
                 cw_reason = c_rsn.selectbox("Səbəb", ["Təsisçi Çıxarışı", "Xərc Ödənişi", "Transfer", "Digər"])
                 cw_desc = st.text_input("Açıqlama", "Kartdan çıxarış")
 
@@ -327,9 +305,6 @@ def render_finance_page():
                     else:
                         st.error("Məbləğ 0-dan böyük olmalıdır.")
 
-        # --------------------------------------------------------
-        # Balans korreksiyası
-        # --------------------------------------------------------
         MAX_AUTO_CORRECTION = Decimal("50.00")
         with st.expander("⚖️ Balans Korreksiyası (Sinxronizasiya)", expanded=False):
             st.warning("Məcburi balans bərabərləşdirmə.")
@@ -398,9 +373,6 @@ def render_finance_page():
                             time.sleep(1.5)
                             st.rerun()
 
-    # ------------------------------------------------------------
-    # Yeni əməliyyat / transfer
-    # ------------------------------------------------------------
     with st.expander("➕ Yeni Əməliyyat / Daxili Transfer", expanded=False):
         t_op, t_tr = st.tabs(["Standart Əməliyyat", "Daxili Transfer 🔄"])
 
@@ -484,9 +456,6 @@ def render_finance_page():
                     except Exception as e:
                         st.error(f"Transfer xətası: {e}")
 
-    # ------------------------------------------------------------
-    # Əməliyyat cədvəli
-    # ------------------------------------------------------------
     st.markdown("---")
     st.subheader("✏️ Maliyyə Əməliyyatları (Düzəliş & Silmə)")
     st.info("Səhv yazılmış əməliyyatları seçin, dəyişib 'Yadda Saxla' basın və ya silin.")
