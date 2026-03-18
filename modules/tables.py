@@ -1,4 +1,4 @@
-# modules/tables.py — PATCHED v2.0
+# modules/tables.py — PATCHED v3.0 (Split Payment + Kitchen + Atomic)
 import streamlit as st
 import json
 import time
@@ -7,7 +7,7 @@ import pandas as pd
 from decimal import Decimal, ROUND_HALF_UP
 
 from database import run_query, run_action, run_transaction, get_setting
-from utils import get_baku_now, CAT_ORDER_MAP, safe_decimal, log_system, SK_CASH_LIMIT
+from utils import get_baku_now, CAT_ORDER_MAP, safe_decimal, log_system
 from modules.pos import add_to_cart, calculate_smart_total, get_cached_menu
 from auth import admin_confirm_dialog
 
@@ -18,26 +18,21 @@ logger = logging.getLogger(__name__)
 # SAFE JSON PARSE
 # ============================================================
 def safe_json_loads(data, default=None):
-    """Safely parse JSON string, return default on failure"""
     if default is None:
         default = []
     if not data or data == '[]':
         return default
     try:
         return json.loads(data)
-    except (json.JSONDecodeError, TypeError) as e:
-        logger.warning(f"JSON parse error: {e}, data={data[:100] if data else 'None'}")
+    except Exception as e:
+        logger.warning(f"JSON parse error: {e}")
         return default
 
 
 # ============================================================
-# ATOMIC TABLE SALE (reuses pos.py finalize_sale pattern)
+# ATOMIC TABLE SALE
 # ============================================================
-def finalize_table_sale(table_id, cart_items, final_total, original_total, pm, user, is_test):
-    """
-    All-or-nothing table sale:
-    sales + finance + stock deduction + table reset
-    """
+def finalize_table_sale(table_id, table_label, cart_items, final_total, original_total, pm, user, is_test, split_cash=None, split_card=None):
     now = get_baku_now()
     final_d = Decimal(str(final_total))
     original_d = Decimal(str(original_total))
@@ -46,7 +41,14 @@ def finalize_table_sale(table_id, cart_items, final_total, original_total, pm, u
     total_cogs = Decimal("0")
     actions = []
 
-    # ---- Stock deduction + COGS ----
+    # Kitchen order
+    actions.append((
+        "INSERT INTO kitchen_orders (sale_source, table_label, items, status, created_by, created_at) "
+        "VALUES ('TABLE', :tbl, :items, 'NEW', :user, :time)",
+        {"tbl": table_label, "items": items_json, "user": user, "time": now}
+    ))
+
+    # Stock deduction + COGS
     if not is_test:
         for it in cart_items:
             recs = run_query(
@@ -58,65 +60,86 @@ def finalize_table_sale(table_id, cart_items, final_total, original_total, pm, u
             if not recs.empty:
                 for _, r in recs.iterrows():
                     qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
-                    u_cost = Decimal(str(r['unit_cost'])) if pd.notna(r['unit_cost']) else Decimal("0")
+                    u_cost = safe_decimal(r['unit_cost'])
                     total_cogs += qty_req * u_cost
                     actions.append((
                         "UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n",
                         {"q": str(qty_req), "n": r['ingredient_name']}
                     ))
 
-    # ---- Sales record ----
+    # Sales
     actions.append((
-        "INSERT INTO sales (items, total, payment_method, cashier, created_at, "
-        "original_total, discount_amount, is_test, cogs) "
-        "VALUES (:i,:t,:p,:c,:time,:ot,:da,:tst,:cogs)",
+        "INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount, is_test, cogs, status) "
+        "VALUES (:i,:t,:p,:c,:time,:ot,:da,:tst,:cogs,'COMPLETED')",
         {
-            "i": items_json, "t": str(final_d), "p": pm, "c": user,
-            "time": now, "ot": str(original_d), "da": str(discount_d),
-            "tst": is_test, "cogs": str(total_cogs)
+            "i": items_json,
+            "t": str(final_d),
+            "p": pm,
+            "c": user,
+            "time": now,
+            "ot": str(original_d),
+            "da": str(discount_d),
+            "tst": is_test,
+            "cogs": str(total_cogs)
         }
     ))
 
-    # ---- Finance entries ----
+    # Finance
     if not is_test and final_d > 0:
-        db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
-        pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
-
-        actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, "
-            "created_by, created_at, is_test) "
-            "VALUES ('in', :cat, :a, :src, 'Masa Satışı', :u, :t, FALSE)",
-            {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now}
-        ))
-
-        if pm == "Kart":
-            min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
-            pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
-            comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        if split_cash is not None and split_card is not None:
+            if split_cash > 0:
+                actions.append((
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                    "VALUES ('in', 'Satış (Nağd)', :a, 'Kassa', 'Masa Satışı (Split)', :u, :t, FALSE)",
+                    {"a": str(split_cash), "u": user, "t": now}
+                ))
+            if split_card > 0:
+                actions.append((
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                    "VALUES ('in', 'Satış (Kart)', :a, 'Bank Kartı', 'Masa Satışı (Split)', :u, :t, FALSE)",
+                    {"a": str(split_card), "u": user, "t": now}
+                ))
+                min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
+                pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
+                comm = max(min_comm, (split_card * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                actions.append((
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                    "VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Masa Satış Komissiyası (Split)', :u, :t, FALSE)",
+                    {"a": str(comm), "u": user, "t": now}
+                ))
+        else:
+            db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
+            pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
             actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, "
-                "created_by, created_at, is_test) "
-                "VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', "
-                "'Masa Satış Komissiyası', :u, :t, FALSE)",
-                {"a": str(comm), "u": user, "t": now}
+                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                "VALUES ('in', :cat, :a, :src, 'Masa Satışı', :u, :t, FALSE)",
+                {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now}
             ))
 
-    # ---- Reset table ----
+            if pm == "Kart":
+                min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
+                pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
+                comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+                actions.append((
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                    "VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Masa Satış Komissiyası', :u, :t, FALSE)",
+                    {"a": str(comm), "u": user, "t": now}
+                ))
+
+    # Reset table
     actions.append((
         "UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id",
         {"id": table_id}
     ))
 
-    # ---- Execute ALL at once ----
     run_transaction(actions)
-    log_system(user, f"TABLE_SALE: table_id={table_id}, total={final_d}, pm={pm}, test={is_test}")
+    log_system(user, f"TABLE_SALE: table={table_label}, total={final_d}, pm={pm}, split_cash={split_cash}, split_card={split_card}")
 
 
 # ============================================================
-# MENU RENDERER FOR TABLES (DRY — shared with pos)
+# TABLE MENU
 # ============================================================
 def render_table_menu(cart):
-    """Render menu grid for table ordering"""
     menu_df = get_cached_menu()
     if menu_df.empty:
         st.info("Menyu boşdur")
@@ -125,18 +148,10 @@ def render_table_menu(cart):
     menu_df['cat_order'] = menu_df['category'].map(CAT_ORDER_MAP).fillna(99)
     menu_df = menu_df.sort_values(by=['cat_order', 'item_name'])
 
-    existing_cats = sorted(
-        menu_df['category'].unique().tolist(),
-        key=lambda x: CAT_ORDER_MAP.get(x, 99)
-    )
+    existing_cats = sorted(menu_df['category'].unique().tolist(), key=lambda x: CAT_ORDER_MAP.get(x, 99))
     cats = ["HAMISI"] + [c.upper() for c in existing_cats]
-    sc_upper = st.radio(
-        "Kat", cats, horizontal=True,
-        label_visibility="collapsed", key="tbl_c_rad"
-    )
-    sc = "Hamısı" if sc_upper == "HAMISI" else next(
-        (c for c in existing_cats if c.upper() == sc_upper), "Hamısı"
-    )
+    sc_upper = st.radio("Kat", cats, horizontal=True, label_visibility="collapsed", key="tbl_c_rad")
+    sc = "Hamısı" if sc_upper == "HAMISI" else next((c for c in existing_cats if c.upper() == sc_upper), "Hamısı")
 
     prods = menu_df if sc == "Hamısı" else menu_df[menu_df['category'] == sc]
 
@@ -158,15 +173,21 @@ def render_table_menu(cart):
         for base, items in groups.items():
             with cols[idx % 3]:
                 if len(items) > 1:
-                    if st.button(f"{base}\n▾", key=f"tbl_grp_{base}",
-                                 use_container_width=True, type="secondary"):
-                        st.session_state.active_dialog = ("variants_tbl", items)
+                    if st.button(f"{base}\n▾", key=f"tbl_grp_{base}", use_container_width=True, type="secondary"):
+                        # sadə variant seçimi
+                        chosen = items[0]
+                        add_to_cart(cart, {
+                            'item_name': chosen['item_name'],
+                            'price': float(chosen['price']),
+                            'qty': 1,
+                            'is_coffee': chosen['is_coffee'],
+                            'category': chosen['category'],
+                            'status': 'new'
+                        })
                         st.rerun()
                 else:
                     r = items[0]
-                    if st.button(f"{r['item_name']}\n{r['price']}₼",
-                                 key=f"tbl_p_{r['id']}",
-                                 use_container_width=True, type="secondary"):
+                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"tbl_p_{r['id']}", use_container_width=True, type="secondary"):
                         add_to_cart(cart, {
                             'item_name': r['item_name'],
                             'price': float(r['price']),
@@ -180,10 +201,9 @@ def render_table_menu(cart):
 
 
 # ============================================================
-# SELECTED TABLE VIEW (Order + Pay)
+# SELECTED TABLE VIEW
 # ============================================================
 def render_selected_table(tbl):
-    """Render the selected table's order management"""
     if st.button("⬅️ Qayıt", key="back_tbl_btn"):
         st.session_state.selected_table = None
         st.session_state.cart_table = []
@@ -193,11 +213,8 @@ def render_selected_table(tbl):
     c_order, c_menu = st.columns([1.5, 3])
 
     with c_order:
-        raw, final, _, _, _, _, _ = calculate_smart_total(
-            st.session_state.cart_table, is_table=True
-        )
+        raw, final, _, _, _, _, _ = calculate_smart_total(st.session_state.cart_table, is_table=True)
 
-        # ---- Cart display ----
         if not st.session_state.cart_table:
             st.info("Masa boşdur. Sağdan məhsul əlavə edin.")
         else:
@@ -219,49 +236,63 @@ def render_selected_table(tbl):
 
         st.metric("Yekun", f"{final:.2f} ₼")
 
-        # ---- Send to kitchen ----
-        if st.button("🔥 Mətbəxə Göndər", key="kitchen_btn", type="secondary",
-                      use_container_width=True):
+        if st.button("🔥 Mətbəxə Göndər", key="kitchen_btn", type="secondary", use_container_width=True):
             if not st.session_state.cart_table:
                 st.error("Səbət boşdur!")
             else:
                 run_action(
                     "UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id",
-                    {
-                        "i": json.dumps(st.session_state.cart_table),
-                        "t": str(final),
-                        "id": tbl['id']
-                    }
+                    {"i": json.dumps(st.session_state.cart_table), "t": str(final), "id": tbl['id']}
                 )
-                log_system(st.session_state.user,
-                           f"KITCHEN_SEND: table={tbl['label']}, items={len(st.session_state.cart_table)}")
+                log_system(st.session_state.user, f"KITCHEN_SEND_TABLE: {tbl['label']}, items={len(st.session_state.cart_table)}")
                 st.success("Mətbəxə göndərildi!")
                 time.sleep(1)
                 st.rerun()
 
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
 
-        # ---- Payment ----
-        pm = st.radio(
-            "Ödəniş Metodu", ["Nəğd", "Kart"],
-            horizontal=True, label_visibility="collapsed", key="tbl_pm_radio"
-        )
+        # ============================================================
+        # SPLIT PAYMENT
+        # ============================================================
+        pm = st.radio("Ödəniş Metodu", ["Nəğd", "Kart", "Bölünmüş ✂️"], horizontal=True, label_visibility="collapsed", key="tbl_pm_radio")
 
-        if st.button("✅ Masanı Ödə və Bağla", key="pay_tbl_btn",
-                      type="primary", use_container_width=True):
+        split_cash = Decimal("0")
+        split_card = Decimal("0")
+        is_split_valid = True
+
+        if pm == "Bölünmüş ✂️":
+            col_s1, col_s2 = st.columns(2)
+            split_cash_input = col_s1.number_input("Nağd (₼)", min_value=0.0, max_value=float(final), value=0.0, step=1.0, key="tbl_split_cash")
+            split_cash = Decimal(str(split_cash_input))
+            split_card = final - split_cash
+            col_s2.metric("Kart (₼)", f"{split_card:.2f}")
+            if split_cash < 0 or split_card < 0:
+                st.error("Məbləğ fərqi var!")
+                is_split_valid = False
+
+        if st.button("✅ Masanı Ödə və Bağla", key="pay_tbl_btn", type="primary", use_container_width=True):
             if not st.session_state.cart_table or final <= 0:
                 st.error("Masa boşdur!")
+            elif pm == "Bölünmüş ✂️" and not is_split_valid:
+                st.error("Bölünmüş məbləğləri düzəldin!")
             else:
                 is_test_mode = st.session_state.get('test_mode', False)
                 try:
+                    db_pm = pm
+                    if pm == "Bölünmüş ✂️":
+                        db_pm = f"Split (Cash:{split_cash:.2f}, Card:{split_card:.2f})"
+
                     finalize_table_sale(
                         table_id=tbl['id'],
+                        table_label=tbl['label'],
                         cart_items=st.session_state.cart_table,
                         final_total=final,
                         original_total=raw,
-                        pm=pm,
+                        pm=db_pm,
                         user=st.session_state.user,
-                        is_test=is_test_mode
+                        is_test=is_test_mode,
+                        split_cash=split_cash if pm == "Bölünmüş ✂️" else None,
+                        split_card=split_card if pm == "Bölünmüş ✂️" else None
                     )
                     st.session_state.selected_table = None
                     st.session_state.cart_table = []
@@ -277,44 +308,32 @@ def render_selected_table(tbl):
 
 
 # ============================================================
-# TABLE MANAGEMENT (Admin)
+# TABLE MANAGEMENT
 # ============================================================
 def render_table_management():
-    """Admin/Manager: Create and delete tables"""
     with st.expander("🛠️ Masa İdarə"):
-        # ---- Create ----
         nl = st.text_input("Yeni masa adı", key="new_table_name")
         if st.button("Yarat", key="create_table_btn"):
             if nl.strip():
-                existing = run_query(
-                    "SELECT 1 FROM tables WHERE label=:l", {"l": nl.strip()}
-                )
+                existing = run_query("SELECT 1 FROM tables WHERE label=:l", {"l": nl.strip()})
                 if not existing.empty:
                     st.error("Bu adda masa artıq mövcuddur!")
                 else:
-                    run_action(
-                        "INSERT INTO tables (label) VALUES (:l)",
-                        {"l": nl.strip()}
-                    )
+                    run_action("INSERT INTO tables (label) VALUES (:l)", {"l": nl.strip()})
                     log_system(st.session_state.user, f"TABLE_CREATED: {nl.strip()}")
                     st.success(f"'{nl.strip()}' yaradıldı!")
                     st.rerun()
             else:
                 st.error("Masa adı boş ola bilməz!")
 
-        # ---- Delete ----
         db_tbls = run_query("SELECT label FROM tables ORDER BY id")
         if not db_tbls.empty:
             dl = st.selectbox("Silinəcək masa", db_tbls['label'].tolist(), key="del_table_sel")
             if st.button("Sil", key="delete_table_btn"):
-                # Check if occupied
-                occupied = run_query(
-                    "SELECT is_occupied FROM tables WHERE label=:l", {"l": dl}
-                )
+                occupied = run_query("SELECT is_occupied FROM tables WHERE label=:l", {"l": dl})
                 if not occupied.empty and occupied.iloc[0]['is_occupied']:
-                    st.error("⚠️ Bu masa hazırda istifadədədir! Əvvəlcə bağlayın.")
+                    st.error("⚠️ Bu masa hazırda istifadədədir!")
                 else:
-                    # Capture dl value properly for lambda
                     label_to_delete = dl
                     admin_confirm_dialog(
                         f"'{label_to_delete}' masası silinsin?",
@@ -323,34 +342,33 @@ def render_table_management():
 
 
 def _delete_table(label):
-    """Callback for table deletion (used by admin_confirm_dialog)"""
     run_action("DELETE FROM tables WHERE label=:l", {"l": label})
     log_system(st.session_state.user, f"TABLE_DELETED: {label}")
 
 
 # ============================================================
-# TABLE GRID VIEW
+# TABLE GRID
 # ============================================================
 def render_table_grid():
-    """Display all tables as a grid"""
     df_t = run_query("SELECT * FROM tables ORDER BY id")
     if df_t.empty:
-        st.info("Heç bir masa yaradılmayıb. Yuxarıdan əlavə edin.")
+        st.info("Heç bir masa yaradılmayıb.")
         return
 
     cols = st.columns(4)
     for i, r in df_t.iterrows():
         with cols[i % 4]:
             is_occupied = r['is_occupied']
-            total_display = f"{r['total']:.2f} ₼" if is_occupied and r['total'] else "Boş"
+            try:
+                total_display = f"{float(r['total']):.2f} ₼" if is_occupied and r['total'] else "Boş"
+            except:
+                total_display = "Boş"
 
             bg = "#8B0000" if is_occupied else "#006400"
             text_color = "#ffffff"
 
             st.markdown(
-                f"<div style='background:{bg};color:{text_color};padding:8px;"
-                f"border-radius:10px;text-align:center;margin-bottom:5px;"
-                f"font-weight:bold;'>{r['label']}<br>{total_display}</div>",
+                f"<div style='background:{bg};color:{text_color};padding:8px;border-radius:10px;text-align:center;margin-bottom:5px;font-weight:bold;'>{r['label']}<br>{total_display}</div>",
                 unsafe_allow_html=True
             )
 
@@ -366,11 +384,9 @@ def render_table_grid():
 
 
 # ============================================================
-# MAIN RENDER FUNCTION
+# MAIN
 # ============================================================
 def render_tables_page():
-    """Main entry point for tables module"""
-    # Role guard
     if st.session_state.role not in ['admin', 'manager', 'staff']:
         st.error("Bu səhifəyə icazəniz yoxdur!")
         return
@@ -378,9 +394,6 @@ def render_tables_page():
     if st.session_state.selected_table:
         render_selected_table(st.session_state.selected_table)
     else:
-        # Admin/Manager: Table management
         if st.session_state.role in ['admin', 'manager']:
             render_table_management()
-
-        # Table grid
         render_table_grid()
