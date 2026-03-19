@@ -1,4 +1,4 @@
-# modules/analytics.py — FINAL PATCHED v3.2 (+ Resend PDF Email)
+# modules/analytics.py — FIX PACKAGE A FINAL
 import streamlit as st
 import pandas as pd
 import datetime
@@ -320,36 +320,6 @@ def render_analytics_page():
                         st.session_state.sale_edit_id = int(sel_ids[0])
                         st.rerun()
 
-            if st.session_state.get('sale_edit_id'):
-                s_res = run_query("SELECT * FROM sales WHERE id=:id", {"id": st.session_state.sale_edit_id})
-                if not s_res.empty:
-                    @st.dialog("✏️ Çek Redaktəsi")
-                    def edit_dialog(r):
-                        with st.form("ed_f"):
-                            e_t = st.number_input("Yekun Məbləğ", value=float(r['total']))
-                            pm_options = ["Nəğd", "Kart", "Staff", "Cash", "Card"]
-                            pm_idx = pm_options.index(r['payment_method']) if r['payment_method'] in pm_options else 0
-                            e_p = st.selectbox("Ödəniş", pm_options, index=pm_idx)
-                            if st.form_submit_button("Yadda Saxla"):
-                                run_action(
-                                    "UPDATE sales SET total=:t, payment_method=:p WHERE id=:id",
-                                    {"t": str(Decimal(str(e_t))), "p": e_p, "id": r['id']}
-                                )
-                                log_system(
-                                    st.session_state.user,
-                                    "SALE_EDIT",
-                                    {
-                                        "sale_id": int(r['id']),
-                                        "new_total": e_t,
-                                        "new_payment_method": e_p
-                                    }
-                                )
-                                st.session_state.sale_edit_id = None
-                                st.success("Dəyişdi!")
-                                time.sleep(1)
-                                st.rerun()
-                    edit_dialog(s_res.iloc[0])
-
         with tab2:
             item_counts = {}
             for items_str in real_sales['items']:
@@ -449,6 +419,7 @@ def render_z_report_page():
     q_cond_sales = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status='COMPLETED')"
     params = {"d": sh_start_z, "e": sh_end_z}
 
+    # SPLIT də daxildir
     s_cash = safe_decimal(run_query(
         f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Nağd)' AND type='in' {q_cond_fin}", params
     ).iloc[0]['s'])
@@ -586,7 +557,6 @@ def render_z_report_page():
                     run_transaction(actions)
                     set_setting("cash_limit", str(actual_d))
 
-                    # RESEND EMAIL
                     try:
                         report_date = str(log_date_z)
                         summary = {
