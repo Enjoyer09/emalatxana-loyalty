@@ -1,4 +1,4 @@
-# database.py — FINAL PATCHED v4.0
+# database.py — FIX PACKAGE A FINAL
 import streamlit as st
 from sqlalchemy import text
 import os
@@ -314,6 +314,55 @@ def ensure_schema():
             );
         """))
 
+        # NOTIFICATIONS
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                card_id TEXT,
+                message TEXT,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
+        # PROMO CODES
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                id SERIAL PRIMARY KEY,
+                code TEXT UNIQUE,
+                discount_percent INTEGER,
+                valid_until TIMESTAMP,
+                assigned_user_id TEXT,
+                is_used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
+        # CUSTOMER COUPONS
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS customer_coupons (
+                id SERIAL PRIMARY KEY,
+                card_id TEXT,
+                coupon_type TEXT,
+                expires_at TIMESTAMP,
+                is_used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
+        # CAMPAIGNS
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS campaigns (
+                id SERIAL PRIMARY KEY,
+                title TEXT,
+                description TEXT,
+                badge TEXT,
+                img_url TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
         # SAFE COLUMN ADDITIONS
         columns_to_add = [
             ("sales", "is_test", "BOOLEAN DEFAULT FALSE"),
@@ -331,6 +380,9 @@ def ensure_schema():
 
             ("logs", "details", "TEXT"),
             ("logs", "ip", "TEXT"),
+            ("notifications", "is_read", "BOOLEAN DEFAULT FALSE"),
+            ("promo_codes", "is_used", "BOOLEAN DEFAULT FALSE"),
+            ("customer_coupons", "is_used", "BOOLEAN DEFAULT FALSE"),
         ]
 
         for tbl, col, dtype in columns_to_add:
@@ -366,4 +418,5 @@ def ensure_schema():
             """), {"p": p_hash})
 
         s.commit()
+
     return True
