@@ -11,5 +11,6 @@ requests
 google-generativeai
 gTTS
 plotly
-
+reportlab==4.2.0
+requests==2.31.0
 
