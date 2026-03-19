@@ -1,4 +1,4 @@
-# modules/customer_menu.py — ULTRA PREMIUM v8.0
+# modules/customer_menu.py — ULTRA PREMIUM MOBILE v8.0
 import streamlit as st
 import pandas as pd
 import json
@@ -28,125 +28,155 @@ def inject_customer_css():
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Jura:wght@600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap');
 
+    :root{
+        --bg-main:#FFF7F1;
+        --bg-soft:#FFF1E6;
+        --card:#FFFFFFCC;
+        --card-solid:#FFFFFF;
+        --border:#FFD9BC;
+        --orange:#F58B3A;
+        --orange-dark:#D96B18;
+        --orange-soft:#FFF3E6;
+        --text-main:#2B211C;
+        --text-soft:#A7846C;
+        --coffee:#6D3C1C;
+        --shadow:0 10px 28px rgba(217,107,24,0.10);
+    }
+
     .stApp {
-        background: 
-            radial-gradient(ellipse at 20% 0%, rgba(255,156,91,0.12) 0%, transparent 50%),
-            radial-gradient(ellipse at 80% 100%, rgba(244,130,58,0.08) 0%, transparent 50%),
-            linear-gradient(180deg, #FFF8F2 0%, #FFF4EC 50%, #FFEFE5 100%) !important;
-        color: #2B1E16 !important;
+        background:
+            radial-gradient(circle at top left, #FFF9F4 0%, transparent 35%),
+            linear-gradient(180deg, var(--bg-main) 0%, var(--bg-soft) 100%) !important;
+        color: var(--text-main) !important;
         font-family: 'Nunito', sans-serif !important;
     }
+
     header, #MainMenu, footer, div[data-testid="stStatusWidget"] { display: none !important; }
-    .block-container { padding: 0 !important; max-width: 100% !important; padding-bottom: 90px !important; }
+    .block-container {
+        padding: 0 !important;
+        max-width: 100% !important;
+        padding-bottom: 45px !important;
+    }
     section.main > div:first-child { padding-top: 0 !important; }
 
     /* ===== HERO ===== */
-    .ultra-hero {
-        background: 
-            radial-gradient(circle at 85% 15%, rgba(255,255,255,0.15) 0%, transparent 40%),
-            radial-gradient(circle at 10% 90%, rgba(255,255,255,0.08) 0%, transparent 30%),
-            linear-gradient(155deg, #FF9147 0%, #F07028 40%, #D85A15 100%);
-        padding: 28px 18px 52px;
+    .hero-wrap {
+        background:
+            radial-gradient(circle at 85% 15%, rgba(255,255,255,0.20) 0%, transparent 30%),
+            radial-gradient(circle at 10% 10%, rgba(255,255,255,0.12) 0%, transparent 25%),
+            linear-gradient(160deg, #FFB06A 0%, #F58B3A 45%, #DE6E1D 100%);
+        padding: 28px 18px 50px;
         text-align: center;
         position: relative;
         overflow: hidden;
     }
-    .ultra-hero::before {
-        content: '';
-        position: absolute;
-        top: -80px;
-        right: -60px;
-        width: 220px;
-        height: 220px;
-        background: rgba(255,255,255,0.08);
-        border-radius: 50%;
-    }
-    .ultra-hero::after {
+    .hero-wrap::after {
         content: '';
         position: absolute;
         bottom: -20px;
         left: 0;
         right: 0;
         height: 42px;
-        background: #FFF8F2;
+        background: var(--bg-main);
         border-radius: 50% 50% 0 0 / 100% 100% 0 0;
     }
-    .uh-icon { font-size: 38px; position: relative; z-index: 2; }
-    .uh-brand {
+    .hero-icon {
+        font-size: 42px;
+        margin-bottom: 4px;
+        position: relative;
+        z-index: 2;
+    }
+    .hero-brand {
         font-family: 'Jura', sans-serif;
         font-size: 24px;
         font-weight: 800;
-        color: #FFFFFF;
+        color: white;
         letter-spacing: 3px;
-        text-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        text-transform: uppercase;
         position: relative;
         z-index: 2;
+        text-shadow: 0 3px 10px rgba(0,0,0,0.12);
     }
-    .uh-sub {
-        color: rgba(255,255,255,0.9);
+    .hero-sub {
+        color: rgba(255,255,255,0.88);
         font-size: 13px;
-        font-weight: 700;
         margin-top: 6px;
+        font-weight: 700;
         position: relative;
         z-index: 2;
     }
 
-    /* ===== GLASS CARD ===== */
+    /* ===== GLASS MAIN CARD ===== */
     .glass-card {
-        background: rgba(255,255,255,0.82);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255,200,160,0.35);
+        background: linear-gradient(145deg, rgba(255,255,255,0.88), rgba(255,255,255,0.65));
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255,255,255,0.65);
         border-radius: 28px;
-        margin: -16px 14px 14px;
-        padding: 20px 16px;
-        box-shadow: 
-            0 12px 40px rgba(208,90,21,0.08),
-            0 2px 8px rgba(0,0,0,0.04);
+        margin: -6px 14px 14px;
+        padding: 18px 16px;
+        box-shadow: var(--shadow);
         position: relative;
         z-index: 5;
+        overflow: hidden;
+    }
+    .glass-card::before {
+        content: '';
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(245,139,58,0.10) 0%, transparent 70%);
+        right: -25px;
+        top: -25px;
     }
 
     /* ===== LOYALTY ===== */
-    .loyalty-head {
+    .loyalty-row {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        position: relative;
+        z-index: 2;
     }
-    .loyalty-name {
+    .loyalty-title {
         font-family: 'Jura', sans-serif;
-        font-size: 16px;
+        font-size: 17px;
         font-weight: 800;
-        color: #8A3E12;
+        color: var(--coffee);
         letter-spacing: 1px;
     }
-    .tier-tag {
-        background: linear-gradient(135deg, #FF9147, #D85A15);
+    .tier-chip {
+        background: linear-gradient(135deg, var(--orange), var(--orange-dark));
         color: white;
-        padding: 4px 12px;
-        border-radius: 14px;
+        padding: 6px 12px;
+        border-radius: 18px;
         font-size: 10px;
         font-weight: 900;
-        letter-spacing: 0.8px;
-        box-shadow: 0 2px 8px rgba(216,90,21,0.2);
+        letter-spacing: 1px;
+        box-shadow: 0 4px 12px rgba(217,107,24,0.18);
     }
-    .loyalty-info {
-        color: #B5866A;
+    .loyalty-desc {
+        color: var(--text-soft);
         font-size: 12px;
+        margin-bottom: 16px;
         font-weight: 700;
-        margin-bottom: 14px;
+        position: relative;
+        z-index: 2;
     }
 
     /* ===== STAMPS ===== */
-    .stamp-row {
+    .stamp-grid {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
         gap: 8px;
-        max-width: 285px;
-        margin: 0 auto 12px;
+        max-width: 290px;
+        margin: 0 auto 14px;
+        position: relative;
+        z-index: 2;
     }
-    .stmp {
+    .stamp-box {
         width: 50px;
         height: 50px;
         border-radius: 50%;
@@ -154,174 +184,192 @@ def inject_customer_css():
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 13px;
         font-weight: 900;
-        font-size: 14px;
-        transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: all 0.25s ease;
     }
-    .stmp-off {
-        background: rgba(255,200,160,0.2);
-        border: 2.5px dashed #E8C4A8;
-        color: #D4A888;
+    .stamp-off {
+        background: linear-gradient(145deg, #FFF8F2, #FCEBDD);
+        border: 2px solid #FFD8BE;
+        color: #D9B49A;
     }
-    .stmp-on {
-        background: linear-gradient(145deg, #FF9147, #D85A15);
-        border: 2.5px solid #D85A15;
+    .stamp-on {
+        background: linear-gradient(145deg, var(--orange), var(--orange-dark));
+        border: 2px solid var(--orange-dark);
         color: white;
-        box-shadow: 0 4px 12px rgba(216,90,21,0.22);
-        transform: scale(1.02);
+        box-shadow: 0 5px 14px rgba(217,107,24,0.22);
     }
-    .stmp-gift {
-        background: linear-gradient(145deg, #8A3E12, #5C2408);
-        border: 2.5px solid #8A3E12;
-        color: #FFD6B0;
-        box-shadow: 0 4px 14px rgba(138,62,18,0.2);
-        animation: giftBounce 2s infinite;
+    .stamp-gift {
+        background: linear-gradient(145deg, var(--coffee), #8A4A23);
+        border: 2px solid var(--coffee);
+        color: #FFF4EA;
+        box-shadow: 0 5px 16px rgba(109,60,28,0.22);
+        animation: pulseGift 1.8s infinite;
     }
-    @keyframes giftBounce {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.12); }
+    @keyframes pulseGift {
+        0%,100% { transform: scale(1); }
+        50% { transform: scale(1.08); }
     }
-    .stamp-status {
+    .stamp-footer {
         text-align: center;
-        color: #B5866A;
+        color: var(--text-soft);
         font-size: 12px;
         font-weight: 700;
+        position: relative;
+        z-index: 2;
     }
 
-    /* ===== REWARD ALERT ===== */
-    .reward-alert {
+    /* ===== FREE ALERT ===== */
+    .reward-banner {
         margin: 0 14px 12px;
-        padding: 14px;
-        border-radius: 20px;
-        background: linear-gradient(135deg, #FF9147, #F07028);
+        background: linear-gradient(135deg, var(--orange), #FFB166);
         color: white;
+        border-radius: 18px;
+        padding: 14px 16px;
         text-align: center;
         font-weight: 900;
         font-size: 15px;
-        box-shadow: 0 8px 22px rgba(240,112,40,0.18);
-        animation: alertPulse 2.5s infinite;
-    }
-    @keyframes alertPulse {
-        0%, 100% { transform: scale(1); box-shadow: 0 8px 22px rgba(240,112,40,0.18); }
-        50% { transform: scale(1.01); box-shadow: 0 10px 28px rgba(240,112,40,0.25); }
+        box-shadow: 0 8px 20px rgba(245,139,58,0.22);
     }
 
     /* ===== SMART BANNERS ===== */
-    .banner {
-        margin: 0 14px 10px;
-        border-radius: 16px;
+    .smart-banner {
+        margin: 0 14px 12px;
+        border-radius: 18px;
         padding: 12px 14px;
         text-align: center;
-        font-weight: 800;
         font-size: 13px;
+        font-weight: 800;
     }
     .banner-hh {
-        background: linear-gradient(90deg, #FFD36A, #FFB347);
-        color: #5A3400;
-        box-shadow: 0 4px 12px rgba(255,179,71,0.15);
+        background: linear-gradient(90deg, #FFD86F, #FFB84F);
+        color: #4F2E00;
+        box-shadow: 0 4px 12px rgba(255,184,79,0.18);
     }
-    .banner-notif {
-        background: rgba(255,255,255,0.75);
-        backdrop-filter: blur(8px);
-        color: #8A3E12;
-        border: 1px solid rgba(255,180,130,0.3);
-    }
-
-    /* ===== MOOD QUICK ACTIONS ===== */
-    .mood-row {
-        display: flex;
-        gap: 8px;
-        padding: 0 14px;
-        margin-bottom: 14px;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-    }
-    .mood-row::-webkit-scrollbar { display: none; }
-    .mood-chip {
-        flex-shrink: 0;
-        background: rgba(255,255,255,0.75);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255,180,130,0.3);
-        border-radius: 22px;
-        padding: 8px 16px;
-        font-size: 13px;
-        font-weight: 700;
-        color: #8A3E12;
-        white-space: nowrap;
-        cursor: pointer;
-        transition: all 0.2s;
+    .banner-msg {
+        background: linear-gradient(90deg, rgba(255,255,255,0.88), rgba(255,245,237,0.88));
+        border: 1px solid var(--border);
+        color: #8A5632;
     }
 
-    /* ===== REWARD CARDS ===== */
-    .rw-card {
-        background: rgba(255,255,255,0.75);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255,200,160,0.25);
-        border-radius: 20px;
+    /* ===== REWARDS ===== */
+    .reward-card {
+        background: var(--card-solid);
+        border: 1px solid var(--border);
+        border-radius: 18px;
         margin: 0 14px 10px;
         padding: 14px;
         display: flex;
         align-items: center;
         gap: 12px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.03);
     }
-    .rw-ic {
-        width: 46px;
-        height: 46px;
-        border-radius: 15px;
+    .reward-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 22px;
+        font-size: 23px;
         flex-shrink: 0;
-        background: rgba(255,145,71,0.12);
+        background: var(--orange-soft);
     }
-    .rw-t { font-weight: 800; font-size: 14px; color: #6A3012; }
-    .rw-d { font-size: 12px; color: #B5866A; margin-top: 2px; }
-    .rw-r { margin-left: auto; font-weight: 900; color: #D85A15; font-size: 15px; }
-
-    /* ===== MENU ===== */
-    .menu-section {
-        font-family: 'Jura', sans-serif;
+    .reward-title {
         font-size: 14px;
         font-weight: 800;
-        color: #8A3E12;
-        margin: 14px 14px 8px;
+        color: var(--coffee);
+    }
+    .reward-desc {
+        font-size: 12px;
+        color: var(--text-soft);
+        margin-top: 2px;
+    }
+    .reward-right {
+        margin-left: auto;
+        font-size: 15px;
+        font-weight: 900;
+        color: var(--orange-dark);
+    }
+
+    /* ===== ACTION STRIP ===== */
+    .action-strip {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        padding: 0 14px;
+        margin-bottom: 14px;
+    }
+    .action-tile {
+        background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(255,255,255,0.70));
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 14px 10px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+    .at-icon {
+        font-size: 28px;
+        margin-bottom: 4px;
+    }
+    .at-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: var(--coffee);
+    }
+
+    /* ===== MENU ===== */
+    .section-title {
+        font-family: 'Jura', sans-serif;
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--coffee);
+        margin: 16px 14px 8px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        border-bottom: 2px solid rgba(255,180,130,0.25);
-        padding-bottom: 4px;
     }
-    .m-grid {
+    .menu-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 10px;
         padding: 0 14px;
         margin-bottom: 8px;
     }
-    .m-card {
-        background: rgba(255,255,255,0.8);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255,200,160,0.25);
-        border-radius: 22px;
+    .menu-card {
+        background: var(--card-solid);
+        border: 1px solid var(--border);
+        border-radius: 20px;
         padding: 16px 12px;
         text-align: center;
-        min-height: 155px;
+        min-height: 156px;
         display: flex;
         flex-direction: column;
         justify-content: center;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.03);
-        transition: all 0.2s;
+        box-shadow: 0 5px 12px rgba(0,0,0,0.03);
     }
-    .m-emoji { font-size: 34px; margin-bottom: 6px; }
-    .m-name { font-size: 13px; font-weight: 800; color: #2B1E16; line-height: 1.35; margin-bottom: 4px; }
-    .m-price { font-size: 18px; font-weight: 900; color: #D85A15; }
-    .m-tag {
+    .menu-emoji {
+        font-size: 34px;
+        margin-bottom: 6px;
+    }
+    .menu-name {
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--text-main);
+        line-height: 1.35;
+        margin-bottom: 4px;
+    }
+    .menu-price {
+        font-size: 18px;
+        font-weight: 900;
+        color: var(--orange-dark);
+    }
+    .menu-badge {
         font-size: 10px;
         font-weight: 800;
-        color: #B5571A;
-        background: rgba(255,145,71,0.12);
-        padding: 3px 10px;
+        color: var(--orange-dark);
+        background: var(--orange-soft);
+        padding: 3px 8px;
         border-radius: 12px;
         margin-top: 6px;
         display: inline-block;
@@ -329,23 +377,37 @@ def inject_customer_css():
     }
 
     /* ===== HISTORY ===== */
-    .h-card {
-        background: rgba(255,255,255,0.75);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255,200,160,0.2);
+    .history-card {
+        background: var(--card-solid);
+        border: 1px solid var(--border);
         border-radius: 18px;
         margin: 0 14px 8px;
         padding: 14px;
-        border-left: 4px solid #FF9147;
+        border-left: 4px solid var(--orange-dark);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.03);
     }
-    .h-dt { font-size: 11px; color: #C4986E; font-weight: 700; }
-    .h-it { font-size: 13px; color: #5E4A3B; line-height: 1.45; margin-top: 4px; }
-    .h-tot { font-size: 15px; color: #8A3E12; font-weight: 900; margin-top: 6px; }
-    .h-stmp {
+    .history-date {
+        font-size: 11px;
+        color: #B59A85;
+        font-weight: 700;
+    }
+    .history-items {
+        font-size: 13px;
+        color: #5B4A40;
+        line-height: 1.45;
+        margin-top: 4px;
+    }
+    .history-total {
+        font-size: 15px;
+        color: var(--coffee);
+        font-weight: 900;
+        margin-top: 6px;
+    }
+    .history-stamp {
         display: inline-block;
         margin-top: 6px;
-        background: rgba(255,145,71,0.12);
-        color: #B5571A;
+        background: var(--orange-soft);
+        color: var(--orange-dark);
         padding: 3px 8px;
         border-radius: 10px;
         font-size: 10px;
@@ -353,102 +415,72 @@ def inject_customer_css():
     }
 
     /* ===== CHAT ===== */
-    .cb {
-        padding: 12px 16px;
+    .chat-bubble {
+        padding: 13px 16px;
         border-radius: 20px;
         margin-bottom: 8px;
         max-width: 88%;
         font-size: 14px;
         line-height: 1.5;
     }
-    .cb-u {
-        background: linear-gradient(135deg, #FF9147, #D85A15);
+    .chat-user {
+        background: linear-gradient(135deg, var(--orange), var(--orange-dark));
         color: white;
         margin-left: auto;
         border-bottom-right-radius: 5px;
         font-weight: 700;
-        box-shadow: 0 3px 10px rgba(216,90,21,0.15);
     }
-    .cb-a {
-        background: rgba(255,255,255,0.85);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255,200,160,0.3);
-        color: #3A271D;
+    .chat-ai {
+        background: var(--card-solid);
+        border: 1px solid var(--border);
+        color: var(--coffee);
         margin-right: auto;
         border-bottom-left-radius: 5px;
     }
 
     /* ===== FORTUNE ===== */
-    .fz {
-        border: 2px dashed rgba(255,180,130,0.4);
+    .fortune-zone {
+        border: 2px dashed #FFD3AE;
         border-radius: 24px;
-        background: rgba(255,255,255,0.7);
-        backdrop-filter: blur(8px);
+        background: rgba(255,255,255,0.88);
         margin: 14px;
         padding: 30px 20px;
         text-align: center;
     }
-    .fr {
-        background: rgba(255,255,255,0.85);
-        backdrop-filter: blur(10px);
-        border: 2px solid #FF9147;
-        border-radius: 24px;
-        padding: 20px;
-        margin: 14px;
-        box-shadow: 0 6px 18px rgba(255,145,71,0.1);
-    }
-
-    /* ===== FLOATING BOTTOM NAV ===== */
-    .bottom-float {
-        position: fixed;
-        bottom: 12px;
-        left: 14px;
-        right: 14px;
-        background: rgba(255,255,255,0.88);
-        backdrop-filter: blur(16px);
-        border: 1px solid rgba(255,200,160,0.3);
+    .fortune-result {
+        background: var(--card-solid);
+        border: 2px solid var(--orange);
         border-radius: 22px;
-        padding: 10px 0;
-        display: flex;
-        justify-content: space-around;
-        z-index: 999;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+        padding: 22px;
+        margin: 14px;
+        box-shadow: 0 6px 16px rgba(242,138,70,0.08);
     }
-    .bnav-item {
-        text-align: center;
-        font-size: 10px;
-        font-weight: 700;
-        color: #B5866A;
-    }
-    .bnav-icon { font-size: 22px; margin-bottom: 2px; }
-    .bnav-active .bnav-icon { color: #D85A15; }
-    .bnav-active { color: #D85A15; font-weight: 900; }
 
-    /* ===== STREAMLIT OVERRIDES ===== */
-    h1, h2, h3, h4 { color: #2B1E16 !important; }
+    /* ===== STREAMLIT ===== */
+    h1, h2, h3, h4 { color: var(--text-main) !important; }
+
     div[data-baseweb="input"] > div {
-        background: rgba(255,255,255,0.8) !important;
-        backdrop-filter: blur(8px) !important;
-        border: 2px solid rgba(255,200,160,0.3) !important;
+        background: #FFFFFF !important;
+        border: 2px solid var(--border) !important;
         border-radius: 16px !important;
         box-shadow: none !important;
     }
     div[data-baseweb="input"] input {
-        color: #2B1E16 !important;
+        color: var(--text-main) !important;
         font-weight: 600 !important;
-        -webkit-text-fill-color: #2B1E16 !important;
+        -webkit-text-fill-color: var(--text-main) !important;
     }
     div[data-baseweb="input"] input::placeholder {
-        color: #C8A58E !important;
-        -webkit-text-fill-color: #C8A58E !important;
+        color: #D2B29A !important;
+        -webkit-text-fill-color: #D2B29A !important;
     }
 
     button[kind="primary"], button[kind="primaryFormSubmit"] {
-        background: linear-gradient(135deg, #FF9147, #D85A15) !important;
+        background: linear-gradient(135deg, var(--orange), var(--orange-dark)) !important;
         border: none !important;
-        border-radius: 18px !important;
-        box-shadow: 0 6px 18px rgba(216,90,21,0.18) !important;
-        min-height: 52px !important;
+        border-radius: 16px !important;
+        box-shadow: 0 6px 16px rgba(228,108,36,0.18) !important;
+        min-height: 50px !important;
     }
     button[kind="primary"] p, button[kind="primaryFormSubmit"] p {
         color: white !important;
@@ -457,14 +489,14 @@ def inject_customer_css():
     }
 
     button[kind="secondary"], button[kind="secondaryFormSubmit"] {
-        background: rgba(255,255,255,0.75) !important;
-        backdrop-filter: blur(8px) !important;
-        border: 1px solid rgba(255,200,160,0.3) !important;
-        border-radius: 18px !important;
+        background: rgba(255,255,255,0.92) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03) !important;
         min-height: 48px !important;
     }
     button[kind="secondary"] p {
-        color: #8A3E12 !important;
+        color: var(--coffee) !important;
         font-weight: 700 !important;
         font-size: 14px !important;
     }
@@ -478,30 +510,29 @@ def inject_customer_css():
 
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        background: rgba(255,255,255,0.75);
-        backdrop-filter: blur(10px);
-        border-radius: 16px;
+        background: rgba(255,255,255,0.92);
+        border-radius: 18px;
         padding: 4px;
         margin: 0 14px 12px;
-        border: 1px solid rgba(255,200,160,0.25);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.04);
+        border: 1px solid var(--border);
     }
     .stTabs [data-baseweb="tab"] {
-        border-radius: 13px !important;
-        color: #A08874 !important;
+        border-radius: 14px !important;
+        color: #A08C7C !important;
         font-weight: 700 !important;
         font-size: 12px !important;
         padding: 9px 6px !important;
     }
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #FF9147, #D85A15) !important;
+        background: linear-gradient(135deg, var(--orange), var(--orange-dark)) !important;
         color: white !important;
         font-weight: 900 !important;
-        box-shadow: 0 3px 10px rgba(216,90,21,0.15) !important;
     }
 
     div[role="radiogroup"] > label {
-        background: rgba(255,255,255,0.7) !important;
-        border: 1px solid rgba(255,200,160,0.25) !important;
+        background: rgba(255,255,255,0.92) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 12px !important;
         padding: 6px 12px !important;
         box-shadow: none !important;
@@ -509,37 +540,35 @@ def inject_customer_css():
     }
     div[role="radiogroup"] > label > div:first-child { display: none !important; }
     div[role="radiogroup"] > label p {
-        color: #A08874 !important;
+        color: #A08C7C !important;
         font-size: 12px !important;
         font-weight: 700 !important;
     }
     div[role="radiogroup"] label:has(input:checked) {
-        background: linear-gradient(135deg, #FF9147, #D85A15) !important;
-        border-color: transparent !important;
-        box-shadow: 0 3px 10px rgba(216,90,21,0.15) !important;
+        background: var(--orange) !important;
+        border-color: var(--orange) !important;
+        transform: none !important;
+        box-shadow: none !important;
     }
     div[role="radiogroup"] label:has(input:checked) p {
         color: white !important;
     }
 
     div[role="dialog"] > div {
-        background: #FFF8F2 !important;
-        border: 2px solid #FF9147 !important;
-        border-radius: 26px !important;
-        box-shadow: 0 16px 40px rgba(216,90,21,0.12) !important;
+        background: #FFF7F1 !important;
+        border: 2px solid var(--orange) !important;
+        border-radius: 24px !important;
     }
 
     .stFileUploader > div {
-        background: rgba(255,255,255,0.7) !important;
-        border: 2px dashed rgba(255,180,130,0.4) !important;
+        background: rgba(255,255,255,0.92) !important;
+        border: 2px dashed #FFD3AE !important;
         border-radius: 18px !important;
     }
 
     ::-webkit-scrollbar { width: 0px; }
     </style>
     """, unsafe_allow_html=True)
-
-
 def get_ai_model():
     api_key = get_setting("gemini_api_key", "")
     if not api_key or genai is None:
@@ -557,46 +586,52 @@ def get_ai_model():
 
 def render_stamp_card(stars, cust_type):
     tier_map = {
-        "standard": "QONAQ", "golden": "GOLD", "platinum": "PLATINUM",
-        "elite": "ELITE", "thermos": "THERMOS", "telebe": "TƏLƏBƏ", "ikram": "İKRAM"
+        "standard": "QONAQ",
+        "golden": "GOLD",
+        "platinum": "PLATINUM",
+        "elite": "ELITE",
+        "thermos": "THERMOS",
+        "telebe": "TƏLƏBƏ",
+        "ikram": "İKRAM"
     }
     tier = tier_map.get(str(cust_type).lower(), "QONAQ")
     current = int(stars or 0)
     filled = current % 10
-    free_count = current // 10
     remaining = 10 - filled
 
-    stamps = ""
+    stamps_html = ""
     for i in range(10):
         num = i + 1
         if i == 9:
             if filled >= 10:
-                stamps += '<div class="stmp stmp-gift">🎁</div>'
+                stamps_html += '<div class="stamp-box stamp-gift">🎁</div>'
             elif filled == 9:
-                stamps += '<div class="stmp stmp-off" style="border-color:#D85A15;color:#D85A15;">🎁</div>'
+                stamps_html += '<div class="stamp-box stamp-off" style="border-color:#E46C24;color:#E46C24;">🎁</div>'
             else:
-                stamps += '<div class="stmp stmp-off">🎁</div>'
+                stamps_html += '<div class="stamp-box stamp-off">🎁</div>'
         elif i < filled:
-            stamps += f'<div class="stmp stmp-on">{num}</div>'
+            stamps_html += f'<div class="stamp-box stamp-on">{num}</div>'
         else:
-            stamps += f'<div class="stmp stmp-off">{num}</div>'
+            stamps_html += f'<div class="stamp-box stamp-off">{num}</div>'
 
     st.markdown(f"""
     <div class="glass-card">
-        <div class="loyalty-head">
-            <div class="loyalty-name">EMALATKHANA CLUB</div>
-            <div class="tier-tag">{tier}</div>
+        <div class="loyalty-row">
+            <div class="loyalty-title">EMALATKHANA CLUB</div>
+            <div class="tier-chip">{tier}</div>
         </div>
-        <div class="loyalty-info">Hər kofe alışında 1 stamp qazan ☕</div>
-        <div class="stamp-row">{stamps}</div>
-        <div class="stamp-status">{filled}/10 stamp · Pulsuz kofeyə {remaining} qaldı</div>
+        <div class="loyalty-desc">Hər kofe alışında 1 stamp qazan ☕</div>
+        <div class="stamp-grid">{stamps_html}</div>
+        <div class="stamp-footer">{filled}/10 stamp · Pulsuz kofeyə {remaining} qaldı</div>
     </div>
     """, unsafe_allow_html=True)
 
+
+def render_free_banner(free_count):
     if free_count > 0:
         st.markdown(f"""
-        <div class="reward-alert">
-            🎉 {free_count} PULSUZ KOFENİZ HAZIRDIR!
+        <div class="reward-banner">
+            🎉 {free_count} PULSUZ KOFENİZ HAZIRDIR! Kassada istifadə edin
         </div>
         """, unsafe_allow_html=True)
 
@@ -606,23 +641,23 @@ def render_rewards(stars, free_count):
     pct = int(((10 - remaining) / 10) * 100)
 
     st.markdown(f"""
-    <div class="rw-card">
-        <div class="rw-ic">☕</div>
+    <div class="reward-card">
+        <div class="reward-icon">☕</div>
         <div>
-            <div class="rw-t">Pulsuz Kofe</div>
-            <div class="rw-d">10 stamp topla, 1 pulsuz kofe qazan</div>
+            <div class="reward-title">Pulsuz Kofe</div>
+            <div class="reward-desc">10 stamp topla, 1 pulsuz kofe qazan</div>
         </div>
-        <div class="rw-r">{pct}%</div>
+        <div class="reward-right">{pct}%</div>
     </div>
     """, unsafe_allow_html=True)
 
     if free_count > 0:
         st.markdown(f"""
-        <div class="rw-card" style="border-left:4px solid #FF9147;">
-            <div class="rw-ic">🎁</div>
+        <div class="reward-card">
+            <div class="reward-icon">🎁</div>
             <div>
-                <div class="rw-t">Hazır Hədiyyə!</div>
-                <div class="rw-d">{free_count} pulsuz kofe kassada gözləyir</div>
+                <div class="reward-title">Hazır Hədiyyə</div>
+                <div class="reward-desc">{free_count} pulsuz kofe sizi gözləyir</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -630,12 +665,12 @@ def render_rewards(stars, free_count):
 
 @st.dialog("📱 QR Kodunuz")
 def show_qr_dialog(cid):
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=id={cid}&color=D85A15&bgcolor=FFF8F2"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=id={cid}&color=E46C24&bgcolor=FFF7F1"
     st.markdown(f"""
-    <div style="text-align:center; padding: 15px;">
-        <img src="{qr_url}" style="width:190px; height:190px; border-radius:20px; border:4px solid #FF9147; box-shadow: 0 10px 30px rgba(216,90,21,0.15);"/>
-        <h3 style="margin-top:15px; font-weight:900; color:#D85A15; letter-spacing:2px;">{cid}</h3>
-        <p style="color:#B5866A; font-size:12px;">Kassada göstərin → Stamp qazanın ☕</p>
+    <div style="text-align:center; padding: 18px;">
+        <img src="{qr_url}" style="width:190px; height:190px; border-radius:18px; border:4px solid #E46C24; box-shadow: 0 8px 25px rgba(228,108,36,0.18);"/>
+        <h3 style="margin-top:15px; font-weight:900; color:#E46C24; letter-spacing:2px;">{cid}</h3>
+        <p style="color:#A08C7C; font-size:12px;">Kassada göstərin → Stamp qazanın ☕</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -647,7 +682,7 @@ def check_notifications(card_id):
             {"c": card_id}
         )
         if not n.empty:
-            st.markdown(f'<div class="banner banner-notif">🎉 {n.iloc[0]["message"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="smart-banner banner-msg">🎉 {n.iloc[0]["message"]}</div>', unsafe_allow_html=True)
             if st.button("✓ Oxudum", key="notif_x", use_container_width=True):
                 run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id": n.iloc[0]['id']})
                 st.rerun()
@@ -660,13 +695,29 @@ def check_happy_hour():
         from utils import get_active_happy_hour
         hh = get_active_happy_hour()
         if hh:
+            hh_end = hh['end_time'][:5]
             st.markdown(f"""
-            <div class="banner banner-hh">
-                ⏰ HAPPY HOUR! {hh['discount_percent']}% ENDİRİM · {hh['name']} · {hh['end_time'][:5]}-ə qədər!
+            <div class="smart-banner banner-hh">
+                ⏰ HAPPY HOUR! {hh['discount_percent']}% ENDİRİM · {hh['name']} · {hh_end}-ə qədər!
             </div>
             """, unsafe_allow_html=True)
     except:
         pass
+
+
+def render_quick_actions():
+    st.markdown("""
+    <div class="action-strip">
+        <div class="action-tile">
+            <div class="at-icon">☕</div>
+            <div class="at-title">Kofe Stamp</div>
+        </div>
+        <div class="action-tile">
+            <div class="at-icon">🎁</div>
+            <div class="at-title">Hədiyyələr</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_coffee_menu():
@@ -680,13 +731,13 @@ def render_coffee_menu():
         "mocha": "🍫", "macchiato": "🎨", "flat": "☕", "raf": "🧁",
         "turkish": "🫖", "cold": "🧊", "ice": "🧊", "frappe": "🥤",
         "matcha": "🍵", "hot": "🔥", "chocolate": "🍫", "tea": "🍵",
-        "kombo": "🎁", "combo": "🎁", "kruasan": "🥐", "croissant": "🥐",
-        "keks": "🧁", "tort": "🎂", "su": "💧", "water": "💧",
+        "kruasan": "🥐", "croissant": "🥐", "cookie": "🍪", "dessert": "🍰"
     }
 
     def get_emoji(name):
+        name_lower = name.lower()
         for key, emoji in emoji_map.items():
-            if key in name.lower():
+            if key in name_lower:
                 return emoji
         return "☕"
 
@@ -696,44 +747,46 @@ def render_coffee_menu():
 
     filtered = menu_df if "Hamısı" in sel else menu_df[menu_df['category'] == sel.replace("☕ ", "")]
 
-    items = filtered.to_dict('records')
+    st.markdown("<p style='text-align:center; color:#AA8F7C; font-size:12px; margin: 5px 0 10px;'>Sifarişlərinizi kassada verin</p>", unsafe_allow_html=True)
 
     if "Hamısı" in sel:
         for cat in sorted(filtered['category'].dropna().unique().tolist()):
-            cat_items = [i for i in items if i['category'] == cat]
-            st.markdown(f'<div class="menu-section">{cat}</div>', unsafe_allow_html=True)
-            for idx in range(0, len(cat_items), 2):
-                html = '<div class="m-grid">'
+            cat_items = filtered[filtered['category'] == cat]
+            st.markdown(f'<div class="section-title">{cat}</div>', unsafe_allow_html=True)
+            items = cat_items.to_dict('records')
+            for idx in range(0, len(items), 2):
+                html = '<div class="menu-grid">'
                 for j in range(2):
-                    if idx + j < len(cat_items):
-                        item = cat_items[idx + j]
+                    if idx + j < len(items):
+                        item = items[idx + j]
                         emoji = get_emoji(item['item_name'])
-                        tag = '<div class="m-tag">+1 Stamp ☕</div>' if item['is_coffee'] else ''
+                        stamp = '<div class="menu-badge">+1 Stamp ☕</div>' if item['is_coffee'] else ''
                         html += f'''
-                        <div class="m-card">
-                            <div class="m-emoji">{emoji}</div>
-                            <div class="m-name">{item['item_name']}</div>
-                            <div class="m-price">{float(item['price']):.2f} ₼</div>
-                            {tag}
+                        <div class="menu-card">
+                            <div class="menu-emoji">{emoji}</div>
+                            <div class="menu-name">{item['item_name']}</div>
+                            <div class="menu-price">{float(item['price']):.2f} ₼</div>
+                            {stamp}
                         </div>'''
                     else:
                         html += '<div></div>'
                 html += '</div>'
                 st.markdown(html, unsafe_allow_html=True)
     else:
+        items = filtered.to_dict('records')
         for idx in range(0, len(items), 2):
-            html = '<div class="m-grid">'
+            html = '<div class="menu-grid">'
             for j in range(2):
                 if idx + j < len(items):
                     item = items[idx + j]
                     emoji = get_emoji(item['item_name'])
-                    tag = '<div class="m-tag">+1 Stamp ☕</div>' if item['is_coffee'] else ''
+                    stamp = '<div class="menu-badge">+1 Stamp ☕</div>' if item['is_coffee'] else ''
                     html += f'''
-                    <div class="m-card">
-                        <div class="m-emoji">{emoji}</div>
-                        <div class="m-name">{item['item_name']}</div>
-                        <div class="m-price">{float(item['price']):.2f} ₼</div>
-                        {tag}
+                    <div class="menu-card">
+                        <div class="menu-emoji">{emoji}</div>
+                        <div class="menu-name">{item['item_name']}</div>
+                        <div class="menu-price">{float(item['price']):.2f} ₼</div>
+                        {stamp}
                     </div>'''
                 else:
                     html += '<div></div>'
@@ -750,9 +803,10 @@ def render_history(card_id):
     )
     if sales.empty:
         st.markdown("""
-        <div style="text-align:center; padding:30px; color:#C4986E;">
+        <div style="text-align:center; padding:30px 20px; color:#B8A091;">
             <div style="font-size:40px;">📋</div>
             <div style="font-weight:700; margin-top:10px;">Hələ sifariş yoxdur</div>
+            <div style="font-size:12px; margin-top:5px;">İlk sifarişinizi verin!</div>
         </div>
         """, unsafe_allow_html=True)
         return
@@ -765,19 +819,19 @@ def render_history(card_id):
         try:
             items = json.loads(row['items'])
             istr = " · ".join([f"{i['item_name']} ×{i['qty']}" for i in items])
-            cc = sum([i['qty'] for i in items if i.get('is_coffee')])
+            coffee_count = sum([i['qty'] for i in items if i.get('is_coffee')])
         except:
             istr = str(row['items'])[:50]
-            cc = 0
+            coffee_count = 0
         pm = "💵" if row.get('payment_method') in ['Nəğd', 'Cash'] else "💳"
-        sh = f'<div class="h-stmp">+{cc} stamp ☕</div>' if cc > 0 else ""
+        stamp_html = f'<div class="history-stamp">+{coffee_count} stamp ☕</div>' if coffee_count > 0 else ""
 
         st.markdown(f"""
-        <div class="h-card">
-            <div class="h-dt">{ds} {pm}</div>
-            <div class="h-it">{istr}</div>
-            <div class="h-tot">{float(row['total']):.2f} ₼</div>
-            {sh}
+        <div class="history-card">
+            <div class="history-date">{ds} {pm}</div>
+            <div class="history-items">{istr}</div>
+            <div class="history-total">{float(row['total']):.2f} ₼</div>
+            {stamp_html}
         </div>
         """, unsafe_allow_html=True)
 
@@ -786,8 +840,8 @@ def render_ai_barista():
     st.markdown("""
     <div style="text-align:center; padding:12px 16px 5px;">
         <div style="font-size:36px;">🤖☕</div>
-        <div style="font-weight:900; color:#8A3E12; font-size:17px; margin-top:5px;">AI Barista</div>
-        <div style="color:#B5866A; font-size:12px; margin-top:3px;">Əhvalınızı yazın, sizə uyğun kofe təklif edim</div>
+        <div style="font-weight:900; color:#7A3514; font-size:17px; margin-top:5px;">AI Barista</div>
+        <div style="color:#B58D75; font-size:12px; margin-top:3px;">Əhvalınızı yazın, sizə uyğun kofe seçək</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -795,12 +849,12 @@ def render_ai_barista():
         st.session_state.barista_chat = []
 
     for m in st.session_state.barista_chat:
-        css = "cb-u" if m['role'] == 'user' else "cb-a"
-        st.markdown(f'<div class="cb {css}">{m["text"]}</div>', unsafe_allow_html=True)
+        css = "chat-user" if m['role'] == 'user' else "chat-ai"
+        st.markdown(f'<div class="chat-bubble {css}">{m["text"]}</div>', unsafe_allow_html=True)
 
     c1, c2 = st.columns([5, 1])
     with c1:
-        um = st.text_input("", placeholder="Yuxuluyam, şirin nəsə istəyirəm...", label_visibility="collapsed", key="b_i")
+        um = st.text_input("", placeholder="Məs: Yuxuluyam, şirin və güclü nəsə...", label_visibility="collapsed", key="b_i")
     with c2:
         go = st.button("📤", key="b_s")
 
@@ -811,22 +865,21 @@ def render_ai_barista():
             try:
                 mdf = run_query("SELECT item_name, price FROM menu WHERE is_active=TRUE AND is_coffee=TRUE")
                 mt = ", ".join([f"{r['item_name']} ({r['price']}₼)" for _, r in mdf.iterrows()]) if not mdf.empty else ""
-                p = f"""Sən 'Emalatkhana' kofe şopunun gənc, mehriban baristasısan.
+                p = f"""Sən 'Emalatkhana' kofe şopunun gənc, premium amma səmimi baristasısan.
 Kofe menyumuz: {mt}
 Müştəri deyir: '{um}'
-Menyudan 1-2 kofe təklif et. Qısa (2-3 cümlə), emoji ilə. Qiymət yaz. Sonda 'Kassaya buyurun! ☕'"""
+Menyudan 1-2 kofe təklif et. Qısa, səmimi, estetik cavab ver. Qiymət yaz. Sonda 'Kassaya buyurun! ☕' yaz."""
                 r = model.generate_content(p)
                 ai = r.text
             except:
-                ai = "Bağışla, bir az yoruldum ☕"
+                ai = "Bağışla, bir az yoruldum ☕ Bir daha yaz!"
         else:
             ai = "AI bağlantısı yoxdur 🔌"
-
         st.session_state.barista_chat.append({'role': 'ai', 'text': ai})
         st.rerun()
 
     if st.session_state.barista_chat:
-        if st.button("🗑️ Təmizlə", use_container_width=True, key="clr_c"):
+        if st.button("🗑️ Söhbəti Təmizlə", use_container_width=True, key="clr_c"):
             st.session_state.barista_chat = []
             st.rerun()
 
@@ -835,16 +888,16 @@ def render_fortune():
     st.markdown("""
     <div style="text-align:center; padding:12px 16px 5px;">
         <div style="font-size:40px;">🔮☕</div>
-        <div style="font-weight:900; color:#8A3E12; font-size:17px; margin-top:5px;">Kofe Falı</div>
-        <div style="color:#B5866A; font-size:12px; margin-top:3px;">Fincanınızın şəklini çəkin!</div>
+        <div style="font-weight:900; color:#7A3514; font-size:17px; margin-top:5px;">Kofe Falı</div>
+        <div style="color:#B58D75; font-size:12px; margin-top:3px;">Fincanınızın şəklini çəkin!</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("""
-    <div class="fz">
+    <div class="fortune-zone">
         <div style="font-size:50px;">📸</div>
-        <div style="color:#B5866A; font-weight:700; margin-top:10px;">Fincanın dibinin şəkli</div>
-        <div style="color:#C8A58E; font-size:11px; margin-top:5px;">Yaxından, işıqlı mühitdə çəkin</div>
+        <div style="color:#B58D75; font-weight:700; margin-top:10px;">Fincanın dibinin şəkli</div>
+        <div style="color:#C5A892; font-size:11px; margin-top:5px;">Yaxından, işıqlı mühitdə çəkin</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -868,9 +921,9 @@ def render_fortune():
                         if not vm:
                             vm = all_m[0]
                     vmodel = genai.GenerativeModel(vm)
-                    prompt = """Sən məşhur Azərbaycan falçısısan. Kofe fincanının dibini görürsən.
-Müsbət, əyləncəli fal de (4-5 cümlə). Sevgi, iş, pul, səyahətdən birini seç.
-Azərbaycan dilində, emoji ilə, sirli üslubda."""
+
+                    prompt = """Sən məşhur Azərbaycan falçısısan. Kofe fincanının dibinə baxırsan.
+Müsbət, yumşaq, əyləncəli fal de. 4-5 cümlə yaz. Azərbaycan dilində, emoji ilə, sirli üslubda."""
                     if Image:
                         img = Image.open(uploaded)
                         resp = vmodel.generate_content([prompt, img])
@@ -878,11 +931,11 @@ Azərbaycan dilində, emoji ilə, sirli üslubda."""
                         resp = model.generate_content(prompt)
 
                     st.markdown(f"""
-                    <div class="fr">
+                    <div class="fortune-result">
                         <div style="text-align:center; font-size:24px; margin-bottom:12px;">🔮✨</div>
-                        <div style="text-align:center; font-weight:900; color:#8A3E12; margin-bottom:12px;">SİZİN FALINIZ</div>
-                        <div style="color:#5E4A3B; line-height:1.7; font-size:14px;">{resp.text}</div>
-                        <div style="text-align:center; margin-top:15px; font-size:11px; color:#C4986E;">☕ Falınız xeyirli olsun!</div>
+                        <div style="text-align:center; font-weight:900; color:#7A3514; margin-bottom:12px; font-size:16px;">SİZİN FALINIZ</div>
+                        <div style="color:#5B4A40; line-height:1.7; font-size:14px;">{resp.text}</div>
+                        <div style="text-align:center; margin-top:15px; font-size:11px; color:#BA977E;">☕ Falınız xeyirli olsun!</div>
                     </div>
                     """, unsafe_allow_html=True)
                 except Exception as e:
@@ -915,17 +968,19 @@ def render_customer_app(customer_id=None):
         greet = "Axşamınız xeyir 🌙"
 
     st.markdown(f"""
-    <div class="ultra-hero">
-        <div class="uh-icon">☕</div>
-        <div class="uh-brand">EMALATKHANA</div>
-        <div class="uh-sub">{greet}</div>
+    <div class="hero-wrap">
+        <div class="hero-icon">☕</div>
+        <div class="hero-brand">EMALATKHANA</div>
+        <div class="hero-sub">{greet}</div>
     </div>
     """, unsafe_allow_html=True)
 
     check_happy_hour()
     check_notifications(customer_id)
     render_stamp_card(stars, c_type)
+    render_free_banner(free_count)
     render_rewards(stars, free_count)
+    render_quick_actions()
 
     st.markdown('<div style="padding:0 14px 14px;">', unsafe_allow_html=True)
     if st.button("📱 QR KODUMU GÖSTƏR", type="primary", use_container_width=True, key="qr_s"):
@@ -945,7 +1000,7 @@ def render_customer_app(customer_id=None):
 
     st.markdown("""
     <div style="text-align:center; padding:24px 0 14px;">
-        <div style="font-family:'Jura'; font-weight:900; font-size:11px; letter-spacing:2px; color:#B5866A;">EMALATKHANA</div>
-        <div style="font-size:10px; color:#C8A58E; margin-top:3px;">Hər kofe bir stamp, hər 10 stamp bir hədiyyə!</div>
+        <div style="font-family:'Jura'; font-weight:900; font-size:11px; letter-spacing:2px; color:#A57C63;">EMALATKHANA</div>
+        <div style="font-size:10px; color:#C0A28D; margin-top:3px;">Every coffee tells a story ☕</div>
     </div>
-    """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)    
