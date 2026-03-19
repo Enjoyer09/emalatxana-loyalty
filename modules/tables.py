@@ -1,4 +1,4 @@
-# modules/tables.py — FINAL PATCHED v3.0
+# modules/tables.py — FIX PACKAGE B FINAL
 import streamlit as st
 import json
 import time
@@ -37,7 +37,6 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
 
     with conn.session as s:
         try:
-            # stock + cogs
             if not is_test:
                 for it in cart_items:
                     recs = run_query(
@@ -56,7 +55,6 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                                 {"q": str(qty_req), "n": r['ingredient_name']}
                             )
 
-            # sales
             sale_result = s.execute(
                 text("""
                     INSERT INTO sales (items, total, payment_method, cashier, created_at, original_total, discount_amount, is_test, cogs, status)
@@ -77,7 +75,7 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
             )
             sale_id = sale_result.fetchone()[0]
 
-            # kitchen order
+            # Kitchen order (masa satışı zamanı)
             s.execute(
                 text("""
                     INSERT INTO kitchen_orders (sale_source, table_label, items, status, created_by, created_at)
@@ -86,7 +84,7 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                 {"tbl": table_label, "items": items_json, "user": user, "time": now}
             )
 
-            # finance
+            # Finance
             if not is_test and final_d > 0:
                 if split_cash is not None and split_card is not None:
                     if split_cash > 0:
@@ -118,6 +116,7 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                 else:
                     db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
                     pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
+
                     s.execute(
                         text("""
                             INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
@@ -125,6 +124,7 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                         """),
                         {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now, "sid": sale_id}
                     )
+
                     if pm == "Kart":
                         min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                         pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
@@ -137,7 +137,7 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                             {"a": str(comm), "u": user, "t": now, "sid": sale_id}
                         )
 
-            # reset table
+            # Masa sıfırlanır
             s.execute(
                 text("UPDATE tables SET is_occupied=FALSE, items='[]', total=0 WHERE id=:id"),
                 {"id": table_id}
@@ -195,35 +195,36 @@ def render_table_menu(cart):
                 groups[base] = []
             groups[base].append(r)
 
-        cols = st.columns(3)
-        idx = 0
-        for base, items in groups.items():
-            with cols[idx % 3]:
-                if len(items) > 1:
-                    if st.button(f"{base}\n▾", key=f"tbl_grp_{base}", use_container_width=True, type="secondary"):
-                        chosen = items[0]
-                        add_to_cart(cart, {
-                            'item_name': chosen['item_name'],
-                            'price': float(chosen['price']),
-                            'qty': 1,
-                            'is_coffee': chosen['is_coffee'],
-                            'category': chosen['category'],
-                            'status': 'new'
-                        })
-                        st.rerun()
-                else:
-                    r = items[0]
-                    if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"tbl_p_{r['id']}", use_container_width=True, type="secondary"):
-                        add_to_cart(cart, {
-                            'item_name': r['item_name'],
-                            'price': float(r['price']),
-                            'qty': 1,
-                            'is_coffee': r['is_coffee'],
-                            'category': r['category'],
-                            'status': 'new'
-                        })
-                        st.rerun()
-                idx += 1
+        group_items = list(groups.items())
+        for row_start in range(0, len(group_items), 3):
+            cols = st.columns(3)
+            row_slice = group_items[row_start:row_start+3]
+            for col_idx, (base, items) in enumerate(row_slice):
+                with cols[col_idx]:
+                    if len(items) > 1:
+                        if st.button(f"{base}\n▾", key=f"tbl_grp_{base}_{row_start}_{col_idx}", use_container_width=True, type="secondary"):
+                            chosen = items[0]
+                            add_to_cart(cart, {
+                                'item_name': chosen['item_name'],
+                                'price': float(chosen['price']),
+                                'qty': 1,
+                                'is_coffee': chosen['is_coffee'],
+                                'category': chosen['category'],
+                                'status': 'new'
+                            })
+                            st.rerun()
+                    else:
+                        r = items[0]
+                        if st.button(f"{r['item_name']}\n{r['price']}₼", key=f"tbl_p_{r['id']}_{row_start}_{col_idx}", use_container_width=True, type="secondary"):
+                            add_to_cart(cart, {
+                                'item_name': r['item_name'],
+                                'price': float(r['price']),
+                                'qty': 1,
+                                'is_coffee': r['is_coffee'],
+                                'category': r['category'],
+                                'status': 'new'
+                            })
+                            st.rerun()
 
 
 def render_selected_table(tbl):
@@ -259,22 +260,42 @@ def render_selected_table(tbl):
 
         st.metric("Yekun", f"{final:.2f} ₼")
 
+        # FIX: Masadan mətbəxə dərhal getsin
         if st.button("🔥 Mətbəxə Göndər", key="kitchen_btn", type="secondary", use_container_width=True):
             if not st.session_state.cart_table:
                 st.error("Səbət boşdur!")
             else:
-                run_action(
-                    "UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id",
-                    {"i": json.dumps(st.session_state.cart_table), "t": str(final), "id": tbl['id']}
-                )
-                log_system(
-                    st.session_state.user,
-                    "TABLE_SENT_TO_KITCHEN",
-                    {"table_id": tbl['id'], "table_label": tbl['label'], "items_count": len(st.session_state.cart_table)}
-                )
-                st.success("Mətbəxə göndərildi!")
-                time.sleep(1)
-                st.rerun()
+                now = get_baku_now()
+                items_json = json.dumps(st.session_state.cart_table)
+
+                actions = [
+                    (
+                        "UPDATE tables SET is_occupied=TRUE, items=:i, total=:t WHERE id=:id",
+                        {"i": items_json, "t": str(final), "id": tbl['id']}
+                    ),
+                    (
+                        "INSERT INTO kitchen_orders (sale_source, table_label, items, status, created_by, created_at) "
+                        "VALUES ('TABLE', :tbl, :items, 'NEW', :user, :time)",
+                        {"tbl": tbl['label'], "items": items_json, "user": st.session_state.user, "time": now}
+                    )
+                ]
+
+                try:
+                    run_transaction(actions)
+                    log_system(
+                        st.session_state.user,
+                        "TABLE_SENT_TO_KITCHEN",
+                        {
+                            "table_id": tbl['id'],
+                            "table_label": tbl['label'],
+                            "items_count": len(st.session_state.cart_table)
+                        }
+                    )
+                    st.success("Mətbəxə göndərildi!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Xəta: {e}")
 
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
 
