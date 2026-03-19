@@ -1,4 +1,4 @@
-# modules/admin.py — FINAL PATCHED v3.3
+# modules/admin.py — FINAL PATCHED v3.4 (+ Resend Ready)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -20,6 +20,9 @@ except ImportError:
     genai = None
 
 
+# ============================================================
+# SETTINGS PAGE
+# ============================================================
 def render_settings_page():
     st.subheader("⚙️ Ayarlar və İdarəetmə")
 
@@ -31,6 +34,9 @@ def render_settings_page():
         "📱 Müştəri Tətbiqi (App)"
     ])
 
+    # ============================================================
+    # RESTORAN AYARLARI
+    # ============================================================
     with tab_settings:
         st.markdown("### 🍽️ Servis Haqqı Tənzimləməsi")
         current_fee = safe_decimal(get_setting("service_fee_percent", "0.0"))
@@ -74,6 +80,7 @@ def render_settings_page():
 
         st.markdown("---")
         st.markdown("### 🕒 Növbə və Vaxt Ayarları (Baku Time)")
+
         time_options = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
 
         c1, c2, c3 = st.columns(3)
@@ -95,10 +102,46 @@ def render_settings_page():
             log_system(
                 st.session_state.user,
                 "TIME_SETTINGS_UPDATE",
-                {"shift_start": new_start, "shift_end": new_end, "utc_offset": new_off}
+                {
+                    "shift_start": new_start,
+                    "shift_end": new_end,
+                    "utc_offset": new_off
+                }
             )
             st.success("Vaxt ayarları yeniləndi!")
 
+        # ========================================================
+        # RESEND / EMAIL REPORT SETTINGS
+        # ========================================================
+        st.markdown("---")
+        st.markdown("### 📧 E-mail Hesabat Ayarları")
+
+        resend_key = get_setting("resend_api_key", "")
+        sender_email = get_setting("report_sender_email", "")
+        recipient_emails = get_setting("report_recipient_emails", "")
+
+        new_resend = st.text_input("Resend API Key", value=resend_key, type="password")
+        new_sender = st.text_input("Göndərən E-mail", value=sender_email, placeholder="info@ironwaves.store")
+        new_recipients = st.text_area("Alan E-mail-lər (vergüllə ayırın)", value=recipient_emails, placeholder="mail1@gmail.com,mail2@gmail.com")
+
+        if st.button("E-mail Ayarlarını Yadda Saxla", type="primary"):
+            set_setting("resend_api_key", new_resend)
+            set_setting("report_sender_email", new_sender)
+            set_setting("report_recipient_emails", new_recipients)
+            log_system(
+                st.session_state.user,
+                "REPORT_EMAIL_SETTINGS_UPDATED",
+                {
+                    "sender": new_sender,
+                    "recipients": new_recipients
+                }
+            )
+            st.success("E-mail ayarları yadda saxlanıldı!")
+            st.rerun()
+
+    # ============================================================
+    # USERS
+    # ============================================================
     with tab_users:
         st.markdown("### 👥 İstifadəçi İdarəetməsi")
         users = run_query("SELECT username, role, last_seen FROM users")
@@ -122,7 +165,11 @@ def render_settings_page():
                                 "ON CONFLICT (username) DO UPDATE SET password=:p, role=:r",
                                 {"u": u_name.strip(), "p": p_hash, "r": u_role}
                             )
-                            log_system(st.session_state.user, "USER_UPSERT", {"target_user": u_name.strip(), "role": u_role})
+                            log_system(
+                                st.session_state.user,
+                                "USER_UPSERT",
+                                {"target_user": u_name.strip(), "role": u_role}
+                            )
                             st.success("İstifadəçi qeydə alındı!")
                         except Exception as e:
                             st.error(f"Xəta: {e}")
@@ -142,15 +189,23 @@ def render_settings_page():
                                 ("DELETE FROM users WHERE username=:u", {"u": del_user})
                             ]
                             run_transaction(actions)
-                            log_system(st.session_state.user, "USER_DELETE", {"target_user": del_user})
+                            log_system(
+                                st.session_state.user,
+                                "USER_DELETE",
+                                {"target_user": del_user}
+                            )
                             st.success("Silindi!")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
                             st.error(f"Xəta: {e}")
 
+    # ============================================================
+    # CRM
+    # ============================================================
     with tab_crm:
         st.markdown("### 📱 Müştəri QR və Loyallıq (CRM)")
+
         with st.form("add_customer"):
             card_id = st.text_input("Müştəri Kartı / QR ID (məs: 1001)")
             c_type = st.selectbox("Müştəri Tipi / Loyallıq Dərəcəsi", ["standard", "golden", "platinum", "elite", "thermos", "ikram", "telebe"])
@@ -164,22 +219,32 @@ def render_settings_page():
                             "ON CONFLICT (card_id) DO UPDATE SET type=:t, stars=:s",
                             {"cid": card_id.strip(), "t": c_type, "s": c_stars}
                         )
-                        log_system(st.session_state.user, "CUSTOMER_UPSERT", {"card_id": card_id.strip(), "type": c_type, "stars": c_stars})
+                        log_system(
+                            st.session_state.user,
+                            "CUSTOMER_UPSERT",
+                            {"card_id": card_id.strip(), "type": c_type, "stars": c_stars}
+                        )
                         st.success(f"Müştəri ({card_id}) uğurla qeydiyyata alındı/yeniləndi!")
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Xəta: {e}")
+                else:
+                    st.error("QR ID boş ola bilməz.")
 
         customers_df = run_query("SELECT * FROM customers ORDER BY created_at DESC")
         if not customers_df.empty:
             st.dataframe(customers_df, hide_index=True)
 
+    # ============================================================
+    # HAPPY HOUR
+    # ============================================================
     with tab_happy:
         st.markdown("### ⏰ Happy Hour / Avtomatik Endirim")
         st.info("Müəyyən saatlarda avtomatik endirim tətbiq olunur.")
 
         hh_df = run_query("SELECT * FROM happy_hours ORDER BY start_time")
+
         if not hh_df.empty:
             for _, hh in hh_df.iterrows():
                 status_icon = "🟢" if hh['is_active'] else "🔴"
@@ -196,7 +261,11 @@ def render_settings_page():
                     c3.markdown(f"🏷️ **{hh['discount_percent']}%**")
                     if c4.button("🗑️", key=f"del_hh_{hh['id']}"):
                         run_action("DELETE FROM happy_hours WHERE id=:id", {"id": hh['id']})
-                        log_system(st.session_state.user, "HAPPY_HOUR_DELETE", {"id": int(hh['id']), "name": hh['name']})
+                        log_system(
+                            st.session_state.user,
+                            "HAPPY_HOUR_DELETE",
+                            {"id": int(hh['id']), "name": hh['name']}
+                        )
                         st.rerun()
                     st.caption(f"📅 {day_display} | 📂 {cat_display}")
 
@@ -279,6 +348,9 @@ def render_settings_page():
                 else:
                     st.error("Ad və ən azı 1 gün seçin!")
 
+    # ============================================================
+    # APP TAB
+    # ============================================================
     with tab_app:
         st.markdown("### 📱 Müştəri Ekranı və Məlumatlar")
         st.info("Tezliklə App ayarları bura əlavə olunacaq.")
@@ -286,9 +358,10 @@ def render_settings_page():
 
 def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
+
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
-            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours']
+            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes', 'customer_coupons', 'campaigns']
             backup_data = {}
             for t in tables:
                 try:
@@ -314,7 +387,13 @@ def render_database_page():
                     st.error("⚠️ JSON formatı səhvdir!")
                     st.stop()
 
-                allowed_tables = {'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'tables'}
+                allowed_tables = {
+                    'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes',
+                    'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds',
+                    'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes',
+                    'customer_coupons', 'campaigns', 'tables'
+                }
+
                 with conn.session as s:
                     for tbl, recs in data.items():
                         if tbl not in allowed_tables:
