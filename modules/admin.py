@@ -1,4 +1,4 @@
-# modules/admin.py — FINAL PATCHED v3.4 (+ Resend Ready)
+# modules/admin.py — FINAL PATCHED v3.5 (+ Inventory Backup Fix)
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -361,19 +361,24 @@ def render_database_page():
 
     if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
         try:
+            # Ensure ingredients and recipes are in the export list
             tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes', 'customer_coupons', 'campaigns']
             backup_data = {}
             for t in tables:
                 try:
                     df = run_query(f"SELECT * FROM {t}")
                     if not df.empty:
+                        # Convert datetime objects to strings for JSON serialization
+                        df = df.applymap(lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x)
                         backup_data[t] = df.to_dict(orient='records')
-                except:
+                except Exception as table_error:
+                    logger.warning(f"Skipping table {t} during backup: {table_error}")
                     pass
 
             json_str = json.dumps(backup_data, indent=4, default=str)
-            log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": tables})
+            log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": list(backup_data.keys())})
             st.download_button("JSON Faylını Yüklə", data=json_str, file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json", mime="application/json")
+            st.success("Baza uğurla hazırlandı, yükləyə bilərsiniz!")
         except Exception as e:
             st.error(f"Backup xətası: {e}")
 
@@ -387,6 +392,7 @@ def render_database_page():
                     st.error("⚠️ JSON formatı səhvdir!")
                     st.stop()
 
+                # CRITICAL FIX: Ensure ingredients and recipes are in the allowed_tables set for restore
                 allowed_tables = {
                     'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes',
                     'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds',
@@ -397,19 +403,26 @@ def render_database_page():
                 with conn.session as s:
                     for tbl, recs in data.items():
                         if tbl not in allowed_tables:
+                            logger.warning(f"Skipping restore for unapproved table: {tbl}")
                             continue
+                            
                         if recs and isinstance(recs, list):
-                            s.execute(text(f"TRUNCATE TABLE {tbl} CASCADE"))
-                            for r in recs:
-                                if not isinstance(r, dict):
-                                    continue
-                                clean_keys = [k for k in r.keys() if isinstance(k, str) and k.replace('_', '').isalnum()]
-                                if not clean_keys:
-                                    continue
-                                cols = ", ".join(clean_keys)
-                                vals = ":" + ", :".join(clean_keys)
-                                safe_r = {k: r[k] for k in clean_keys}
-                                s.execute(text(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})"), safe_r)
+                            try:
+                                s.execute(text(f"TRUNCATE TABLE {tbl} CASCADE"))
+                                for r in recs:
+                                    if not isinstance(r, dict):
+                                        continue
+                                    clean_keys = [k for k in r.keys() if isinstance(k, str) and k.replace('_', '').isalnum()]
+                                    if not clean_keys:
+                                        continue
+                                    cols = ", ".join(clean_keys)
+                                    vals = ":" + ", :".join(clean_keys)
+                                    safe_r = {k: r[k] for k in clean_keys}
+                                    s.execute(text(f"INSERT INTO {tbl} ({cols}) VALUES ({vals})"), safe_r)
+                                logger.info(f"Successfully restored table: {tbl}")
+                            except Exception as table_restore_error:
+                                logger.error(f"Failed to restore table {tbl}: {table_restore_error}")
+                                raise table_restore_error # Re-raise to trigger rollback if a crucial table fails
                     s.commit()
 
                 log_system(st.session_state.user, "DATABASE_RESTORE_COMPLETED")
