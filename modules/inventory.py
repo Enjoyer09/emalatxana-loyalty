@@ -1,4 +1,4 @@
-# modules/inventory.py — FINAL PATCHED v2.0
+# modules/inventory.py — EXACT PATCHED FINAL v4.3
 import streamlit as st
 import pandas as pd
 import time
@@ -18,6 +18,16 @@ except ImportError:
 
 def render_inventory_page():
     st.subheader("📦 Anbar İdarəetməsi və AI Analiz")
+
+    # --- SESSİYA (STATE) TƏHLÜKƏSİZLİYİ ---
+    if 'anbar_page' not in st.session_state:
+        st.session_state.anbar_page = 0
+    if 'restock_item_id' not in st.session_state:
+        st.session_state.restock_item_id = None
+    if 'loss_item_id' not in st.session_state:
+        st.session_state.loss_item_id = None
+    if 'edit_item_id' not in st.session_state:
+        st.session_state.edit_item_id = None
 
     # AI Inventory Audit
     if st.session_state.role in ['admin', 'manager']:
@@ -123,6 +133,12 @@ def render_inventory_page():
 
     rows_per_page = st.selectbox("Səhifə", [20, 40, 60])
     total_rows = len(df_i)
+    
+    # --- Paginasiya Xətalarının Qarşısının Alınması ---
+    max_page = max(0, (total_rows - 1) // rows_per_page)
+    if st.session_state.anbar_page > max_page:
+        st.session_state.anbar_page = max_page
+
     start_idx = st.session_state.anbar_page * rows_per_page
     end_idx = start_idx + rows_per_page
     df_page = df_i.iloc[start_idx:end_idx].copy()
@@ -180,8 +196,8 @@ def render_inventory_page():
     if pc1.button("⬅️", key="anbar_prev") and st.session_state.anbar_page > 0:
         st.session_state.anbar_page -= 1
         st.rerun()
-    pc2.write(f"Səhifə {st.session_state.anbar_page + 1}")
-    if pc3.button("➡️", key="anbar_next") and end_idx < total_rows:
+    pc2.write(f"Səhifə {st.session_state.anbar_page + 1} / {max_page + 1}")
+    if pc3.button("➡️", key="anbar_next") and st.session_state.anbar_page < max_page:
         st.session_state.anbar_page += 1
         st.rerun()
 
