@@ -383,6 +383,7 @@ def ensure_schema():
             ("notifications", "is_read", "BOOLEAN DEFAULT FALSE"),
             ("promo_codes", "is_used", "BOOLEAN DEFAULT FALSE"),
             ("customer_coupons", "is_used", "BOOLEAN DEFAULT FALSE"),
+            ("z_reports", "total_cogs", "DECIMAL(10,2) DEFAULT 0"),
         ]
 
         for tbl, col, dtype in columns_to_add:
