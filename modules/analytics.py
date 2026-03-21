@@ -1,4 +1,4 @@
-# modules/analytics.py — FIX PACKAGE A FINAL
+# modules/analytics.py — EXACT PATCHED FINAL v4.3
 import streamlit as st
 import pandas as pd
 import datetime
@@ -408,8 +408,6 @@ def render_analytics_page():
                         st.info("Bu dövrdə satış yoxdur.")
                 except Exception as e:
                     st.error(f"Staff statistikası yüklənmədi: {e}")
-
-
 def render_z_report_page():
     st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
     log_date_z = get_logical_date()
@@ -499,6 +497,14 @@ def render_z_report_page():
                     time.sleep(1)
                     st.rerun()
 
+    if st.session_state.get('active_dialog'):
+        d_type, d_data = st.session_state.active_dialog
+        if d_type == "x_report": 
+            pass # Handle in separate logic if needed, or inline below
+        elif d_type == "z_report": 
+            pass
+        # st.stop() can be called here depending on your routing architecture.
+
     cx, cz = st.columns(2)
     if cx.button("🤝 X-Hesabat", use_container_width=True):
         @st.dialog("🤝 X-Hesabat")
@@ -531,17 +537,22 @@ def render_z_report_page():
         @st.dialog("🔴 Z-Hesabat")
         def z_dialog():
             st.write(f"Kassada olmalıdır: **{expected_cash:.2f} ₼**")
-            actual_z = st.number_input("Sabahkı açılış:", value=float(expected_cash))
+            actual_z = st.number_input("Yeşikdəki bütün nağd (AZN):", value=float(expected_cash), step=1.0)
+            cash_drop = st.number_input("İnkassasiya (Rəhbərə çatan):", min_value=0.0, max_value=float(actual_z), value=0.0, step=10.0)
+            
             default_wage = Decimal("25.0") if st.session_state.role in ['manager', 'admin'] else Decimal("20.0")
             wage = st.number_input("Maaş (AZN):", value=float(default_wage), min_value=0.0)
+
+            next_open = Decimal(str(actual_z)) - Decimal(str(cash_drop)) - Decimal(str(wage))
+            st.write(f"**Sabaha qalan açılış balansı (Xırda):** {next_open:.2f} ₼")
 
             if st.button("✅ Günü Bağla", type="primary"):
                 actual_d = Decimal(str(actual_z))
                 wage_d = Decimal(str(wage))
+                drop_d = Decimal(str(cash_drop))
                 u = st.session_state.user
                 now = get_baku_now()
-                is_t = st.session_state.get('test_mode', False)
-                diff = actual_d - (expected_cash - wage_d)
+                diff = actual_d - expected_cash
                 actions = []
 
                 if abs(diff) > Decimal("0.01"):
@@ -549,13 +560,18 @@ def render_z_report_page():
                     cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
                     actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,created_at,is_test) VALUES (:t,:c,:a,'Kassa','Z-Hesabat fərq',:u,:time,FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
 
-                actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,subject,created_at,is_test) VALUES ('out','Maaş/Avans',:a,'Kassa','Smen sonu maaş',:u,:subj,:time,:tst)", {"a": str(wage_d), "u": u, "subj": u, "time": now, "tst": is_t}))
+                if drop_d > 0:
+                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,created_at,is_test) VALUES ('out','İnkassasiya (Rəhbərə verilən)',:a,'Kassa','Z-Hesabat Çıxarışı',:u,:time,FALSE)", {"a": str(drop_d), "u": u, "time": now}))
+
+                if wage_d > 0:
+                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,subject,created_at,is_test) VALUES ('out','Maaş/Avans',:a,'Kassa','Smen sonu maaş',:u,:subj,:time,FALSE)", {"a": str(wage_d), "u": u, "subj": u, "time": now}))
 
                 actions.append(("INSERT INTO z_reports (total_sales,cash_sales,card_sales,total_cogs,actual_cash,generated_by,created_at) VALUES (:ts,:cs,:crs,:cogs,:ac,:gb,:t)", {"ts": str(s_cash + s_card), "cs": str(s_cash), "crs": str(s_card), "cogs": str(s_cogs), "ac": str(actual_d), "gb": u, "t": now}))
 
                 try:
                     run_transaction(actions)
-                    set_setting("cash_limit", str(actual_d))
+                    set_setting("cash_limit", str(next_open))
+                    set_setting("last_z_report_time", now.isoformat())
 
                     try:
                         report_date = str(log_date_z)
@@ -569,7 +585,6 @@ def render_z_report_page():
                             "refunds_count": int(refund_count),
                             "generated_by": u
                         }
-
                         ok, msg = send_z_report_email(report_date, summary)
                         if ok:
                             log_system(u, "Z_REPORT_EMAIL_SENT", {"report_date": report_date, "result": "success"})
@@ -580,7 +595,7 @@ def render_z_report_page():
                         st.warning(f"E-mail xətası: {mail_e}")
                         log_system(u, "Z_REPORT_EMAIL_EXCEPTION", {"error": str(mail_e)})
 
-                    log_system(u, "Z_REPORT_CREATED", {"wage": str(wage_d), "next_open": str(actual_d)})
+                    log_system(u, "Z_REPORT_CREATED", {"wage": str(wage_d), "drop": str(drop_d), "next_open": str(next_open)})
                     st.success("GÜN BAĞLANDI!")
                     time.sleep(1)
                     st.rerun()
