@@ -1,4 +1,4 @@
-# modules/pos.py — EXACT PATCHED FINAL v4.2
+# modules/pos.py — EXACT PATCHED FINAL v4.3
 import streamlit as st
 import json
 import time
@@ -235,8 +235,10 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
 
     if is_table and service_fee_pct > 0:
         final_total += (final_total * service_fee_pct).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if is_eco_cup:
-        final_total = (final_total * Decimal("0.95")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    
+    # Eko stekan qiymet endirimi silindi, stekan deyeri musteriden cixilmir. 
+    # if is_eco_cup:
+    #     final_total = (final_total * Decimal("0.95")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     return total, final_total, disc_rate, free_cof, 0, 0, False
 
@@ -331,6 +333,11 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                     recs = run_query("SELECT r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name=:m", {"m": it['item_name']})
                     if not recs.empty:
                         for _, r in recs.iterrows():
+                            # Eko stekan: eger "is_eco" secilibse ve ingredientin adi "stekan", "cup", "qab" ile baglidirsa, anbardan cixilmasini legv edirik
+                            ing_name = str(r['ingredient_name']).lower()
+                            if it.get('is_eco', False) and ('stəkan' in ing_name or 'stakan' in ing_name or 'cup' in ing_name or 'qab' in ing_name):
+                                continue
+                                
                             qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
                             u_cost = safe_decimal(r['unit_cost'])
                             total_cogs += qty_req * u_cost
@@ -365,9 +372,9 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                                 comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
                                 s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Satış Komissiyası', :u, :t, FALSE, :sid)"), {"a": str(comm), "u": user, "t": now, "sid": sale_id})
 
-                    if tips_d > 0:
-                        s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, sale_id) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Kart Tip', :u, :t, :sid)"), {"a": str(tips_d), "u": user, "t": now, "sid": sale_id})
-                        s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, sale_id) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t, :sid)"), {"a": str(tips_d), "u": user, "t": now, "sid": sale_id})
+                if tips_d > 0:
+                    s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, sale_id) VALUES ('in', 'Tips / Çayvoy', :a, 'Bank Kartı', 'Kart Tip', :u, :t, :sid)"), {"a": str(tips_d), "u": user, "t": now, "sid": sale_id})
+                    s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, sale_id) VALUES ('out', 'Tips / Çayvoy', :a, 'Kassa', 'Kart Tip (Staffa)', :u, :t, :sid)"), {"a": str(tips_d), "u": user, "t": now, "sid": sale_id})
 
                 if cust:
                     coffee_qty = sum([i['qty'] for i in cart_items if i.get('is_coffee')])
@@ -499,6 +506,12 @@ def render_pos_page():
                     c_n, c_q, c_btn_col = st.columns([4, 1, 2], vertical_alignment="center")
                     c_n.markdown(f"**{item['item_name']}**")
                     c_q.write(f"x{item['qty']}")
+                    
+                    # Eko stekan isaresi
+                    eco_key = f"eco_check_{st.session_state.active_cart_id}_{i}"
+                    is_eco = st.checkbox("🌿", value=item.get('is_eco', False), key=eco_key, help="Eko Stəkan (Müştəri öz qabı ilə)")
+                    item['is_eco'] = is_eco
+
                     with c_btn_col:
                         btn_min, btn_plus = st.columns(2)
                         if btn_min.button("➖", key=f"cart_dec_{i}"):
