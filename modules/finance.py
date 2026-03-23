@@ -1,4 +1,4 @@
-# modules/finance.py — FULL ARCHITECTURE v7.1 (HİSSƏ 1/2)
+# modules/finance.py — FULL ARCHITECTURE v7.2 (HİSSƏ 1/2)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 # AUDIT & DATA HELPERS
 # ============================================================
 def audit_finance_action(original_id, action, original_data, new_data, performed_by, reason=""):
-    """Hər bir maliyyə dəyişikliyini tarixçəyə yazır"""
     run_action(
         "INSERT INTO finance_audit_log (original_id, action, original_data, new_data, performed_by, reason, performed_at) "
         "VALUES (:oid, :act, :od, :nd, :by, :r, :at)",
@@ -34,7 +33,6 @@ def audit_finance_action(original_id, action, original_data, new_data, performed
     )
 
 def soft_delete_finance(record_id, deleted_by, reason):
-    """Məlumatı tam silmir, arxivləşdirir (is_deleted=True)"""
     original = run_query("SELECT * FROM finance WHERE id=:id", {"id": record_id})
     if original.empty: return
     row_data = original.iloc[0].to_dict()
@@ -43,28 +41,6 @@ def soft_delete_finance(record_id, deleted_by, reason):
         {"by": deleted_by, "at": get_baku_now(), "id": record_id}
     )
     audit_finance_action(record_id, "DELETE", row_data, None, deleted_by, reason)
-
-def execute_transfer(direction, amount, desc, user, is_test, commission=0):
-    """Hesablararası pul köçürməsi (Kassa -> Bank və s.)"""
-    now = get_baku_now()
-    amt = str(safe_decimal(amount))
-    actions = []
-    
-    mapping = {
-        "cash_to_card": [("out", "Kassa", "Bank Kartı"), ("in", "Bank Kartı", "Kassa")],
-        "card_to_cash": [("out", "Bank Kartı", "Kassa"), ("in", "Kassa", "Bank Kartı")],
-        "cash_to_debt": [("out", "Kassa", "Borc Ödənişi"), ("in", "Nisyə / Borc", "Kassa")],
-    }
-    
-    steps = mapping.get(direction)
-    if steps:
-        for typ, src, note_suffix in steps:
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
-                "VALUES (:t, 'Daxili Transfer', :a, :s, :d, :u, :time, :tst)",
-                {"t": typ, "a": amt, "s": src, "d": f"{desc} ({note_suffix})", "u": user, "time": now, "tst": is_test}
-            ))
-        run_transaction(actions)
 
 def render_finance_page():
     if st.session_state.role not in ['admin', 'manager']:
@@ -112,17 +88,35 @@ def render_finance_page():
         </div>
     </div>
     """, unsafe_allow_html=True)
-# modules/finance.py — FULL ARCHITECTURE v7.1 (HİSSƏ 2/2)
-    tab_ops, tab_history, tab_ai = st.tabs(["➕ Yeni Əməliyyat", "📜 Tarixçə & Analiz", "🤖 AI Auditor"])
+
+    # --- BUGÜNKÜ CƏDVƏL (ANA EKRANDA) ---
+    st.markdown("#### 📊 Bugünkü Əməliyyatların Cədvəli")
+    today_hist = run_query("""
+        SELECT id, created_at, category, subject, source, amount, type, description 
+        FROM finance WHERE created_at >= :d AND created_at < :e AND (is_deleted IS NULL OR is_deleted = FALSE)
+        ORDER BY created_at DESC
+    """, {"d": shift_start, "e": shift_end})
+    
+    if not today_hist.empty:
+        today_hist['Tarix'] = pd.to_datetime(today_hist['created_at']).dt.strftime('%H:%M')
+        today_hist['Məbləğ'] = today_hist.apply(lambda x: f"+{x['amount']}" if x['type']=='in' else f"-{x['amount']}", axis=1)
+        st.dataframe(today_hist[['Tarix', 'category', 'subject', 'source', 'Məbləğ', 'description']], hide_index=True, use_container_width=True)
+    else:
+        st.info("Bu gün üçün hələlik heç bir kassa/maliyyə əməliyyatı yoxdur.")
+# modules/finance.py — FULL ARCHITECTURE v7.2 (HİSSƏ 2/2)
+    tab_ops, tab_history = st.tabs(["➕ Əməliyyatlar & Düzəliş", "📜 Geniş Tarixçə & Analiz"])
 
     with tab_ops:
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("🤝 X-Hesabat (Smen Təhvil)", use_container_width=True):
+            if st.button("🤝 X-Hesabat (Smen)", use_container_width=True):
                 st.session_state.active_dialog = ("x_report", current_cash_box); st.rerun()
         with c2:
             if st.button("🔴 Z-Hesabat (Günü Bağla)", type="primary", use_container_width=True):
                 st.session_state.active_dialog = ("z_report", current_cash_box); st.rerun()
+        with c3:
+            if st.button("⚖️ Kassa Düzəlişi", use_container_width=True):
+                st.session_state.active_dialog = ("cash_adjust", current_cash_box); st.rerun()
 
         st.divider()
         with st.form("main_finance_form", clear_on_submit=True):
@@ -134,7 +128,7 @@ def render_finance_page():
                 st.info("💡 **Mədaxil (Giriş):** Kassaya və ya Banka daxil olan əlavə vəsaitlər (Satışdan kənar). Məsələn: İnvestorun pul qoyması, əlavə gəlirlər.")
                 f_cat = st.selectbox("Kateqoriya", ["İnvestisiya (Kapital)", "Kredit", "Əlavə Gəlir", "Digər"])
             else:
-                st.info("💡 **Məxaric (Çıxış):** Biznesdən çıxan pul. İnvestora pul qaytardıqda 'İnvestora Ödəniş' seçin ki, borcunuzdan (yuxarıdakı fonddan) silinsin.")
+                st.info("💡 **Məxaric (Çıxış):** Biznesdən çıxan pul. İnvestora pul qaytardıqda 'İnvestora Ödəniş' seçin ki, borcunuzdan silinsin.")
                 f_cat = st.selectbox("Kateqoriya", ["İcarə", "İnvestora Ödəniş (Qaytarılma)", "Xammal Alışı", "Maaş/Avans", "Kommunal", "Cərimə/Polis", "Digər"])
 
             f_src = st.selectbox("Hansı Hesabdan / Hesaba?", ["Kassa (Yeşik)", "Bank Kartı", "Seyf"])
@@ -152,8 +146,6 @@ def render_finance_page():
             if st.form_submit_button("✅ Təsdiqlə və Qeydə Al", use_container_width=True):
                 if f_amt > 0:
                     db_type = 'out' if "Məxaric" in transaction_type else 'in'
-                    
-                    # Seçilmiş tarixi və cari saatı birləşdiririk
                     current_time = get_baku_now().time()
                     combined_datetime = datetime.datetime.combine(f_date, current_time)
 
@@ -177,28 +169,48 @@ def render_finance_page():
         """, {"s": h_start, "e": h_end})
         
         if not hist.empty:
-            # Tarix formatı DÜZƏLDİLDİ (%Y əlavə olundu)
             hist['Tarix'] = pd.to_datetime(hist['created_at']).dt.strftime('%d.%m.%Y %H:%M')
             hist['Məbləğ'] = hist.apply(lambda x: f"+{x['amount']}" if x['type']=='in' else f"-{x['amount']}", axis=1)
-            
             st.data_editor(hist[['id', 'Tarix', 'category', 'subject', 'source', 'Məbləğ', 'description']], hide_index=True, use_container_width=True)
             
-            # Analitika Diaqramı
             if st.checkbox("Analitik Qrafikləri Göstər"):
                 exp = hist[hist['type']=='out']
                 if not exp.empty:
                     st.plotly_chart(px.pie(exp, values='amount', names='category', title="Xərc Bölgüsü"), use_container_width=True)
-        else:
-            st.info("Bu tarixlərdə məlumat yoxdur.")
 
     # Dialog çağırışları
     if st.session_state.get('active_dialog'):
         d_type, d_data = st.session_state.active_dialog
         if d_type == "x_report": finance_x_dialog(d_data)
         elif d_type == "z_report": finance_z_dialog(d_data)
+        elif d_type == "cash_adjust": finance_adjust_dialog(d_data)
         st.stop()
 
 # --- Dialog Funksiyaları ---
+@st.dialog("⚖️ Kassa Balansına Düzəliş")
+def finance_adjust_dialog(current_calc_cash):
+    st.warning("⚠️ Bu əməliyyat kassa qalığını birbaşa dəyişəcək və tarixçəyə 'Kassa Kəsiri' və ya 'Kassa Artığı' kimi düşəcək.")
+    st.write(f"Sistemdəki Kassa (Hesablanan): **{current_calc_cash:.2f} ₼**")
+    real_cash = st.number_input("Real olaraq kassada olan məbləği yazın:", value=float(current_calc_cash), step=1.0)
+    reason = st.text_input("Səbəb / Qeyd:", placeholder="Məs: Xırda pul səhvi")
+    
+    if st.button("Düzəlişi Təsdiqlə", type="primary"):
+        diff = Decimal(str(real_cash)) - Decimal(str(current_calc_cash))
+        if abs(diff) > Decimal("0.001"):
+            t_type = 'in' if diff > 0 else 'out'
+            cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+            run_action(
+                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at) "
+                "VALUES (:t, :c, :a, 'Kassa', :d, :u, :time)",
+                {"t": t_type, "c": cat, "a": str(abs(diff)), "d": f"Kassa Düzəlişi: {reason}", "u": st.session_state.user, "time": get_baku_now()}
+            )
+            st.success(f"Kassa balansı düzəldildi! Fərq: {diff:.2f} ₼")
+            time.sleep(1.5)
+            st.session_state.active_dialog = None
+            st.rerun()
+        else:
+            st.info("Fərq yoxdur, düzəlişə ehtiyac yoxdur.")
+
 @st.dialog("🤝 X-Hesabat")
 def finance_x_dialog(expected):
     st.write(f"Kassada olmalı: **{expected:.2f} ₼**")
@@ -213,7 +225,6 @@ def finance_z_dialog(expected):
     actual = st.number_input("Yeşikdə olan tam pul:", value=float(expected))
     drop = st.number_input("Müdirə verilən (İnkassasiya):", min_value=0.0, max_value=float(actual))
     
-    # Maaş seçimi
     is_wage = st.checkbox("Gündəlik maaşlar çıxılsın?", value=True)
     wage_amt = 25.0 if st.session_state.role == 'admin' else 20.0
     
@@ -232,4 +243,4 @@ def finance_z_dialog(expected):
         
         run_transaction(actions)
         set_setting(SK_CASH_LIMIT, str(final_next_day))
-        st.success("Gün bağlandı!"); time.sleep(1); st.session_state.active_dialog = None; st.rerun()    
+        st.success("Gün bağlandı!"); time.sleep(1); st.session_state.active_dialog = None; st.rerun()        
