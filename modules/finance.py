@@ -10,7 +10,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import plotly.express as px
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting
-from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log_system, safe_decimal, SK_CASH_LIMIT
+from utils import SUBJECTS, get_logical_date, get_shift_range, get_baku_now, log_system, safe_decimal, SK_CASH_LIMIT, close_shift
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,220 @@ def soft_delete_finance(record_id, deleted_by, reason):
     )
     audit_finance_action(record_id, "DELETE", row_data, None, deleted_by, reason)
 
+
+def get_payment_mapping(payment_method):
+    if payment_method in ['Nəğd', 'Cash']:
+        return {"source": "Kassa", "category": "Satış (Nağd)", "tracks_finance": True}
+    if payment_method in ['Kart', 'Card']:
+        return {"source": "Bank Kartı", "category": "Satış (Kart)", "tracks_finance": True}
+    if payment_method == 'Staff':
+        return {"source": None, "category": None, "tracks_finance": False}
+    return {"source": None, "category": None, "tracks_finance": False}
+
+
+def get_finance_visibility_filters(include_test=False):
+    test_clause = "" if include_test else "AND (is_test IS NULL OR is_test = FALSE)"
+    deleted_clause = "AND (is_deleted IS NULL OR is_deleted = FALSE)"
+    return test_clause, deleted_clause
+
+
+def get_shift_finance_snapshot(include_test=False):
+    log_date = get_logical_date()
+    shift_start, shift_end = get_shift_range(log_date)
+    t_filt = "AND (is_test IS NULL OR is_test = FALSE OR is_test = TRUE)" if include_test else "AND (is_test IS NULL OR is_test = FALSE)"
+    f_filt = t_filt + " AND (is_deleted IS NULL OR is_deleted = FALSE)"
+    params = {"d": shift_start, "e": shift_end}
+
+    cash_sales = safe_decimal(run_query(
+        f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Nağd)' AND type='in' AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['s'])
+    card_sales = safe_decimal(run_query(
+        f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Kart)' AND type='in' AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['s'])
+    cash_out = safe_decimal(run_query(
+        f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['e'])
+    cash_in = safe_decimal(run_query(
+        f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['i'])
+    bank_out = safe_decimal(run_query(
+        f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['e'])
+    bank_in = safe_decimal(run_query(
+        f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND category NOT IN ('Satış (Kart)') AND created_at >= :d AND created_at < :e {f_filt}",
+        params
+    ).iloc[0]['i'])
+    opening_balance = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0"))
+    expected_cash = opening_balance + cash_sales + cash_in - cash_out
+    cogs = safe_decimal(run_query(
+        "SELECT SUM(cogs) as s FROM sales WHERE created_at >= :d AND created_at < :e "
+        "AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status!='VOIDED')",
+        params
+    ).iloc[0]['s'])
+    refund_count = int(run_query(
+        "SELECT COUNT(*) as c FROM refunds WHERE created_at >= :d AND created_at < :e",
+        params
+    ).iloc[0]['c'] or 0)
+
+    return {
+        "log_date": log_date,
+        "shift_start": shift_start,
+        "shift_end": shift_end,
+        "opening_balance": opening_balance,
+        "cash_sales": cash_sales,
+        "card_sales": card_sales,
+        "cash_in": cash_in,
+        "cash_out": cash_out,
+        "bank_in": bank_in,
+        "bank_out": bank_out,
+        "expected_cash": expected_cash,
+        "cogs": cogs,
+        "refund_count": refund_count,
+    }
+
+
+def get_balance_snapshot(include_test=False):
+    t_filt = "AND (is_test IS NULL OR is_test = FALSE OR is_test = TRUE)" if include_test else "AND (is_test IS NULL OR is_test = FALSE)"
+    f_filt = t_filt + " AND (is_deleted IS NULL OR is_deleted = FALSE)"
+
+    bank_sales = safe_decimal(run_query(
+        f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Kart)' AND type='in' {f_filt}"
+    ).iloc[0]['s'])
+    bank_out = safe_decimal(run_query(
+        f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {f_filt}"
+    ).iloc[0]['e'])
+    bank_in = safe_decimal(run_query(
+        f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND category NOT IN ('Satış (Kart)') {f_filt}"
+    ).iloc[0]['i'])
+    investor_in = safe_decimal(run_query(
+        f"SELECT SUM(amount) as i FROM finance WHERE category='İnvestisiya (Kapital)' AND type='in' {f_filt}"
+    ).iloc[0]['i'])
+    investor_out = safe_decimal(run_query(
+        f"SELECT SUM(amount) as e FROM finance WHERE category='İnvestora Ödəniş (Qaytarılma)' AND type='out' {f_filt}"
+    ).iloc[0]['e'])
+
+    return {
+        "bank_balance": bank_sales + bank_in - bank_out,
+        "investor_fund": investor_in - investor_out,
+        "bank_sales_total": bank_sales,
+        "bank_in_total": bank_in,
+        "bank_out_total": bank_out,
+    }
+
+
+def process_shift_handover(actual_cash, user, diff_note="X-Hesabat zamanı fərq", log_action="X_REPORT_CREATED"):
+    snapshot = get_shift_finance_snapshot()
+    expected_cash = snapshot["expected_cash"]
+    actual_d = Decimal(str(actual_cash))
+    diff = actual_d - expected_cash
+    now = get_baku_now()
+    actions = []
+
+    if abs(diff) > Decimal("0.01"):
+        c_type = 'in' if diff > 0 else 'out'
+        cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+        actions.append((
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+            "VALUES (:t, :c, :a, 'Kassa', :d, :u, :time, FALSE)",
+            {"t": c_type, "c": cat, "a": str(abs(diff)), "d": diff_note, "u": user, "time": now}
+        ))
+
+    actions.append((
+        "INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)",
+        {"u": user, "e": str(expected_cash), "a": str(actual_d), "t": now}
+    ))
+
+    run_transaction(actions)
+    set_setting(SK_CASH_LIMIT, str(actual_d))
+    log_system(
+        user,
+        log_action,
+        {"expected_cash": str(expected_cash), "actual_cash": str(actual_d), "difference": str(diff)}
+    )
+    return {"expected_cash": expected_cash, "actual_cash": actual_d, "difference": diff}
+
+
+def process_z_report(actual_cash, cash_drop, wage_amount, user, is_test=False, close_current_shift=True):
+    snapshot = get_shift_finance_snapshot(include_test=is_test)
+    expected_cash = snapshot["expected_cash"]
+    actual_d = Decimal(str(actual_cash))
+    drop_d = Decimal(str(cash_drop))
+    wage_d = Decimal(str(wage_amount))
+    next_open = actual_d - drop_d - wage_d
+    if next_open < Decimal("0"):
+        raise ValueError("Sabaha qalan açılış balansı mənfi ola bilməz.")
+    diff = actual_d - expected_cash
+    now = get_baku_now()
+    actions = []
+
+    if abs(diff) > Decimal("0.01"):
+        c_type = 'in' if diff > 0 else 'out'
+        cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+        actions.append((
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+            "VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, FALSE)",
+            {"t": c_type, "c": cat, "a": str(abs(diff)), "u": user, "time": now}
+        ))
+
+    if drop_d > 0:
+        actions.append((
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+            "VALUES ('out', 'İnkassasiya (Rəhbərə verilən)', :a, 'Kassa', 'Z-Hesabat Çıxarışı', :u, :time, FALSE)",
+            {"a": str(drop_d), "u": user, "time": now}
+        ))
+
+    if wage_d > 0:
+        actions.append((
+            "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) "
+            "VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)",
+            {"a": str(wage_d), "u": user, "subj": user, "time": now, "tst": is_test}
+        ))
+
+    actions.append((
+        "INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) "
+        "VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)",
+        {
+            "ts": str(snapshot["cash_sales"] + snapshot["card_sales"]),
+            "cs": str(snapshot["cash_sales"]),
+            "crs": str(snapshot["card_sales"]),
+            "cogs": str(snapshot["cogs"]),
+            "ac": str(actual_d),
+            "gb": user,
+            "t": now
+        }
+    ))
+
+    run_transaction(actions)
+    set_setting(SK_CASH_LIMIT, str(next_open))
+    if close_current_shift:
+        close_shift(user)
+    log_system(
+        user,
+        "Z_REPORT_CREATED",
+        {
+            "expected_cash": str(expected_cash),
+            "actual_cash": str(actual_d),
+            "cash_drop": str(drop_d),
+            "wage_amount": str(wage_d),
+            "next_open_cash": str(next_open),
+            "difference": str(diff)
+        }
+    )
+    return {
+        "expected_cash": expected_cash,
+        "actual_cash": actual_d,
+        "cash_drop": drop_d,
+        "wage_amount": wage_d,
+        "next_open": next_open,
+        "difference": diff,
+        "snapshot": snapshot,
+    }
+
 def render_finance_page():
     if st.session_state.role not in ['admin', 'manager']:
         st.error("Bu səhifəyə icazəniz yoxdur!")
@@ -51,49 +265,55 @@ def render_finance_page():
     is_t_active = st.session_state.get('test_mode', False)
 
     # --- Dinamik Balans Hesablamaları ---
-    log_date = get_logical_date()
-    shift_start, shift_end = get_shift_range(log_date)
+    snapshot = get_shift_finance_snapshot(include_test=is_t_active)
+    balance_snapshot = get_balance_snapshot(include_test=is_t_active)
+    shift_start = snapshot["shift_start"]
+    shift_end = snapshot["shift_end"]
+    current_cash_box = snapshot["expected_cash"]
+
     t_filt = "AND (is_test IS NULL OR is_test = FALSE OR is_test = TRUE)" if is_t_active else "AND (is_test IS NULL OR is_test = FALSE)"
     f_filt = t_filt + " AND (is_deleted IS NULL OR is_deleted = FALSE)"
-
-    # 1. KASSA (Nağd Yeşik)
-    s_cash = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') AND created_at >= :d AND created_at < :e {t_filt}", {"d": shift_start, "e": shift_end}).iloc[0]['s'])
-    e_cash = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Kassa' AND type='out' AND created_at >= :d AND created_at < :e {f_filt}", {"d": shift_start, "e": shift_end}).iloc[0]['e'])
-    i_cash = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND created_at >= :d AND created_at < :e {f_filt}", {"d": shift_start, "e": shift_end}).iloc[0]['i'])
-    opening_bal = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0"))
-    current_cash_box = opening_bal + s_cash + i_cash - e_cash
-
-    # 2. BANK (Terminal və Kart)
-    s_card = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') AND (status IS NULL OR status='COMPLETED') {t_filt}").iloc[0]['s'])
-    e_card = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE source='Bank Kartı' AND type='out' {f_filt}").iloc[0]['e'])
-    i_card = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE source='Bank Kartı' AND type='in' AND category NOT IN ('Satış (Kart)') {f_filt}").iloc[0]['i'])
-    bank_balance = s_card + i_card - e_card
-
-    # 3. İNVESTOR (Seyf / Cib)
-    inv_in = safe_decimal(run_query(f"SELECT SUM(amount) as i FROM finance WHERE category='İnvestisiya (Kapital)' AND type='in' {f_filt}").iloc[0]['i'])
-    inv_out = safe_decimal(run_query(f"SELECT SUM(amount) as e FROM finance WHERE category='İnvestora Ödəniş (Qaytarılma)' AND type='out' {f_filt}").iloc[0]['e'])
-    investor_fund = inv_in - inv_out
+    opening_bal = snapshot["opening_balance"]
+    bank_balance = balance_snapshot["bank_balance"]
+    investor_fund = balance_snapshot["investor_fund"]
 
     # --- Vizual Panel ---
     st.markdown(f"""
     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
         <div style="flex: 1; background: #1e2226; padding: 15px; border-radius: 10px; border-left: 5px solid #28a745;">
-            <small style="color: #888;">🏪 Kassa (Yeşik)</small><br><strong style="font-size: 20px;">{current_cash_box:.2f} ₼</strong>
+            <small style="color: #888;">🏪 Kassa (Cari Smen)</small><br><strong style="font-size: 20px;">{current_cash_box:.2f} ₼</strong>
         </div>
         <div style="flex: 1; background: #1e2226; padding: 15px; border-radius: 10px; border-left: 5px solid #007bff;">
-            <small style="color: #888;">💳 Bank Hesabı</small><br><strong style="font-size: 20px;">{bank_balance:.2f} ₼</strong>
+            <small style="color: #888;">💳 Bank Hesabı (Ümumi)</small><br><strong style="font-size: 20px;">{bank_balance:.2f} ₼</strong>
         </div>
         <div style="flex: 1; background: #1e2226; padding: 15px; border-radius: 10px; border-left: 5px solid #ffc107;">
-            <small style="color: #888;">💰 İnvestora Borc (Kapital)</small><br><strong style="font-size: 20px;">{investor_fund:.2f} ₼</strong>
+            <small style="color: #888;">💰 İnvestora Borc (Ümumi)</small><br><strong style="font-size: 20px;">{investor_fund:.2f} ₼</strong>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    st.caption(
+        f"Cari smen: {shift_start.strftime('%d.%m %H:%M')} - {shift_end.strftime('%d.%m %H:%M')} | "
+        "Bank və investor göstəriciləri ümumi balansa görə göstərilir."
+    )
+
+    with st.expander("Reconciliation Checklist"):
+        rec1, rec2, rec3, rec4 = st.columns(4)
+        rec1.metric("Açılış Balansı", f"{opening_bal:.2f} ₼")
+        rec2.metric("Nağd Satış", f"{snapshot['cash_sales']:.2f} ₼")
+        rec3.metric("Satışsız Mədaxil", f"{snapshot['cash_in']:.2f} ₼")
+        rec4.metric("Məxaric", f"{snapshot['cash_out']:.2f} ₼")
+        st.write(f"Gözlənilən kassa: **{snapshot['expected_cash']:.2f} ₼**")
+        st.write(f"Refund sayı: **{snapshot['refund_count']}** | Kart satış: **{snapshot['card_sales']:.2f} ₼** | COGS: **{snapshot['cogs']:.2f} ₼**")
+
     # --- BUGÜNKÜ CƏDVƏL (ANA EKRANDA) ---
     st.markdown("#### 📊 Bugünkü Əməliyyatların Cədvəli")
-    today_hist = run_query("""
+    hist_test_clause, hist_deleted_clause = get_finance_visibility_filters(include_test=is_t_active)
+    today_hist = run_query(f"""
         SELECT id, created_at, category, subject, source, amount, type, description 
-        FROM finance WHERE created_at >= :d AND created_at < :e AND (is_deleted IS NULL OR is_deleted = FALSE)
+        FROM finance
+        WHERE created_at >= :d AND created_at < :e
+        {hist_test_clause} {hist_deleted_clause}
         ORDER BY created_at DESC
     """, {"d": shift_start, "e": shift_end})
     
@@ -162,9 +382,11 @@ def render_finance_page():
         h_start = st.date_input("Başlanğıc", datetime.date.today().replace(day=1), key="hist_start")
         h_end = st.date_input("Bitiş", datetime.date.today(), key="hist_end")
         
-        hist = run_query("""
+        hist = run_query(f"""
             SELECT id, created_at, category, subject, source, amount, type, description 
-            FROM finance WHERE DATE(created_at) BETWEEN :s AND :e AND (is_deleted IS NULL OR is_deleted = FALSE)
+            FROM finance
+            WHERE DATE(created_at) BETWEEN :s AND :e
+            {hist_test_clause} {hist_deleted_clause}
             ORDER BY created_at DESC
         """, {"s": h_start, "e": h_end})
         
@@ -197,6 +419,9 @@ def finance_adjust_dialog(current_calc_cash):
     if st.button("Düzəlişi Təsdiqlə", type="primary"):
         diff = Decimal(str(real_cash)) - Decimal(str(current_calc_cash))
         if abs(diff) > Decimal("0.001"):
+            if not reason.strip():
+                st.error("Kassa düzəlişi üçün səbəb yazılmalıdır.")
+                return
             t_type = 'in' if diff > 0 else 'out'
             cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
             run_action(
@@ -216,8 +441,14 @@ def finance_x_dialog(expected):
     st.write(f"Kassada olmalı: **{expected:.2f} ₼**")
     actual = st.number_input("Real məbləğ:", value=float(expected))
     if st.button("Təhvil Ver"):
-        set_setting(SK_CASH_LIMIT, str(actual))
-        st.success("Təhvil verildi!"); time.sleep(1); st.session_state.active_dialog = None; st.rerun()
+        try:
+            result = process_shift_handover(actual, st.session_state.user)
+            st.success(f"Təhvil verildi! Kassa: {result['actual_cash']:.2f} ₼")
+            time.sleep(1)
+            st.session_state.active_dialog = None
+            st.rerun()
+        except Exception as e:
+            st.error(f"Xəta: {e}")
 
 @st.dialog("🔴 Z-Hesabat")
 def finance_z_dialog(expected):
@@ -234,13 +465,18 @@ def finance_z_dialog(expected):
     st.write(f"Sabaha qalan xırda: **{final_next_day:.2f} ₼**")
     
     if st.button("Günü Bağla", type="primary"):
-        now = get_baku_now()
-        actions = []
-        if is_wage:
-            actions.append(("INSERT INTO finance (type, category, amount, source, subject, created_at) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', :u, :t)", {"a": str(wage_amt), "u": st.session_state.user, "t": now}))
-        if drop > 0:
-            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_at) VALUES ('out', 'İnkassasiya', :a, 'Kassa', 'Z-Hesabat Çıxarışı', :t)", {"a": str(drop), "t": now}))
-        
-        run_transaction(actions)
-        set_setting(SK_CASH_LIMIT, str(final_next_day))
-        st.success("Gün bağlandı!"); time.sleep(1); st.session_state.active_dialog = None; st.rerun()        
+        try:
+            process_z_report(
+                actual,
+                drop,
+                wage_amt if is_wage else 0,
+                st.session_state.user,
+                is_test=st.session_state.get('test_mode', False),
+                close_current_shift=True
+            )
+            st.success("Gün bağlandı!")
+            time.sleep(1)
+            st.session_state.active_dialog = None
+            st.rerun()
+        except Exception as e:
+            st.error(f"Xəta: {e}")

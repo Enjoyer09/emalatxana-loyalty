@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import text
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting, conn
+from modules.finance import get_shift_finance_snapshot, process_shift_handover, process_z_report, get_payment_mapping
 from utils import clean_qr_code, get_baku_now, get_logical_date, get_shift_range, log_system, safe_decimal, SK_CASH_LIMIT, get_active_happy_hour, get_shift_status, open_shift, close_shift
 
 logger = logging.getLogger(__name__)
@@ -74,17 +75,7 @@ def variant_dialog(items, cart):
 
 
 def get_current_shift_expected_cash():
-    log_date_z = get_logical_date()
-    sh_start_z, sh_end_z = get_shift_range(log_date_z)
-    q_cond_fin = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (is_deleted IS NULL OR is_deleted=FALSE)"
-    params = {"d": sh_start_z, "e": sh_end_z}
-    
-    s_cash = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Nağd)' AND type='in' {q_cond_fin}", params).iloc[0]['s'])
-    f_out = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond_fin}", params).iloc[0]['s'])
-    f_in = safe_decimal(run_query(f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond_fin}", params).iloc[0]['s'])
-    opening_limit = safe_decimal(get_setting(SK_CASH_LIMIT, "0.0"))
-    
-    return opening_limit + s_cash + f_in - f_out
+    return get_shift_finance_snapshot()["expected_cash"]
 
 
 @st.dialog("🤝 X-Hesabat (Növbəni Təhvil Ver)")
@@ -98,16 +89,9 @@ def x_report_dialog():
         u = st.session_state.user
         now = get_baku_now()
         actions = []
-        if abs(diff) > Decimal("0.01"):
-            c_type = 'in' if diff > 0 else 'out'
-            cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'X-Hesabat zamanı fərq', :u, :time, FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
-        actions.append(("INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)", {"u": u, "e": str(expected_cash), "a": str(actual_d), "t": now}))
         try:
-            run_transaction(actions)
-            set_setting(SK_CASH_LIMIT, str(actual_d))
-            log_system(u, "X_REPORT_CREATED", {"expected_cash": str(expected_cash), "actual_cash": str(actual_d), "difference": str(diff)})
-            st.success(f"Təhvil verildi! Kassa: {actual_d:.2f} ₼")
+            result = process_shift_handover(actual_cash, u)
+            st.success(f"Təhvil verildi! Kassa: {result['actual_cash']:.2f} ₼")
             time.sleep(1.5)
             st.session_state.active_dialog = None
             st.rerun()
@@ -131,43 +115,10 @@ def z_report_dialog():
     st.write(f"**Sabaha qalan açılış balansı (Xırda):** {next_open:.2f} ₼")
 
     if st.button("✅ Günü Bağla və Maaşı Çıxar", use_container_width=True, type="primary"):
-        actual_z_d = Decimal(str(actual_z))
-        wage_d = Decimal(str(wage_amt))
-        drop_d = Decimal(str(cash_drop))
         u = st.session_state.user
-        now = get_baku_now()
         is_t = st.session_state.get('test_mode', False)
-        diff = actual_z_d - expected_cash
-        actions = []
-        
-        if abs(diff) > Decimal("0.01"):
-            c_type = 'in' if diff > 0 else 'out'
-            cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
-        
-        if drop_d > 0:
-            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'İnkassasiya (Rəhbərə verilən)', :a, 'Kassa', 'Z-Hesabat Çıxarışı', :u, :time, FALSE)", {"a": str(drop_d), "u": u, "time": now}))
-            
-        if wage_d > 0:
-            actions.append(("INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) VALUES ('out', 'Maaş/Avans', :a, 'Kassa', 'Smen sonu maaş', :u, :subj, :time, :tst)", {"a": str(wage_d), "u": u, "subj": u, "time": now, "tst": is_t}))
-            
         try:
-            log_date_z = get_logical_date()
-            sh_start_z, sh_end_z = get_shift_range(log_date_z)
-            q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status='COMPLETED')"
-            rp = {"d": sh_start_z, "e": sh_end_z}
-            s_cash_z = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') {q_cond}", rp).iloc[0]['s'])
-            s_card_z = safe_decimal(run_query(f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Kart', 'Card') {q_cond}", rp).iloc[0]['s'])
-            s_cogs_z = safe_decimal(run_query(f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond}", rp).iloc[0]['s'])
-            actions.append(("INSERT INTO z_reports (total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at) VALUES (:ts, :cs, :crs, :cogs, :ac, :gb, :t)", {"ts": str(s_cash_z + s_card_z), "cs": str(s_cash_z), "crs": str(s_card_z), "cogs": str(s_cogs_z), "ac": str(actual_z_d), "gb": u, "t": now}))
-        except Exception as e:
-            logger.error(f"Z-report data error: {e}")
-            
-        try:
-            run_transaction(actions)
-            set_setting(SK_CASH_LIMIT, str(next_open))
-            close_shift(u)
-            log_system(u, "Z_REPORT_CREATED", {"expected_cash": str(expected_cash), "next_open_cash": str(next_open), "wage_amount": str(wage_d), "difference": str(diff)})
+            result = process_z_report(actual_z, cash_drop, wage_amt, u, is_test=is_t, close_current_shift=True)
             st.success(f"Uğurlu! Gün bağlandı. Sabaha qalan: {next_open} AZN.")
             time.sleep(1.5)
             st.session_state.active_dialog = None
@@ -376,11 +327,12 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                             comm = max(min_comm, (split_card * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
                             s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Kart Komissiya (Split)', :u, :t, FALSE, :sid)"), {"a": str(comm), "u": user, "t": now, "sid": sale_id})
                     else:
-                        if pm != 'Staff':
-                            db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
-                            pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
+                        payment_map = get_payment_mapping(pm)
+                        if payment_map["tracks_finance"]:
+                            db_pm = payment_map["source"]
+                            pm_cat = payment_map["category"]
                             s.execute(text("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) VALUES ('in', :cat, :a, :src, 'POS Satış', :u, :t, FALSE, :sid)"), {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now, "sid": sale_id})
-                            if pm == "Kart":
+                            if pm in ["Kart", "Card"]:
                                 min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                                 pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
                                 comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))

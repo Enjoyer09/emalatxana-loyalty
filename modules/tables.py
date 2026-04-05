@@ -10,6 +10,7 @@ from sqlalchemy import text
 from database import run_query, run_action, run_transaction, get_setting, conn
 from utils import get_baku_now, CAT_ORDER_MAP, safe_decimal, log_system
 from modules.pos import add_to_cart, calculate_smart_total, get_cached_menu
+from modules.finance import get_payment_mapping
 from auth import admin_confirm_dialog
 
 logger = logging.getLogger(__name__)
@@ -114,18 +115,17 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                             {"a": str(comm), "u": user, "t": now, "sid": sale_id}
                         )
                 else:
-                    db_pm = "Kassa" if pm == "Nəğd" else "Bank Kartı"
-                    pm_cat = "Satış (Nağd)" if pm == "Nəğd" else "Satış (Kart)"
+                    payment_map = get_payment_mapping(pm)
+                    if payment_map["tracks_finance"]:
+                        s.execute(
+                            text("""
+                                INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
+                                VALUES ('in', :cat, :a, :src, 'Masa Satışı', :u, :t, FALSE, :sid)
+                            """),
+                            {"cat": payment_map["category"], "a": str(final_d), "src": payment_map["source"], "u": user, "t": now, "sid": sale_id}
+                        )
 
-                    s.execute(
-                        text("""
-                            INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
-                            VALUES ('in', :cat, :a, :src, 'Masa Satışı', :u, :t, FALSE, :sid)
-                        """),
-                        {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now, "sid": sale_id}
-                    )
-
-                    if pm == "Kart":
+                    if pm in ["Kart", "Card"]:
                         min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                         pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
                         comm = max(min_comm, (final_d * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))

@@ -27,6 +27,7 @@ from modules.ai_manager import render_ai_page
 from modules.customer_menu import render_customer_app
 from modules.combos import render_combos_page
 from modules.kitchen import render_kitchen_page
+from modules.finance import get_shift_finance_snapshot, process_shift_handover
 
 st.set_page_config(page_title=BRAND_NAME, page_icon="☕", layout="wide", initial_sidebar_state="collapsed")
 
@@ -49,33 +50,7 @@ def shift_modal(mode):
             c1, c2 = st.columns(2)
 
             if c1.button("🤝 Smeni Təhvil Ver", use_container_width=True):
-                log_date_z = get_logical_date()
-                sh_start_z, sh_end_z = get_shift_range(log_date_z)
-                q_cond = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE)"
-                params = {"d": sh_start_z, "e": sh_end_z}
-
-                s_cash = safe_decimal(
-                    run_query(
-                        f"SELECT SUM(total) as s FROM sales WHERE payment_method IN ('Nəğd', 'Cash') AND (status IS NULL OR status='COMPLETED') {q_cond}",
-                        params
-                    ).iloc[0]['s']
-                )
-                f_out = safe_decimal(
-                    run_query(
-                        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}",
-                        params
-                    ).iloc[0]['s']
-                )
-                f_in = safe_decimal(
-                    run_query(
-                        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') AND (is_deleted IS NULL OR is_deleted=FALSE) {q_cond}",
-                        params
-                    ).iloc[0]['s']
-                )
-                opening_limit = safe_decimal(get_setting("cash_limit", "0.0"))
-                expected_cash = opening_limit + s_cash + f_in - f_out
-
-                st.session_state.handover_expected = float(expected_cash)
+                st.session_state.handover_expected = float(get_shift_finance_snapshot()["expected_cash"])
                 st.session_state.handover_mode = True
                 st.rerun()
 
@@ -96,38 +71,8 @@ def shift_modal(mode):
 
             c_conf1, c_conf2 = st.columns(2)
             if c_conf1.button("✅ Təsdiqlə və Çıxış Et", type="primary", use_container_width=True):
-                expected_d = Decimal(str(st.session_state.handover_expected))
-                actual_d = Decimal(str(actual))
-                diff = actual_d - expected_d
-                now = get_baku_now()
-                u = st.session_state.user
-
-                actions = []
-                if abs(diff) > Decimal("0.01"):
-                    c_type = 'in' if diff > 0 else 'out'
-                    cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-                    actions.append((
-                        "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Smen Təhvili (Çıxış) zamanı fərq', :u, :time, FALSE)",
-                        {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}
-                    ))
-
-                actions.append((
-                    "INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)",
-                    {"u": u, "e": str(expected_d), "a": str(actual_d), "t": now}
-                ))
-
                 try:
-                    run_transaction(actions)
-                    set_setting("cash_limit", str(actual_d))
-                    log_system(
-                        u,
-                        "SHIFT_HANDOVER",
-                        {
-                            "expected_cash": str(expected_d),
-                            "actual_cash": str(actual_d),
-                            "difference": str(diff)
-                        }
-                    )
+                    process_shift_handover(actual, st.session_state.user, "Smen Təhvili (Çıxış) zamanı fərq", "SHIFT_HANDOVER")
                 except Exception as e:
                     st.error(f"Xəta: {e}")
                     st.stop()

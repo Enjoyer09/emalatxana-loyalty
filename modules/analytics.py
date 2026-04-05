@@ -8,6 +8,7 @@ import logging
 from decimal import Decimal
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting
+from modules.finance import get_shift_finance_snapshot, process_shift_handover, process_z_report
 from utils import (
     get_logical_date,
     get_shift_range,
@@ -23,6 +24,18 @@ try:
     import google.generativeai as genai
 except ImportError:
     genai = None
+
+
+def get_sale_refund_summary(sale_id):
+    refunds = run_query(
+        "SELECT COALESCE(SUM(refund_amount), 0) AS refunded_total, COUNT(*) AS refund_count "
+        "FROM refunds WHERE original_sale_id=:sid",
+        {"sid": sale_id}
+    )
+    if refunds.empty:
+        return Decimal("0"), 0
+    row = refunds.iloc[0]
+    return safe_decimal(row.get('refunded_total')), int(row.get('refund_count') or 0)
 
 
 def parse_items_for_display(items_str):
@@ -43,10 +56,19 @@ def show_refund_dialog(sale_id):
         return
 
     row = sale.iloc[0]
+    sale_total = Decimal(str(row['total']))
+    refunded_so_far, refund_count = get_sale_refund_summary(sale_id)
+    remaining_refundable = max(Decimal("0"), sale_total - refunded_so_far)
 
-    if row.get('status') == 'VOIDED':
+    if row.get('status') == 'VOIDED' or remaining_refundable <= Decimal("0.00"):
         st.warning("Bu satış artıq ləğv edilib!")
         return
+
+    if refund_count > 0:
+        st.info(
+            f"Əvvəlki refundlar: **{refunded_so_far:.2f} ₼** | "
+            f"Qalan refund limiti: **{remaining_refundable:.2f} ₼**"
+        )
 
     st.markdown(f"**Satış #{row['id']}** — {row['created_at']}")
     try:
@@ -66,11 +88,17 @@ def show_refund_dialog(sale_id):
     is_full_void = "TAM" in refund_type
 
     if is_full_void:
-        refund_amount = Decimal(str(row['total']))
+        refund_amount = remaining_refundable
         st.info(f"Geri qaytarılacaq: **{refund_amount:.2f} ₼**")
     else:
         refund_amount = Decimal(str(
-            st.number_input("Geri qaytarılan məbləğ (₼):", min_value=0.01, max_value=float(row['total']), value=float(row['total']), step=0.5)
+            st.number_input(
+                "Geri qaytarılan məbləğ (₼):",
+                min_value=0.01,
+                max_value=float(remaining_refundable),
+                value=float(remaining_refundable),
+                step=0.5
+            )
         ))
 
     return_to_stock = st.checkbox("📦 Məhsulları anbara geri qaytar", value=True)
@@ -93,8 +121,9 @@ def show_refund_dialog(sale_id):
         u = st.session_state.user
         is_test = row.get('is_test', False)
         actions = []
+        refunded_total_after = refunded_so_far + refund_amount
 
-        new_status = 'VOIDED' if is_full_void else 'PARTIAL_REFUND'
+        new_status = 'VOIDED' if refunded_total_after >= sale_total else 'PARTIAL_REFUND'
         actions.append((
             "UPDATE sales SET status=:s WHERE id=:id",
             {"s": new_status, "id": sale_id}
@@ -107,7 +136,7 @@ def show_refund_dialog(sale_id):
                 "sid": sale_id,
                 "amt": str(refund_amount),
                 "reason": full_reason,
-                "rtype": "VOID" if is_full_void else "PARTIAL_REFUND",
+                "rtype": "VOID" if new_status == 'VOIDED' else "PARTIAL_REFUND",
                 "stock": return_to_stock,
                 "user": u,
                 "time": now
@@ -164,7 +193,7 @@ def show_refund_dialog(sale_id):
                 {
                     "sale_id": sale_id,
                     "amount": str(refund_amount),
-                    "refund_type": "VOID" if is_full_void else "PARTIAL",
+                    "refund_type": "VOID" if new_status == 'VOIDED' else "PARTIAL",
                     "reason": full_reason,
                     "return_to_stock": return_to_stock
                 }
@@ -240,19 +269,55 @@ def render_analytics_page():
         if 'cust_type' not in sales.columns: sales['cust_type'] = None
         if 'customer_card_id' not in sales.columns: sales['customer_card_id'] = None
 
-        real_sales = sales[(sales['is_test'] != True) & (sales['status'] == 'COMPLETED')].copy()
+        real_sales = sales[(sales['is_test'] != True) & (sales['status'] != 'VOIDED')].copy()
         voided_sales = sales[sales['status'].isin(['VOIDED', 'PARTIAL_REFUND'])].copy()
 
         if 'cogs' not in real_sales.columns:
             real_sales['cogs'] = 0.0
 
-        total_rev = safe_decimal(real_sales['total'].sum())
+        refunds = run_query(
+            """
+            SELECT r.original_sale_id, COALESCE(SUM(r.refund_amount), 0) AS refunded_amount
+            FROM refunds r
+            LEFT JOIN sales s ON r.original_sale_id = s.id
+            WHERE r.created_at BETWEEN :s AND :e
+              AND (s.is_test IS NULL OR s.is_test = FALSE)
+            GROUP BY r.original_sale_id
+            """,
+            {"s": ts_start, "e": ts_end}
+        )
+        refund_map = {}
+        if not refunds.empty:
+            refund_map = {
+                int(row['original_sale_id']): safe_decimal(row['refunded_amount'])
+                for _, row in refunds.iterrows()
+                if row.get('original_sale_id') is not None
+            }
+
+        real_sales['refund_amount'] = real_sales['id'].apply(lambda sale_id: refund_map.get(int(sale_id), Decimal("0")))
+        real_sales['net_revenue'] = real_sales.apply(
+            lambda row: max(Decimal("0"), safe_decimal(row['total']) - safe_decimal(row['refund_amount'])),
+            axis=1
+        )
+
+        total_rev = safe_decimal(real_sales['net_revenue'].sum())
         total_cogs = safe_decimal(real_sales['cogs'].sum())
         card_mask = real_sales['payment_method'].isin(['Card', 'Kart'])
-        card_total = safe_decimal(real_sales.loc[card_mask, 'total'].sum())
-        bank_fee = (card_total * Decimal("0.02")).quantize(Decimal("0.01"))
+        card_total = safe_decimal(real_sales.loc[card_mask, 'net_revenue'].sum())
+        bank_fee = safe_decimal(run_query(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS s
+            FROM finance
+            WHERE category='Bank Komissiyası'
+              AND source='Bank Kartı'
+              AND created_at BETWEEN :s AND :e
+              AND (is_test IS NULL OR is_test=FALSE)
+              AND (is_deleted IS NULL OR is_deleted=FALSE)
+            """,
+            {"s": ts_start, "e": ts_end}
+        ).iloc[0]['s'])
         gross_profit = total_rev - total_cogs - bank_fee
-        cash_sales = safe_decimal(real_sales[real_sales['payment_method'].isin(['Cash', 'Nəğd'])]['total'].sum())
+        cash_sales = safe_decimal(real_sales[real_sales['payment_method'].isin(['Cash', 'Nəğd'])]['net_revenue'].sum())
         void_count = len(voided_sales)
 
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -410,47 +475,20 @@ def render_analytics_page():
                     st.error(f"Staff statistikası yüklənmədi: {e}")
 def render_z_report_page():
     st.subheader("📊 Z-Hesabat və Növbə İdarəetməsi")
-    log_date_z = get_logical_date()
-    sh_start_z, sh_end_z = get_shift_range(log_date_z)
-
-    q_cond_fin = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (is_deleted IS NULL OR is_deleted = FALSE)"
+    snapshot = get_shift_finance_snapshot()
+    log_date_z = snapshot["log_date"]
+    sh_start_z = snapshot["shift_start"]
+    sh_end_z = snapshot["shift_end"]
     q_cond_sales = "AND created_at>=:d AND created_at<:e AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status='COMPLETED')"
     params = {"d": sh_start_z, "e": sh_end_z}
-
-    # SPLIT də daxildir
-    s_cash = safe_decimal(run_query(
-        f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Nağd)' AND type='in' {q_cond_fin}", params
-    ).iloc[0]['s'])
-
-    s_card = safe_decimal(run_query(
-        f"SELECT SUM(amount) as s FROM finance WHERE category='Satış (Kart)' AND type='in' {q_cond_fin}", params
-    ).iloc[0]['s'])
-
-    try:
-        s_cogs = safe_decimal(run_query(
-            f"SELECT SUM(cogs) as s FROM sales WHERE 1=1 {q_cond_sales}", params
-        ).iloc[0]['s'])
-    except:
-        s_cogs = Decimal("0")
-
-    f_out = safe_decimal(run_query(
-        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='out' {q_cond_fin}", params
-    ).iloc[0]['s'])
-
-    f_in = safe_decimal(run_query(
-        f"SELECT SUM(amount) as s FROM finance WHERE source='Kassa' AND type='in' AND category NOT IN ('Kassa Açılışı', 'Satış (Nağd)') {q_cond_fin}", params
-    ).iloc[0]['s'])
-
-    opening_limit = safe_decimal(get_setting("cash_limit", "0.0"))
-    expected_cash = opening_limit + s_cash + f_in - f_out
-
-    try:
-        refund_count = run_query(
-            "SELECT COUNT(*) as c FROM refunds WHERE created_at>=:d AND created_at<:e",
-            {"d": sh_start_z, "e": sh_end_z}
-        ).iloc[0]['c'] or 0
-    except:
-        refund_count = 0
+    s_cash = snapshot["cash_sales"]
+    s_card = snapshot["card_sales"]
+    s_cogs = snapshot["cogs"]
+    f_out = snapshot["cash_out"]
+    f_in = snapshot["cash_in"]
+    opening_limit = snapshot["opening_balance"]
+    expected_cash = snapshot["expected_cash"]
+    refund_count = snapshot["refund_count"]
 
     if st.session_state.role == 'staff':
         my_sales = run_query(
@@ -513,19 +551,8 @@ def render_z_report_page():
             actual = st.number_input("Kassadakı nağd:", value=float(expected_cash))
             if st.button("Təsdiqlə", type="primary"):
                 actual_d = Decimal(str(actual))
-                diff = actual_d - expected_cash
-                now = get_baku_now()
-                u = st.session_state.user
-                actions = []
-                if abs(diff) > Decimal("0.01"):
-                    c_type = 'in' if diff > 0 else 'out'
-                    cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,created_at,is_test) VALUES (:t,:c,:a,'Kassa','X-Hesabat fərq',:u,:time,FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
-                actions.append(("INSERT INTO shift_handovers (handed_by,expected_cash,actual_cash,created_at) VALUES (:h,:e,:a,:t)", {"h": u, "e": str(expected_cash), "a": str(actual_d), "t": now}))
                 try:
-                    run_transaction(actions)
-                    set_setting("cash_limit", str(actual_d))
-                    log_system(u, "X_REPORT_CREATED", {"expected": str(expected_cash), "actual": str(actual_d)})
+                    process_shift_handover(actual, st.session_state.user)
                     st.success("Təhvil verildi!")
                     time.sleep(1)
                     st.rerun()
@@ -547,31 +574,9 @@ def render_z_report_page():
             st.write(f"**Sabaha qalan açılış balansı (Xırda):** {next_open:.2f} ₼")
 
             if st.button("✅ Günü Bağla", type="primary"):
-                actual_d = Decimal(str(actual_z))
-                wage_d = Decimal(str(wage))
-                drop_d = Decimal(str(cash_drop))
-                u = st.session_state.user
-                now = get_baku_now()
-                diff = actual_d - expected_cash
-                actions = []
-
-                if abs(diff) > Decimal("0.01"):
-                    c_type = 'in' if diff > 0 else 'out'
-                    cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,created_at,is_test) VALUES (:t,:c,:a,'Kassa','Z-Hesabat fərq',:u,:time,FALSE)", {"t": c_type, "c": cat, "a": str(abs(diff)), "u": u, "time": now}))
-
-                if drop_d > 0:
-                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,created_at,is_test) VALUES ('out','İnkassasiya (Rəhbərə verilən)',:a,'Kassa','Z-Hesabat Çıxarışı',:u,:time,FALSE)", {"a": str(drop_d), "u": u, "time": now}))
-
-                if wage_d > 0:
-                    actions.append(("INSERT INTO finance (type,category,amount,source,description,created_by,subject,created_at,is_test) VALUES ('out','Maaş/Avans',:a,'Kassa','Smen sonu maaş',:u,:subj,:time,FALSE)", {"a": str(wage_d), "u": u, "subj": u, "time": now}))
-
-                actions.append(("INSERT INTO z_reports (total_sales,cash_sales,card_sales,total_cogs,actual_cash,generated_by,created_at) VALUES (:ts,:cs,:crs,:cogs,:ac,:gb,:t)", {"ts": str(s_cash + s_card), "cs": str(s_cash), "crs": str(s_card), "cogs": str(s_cogs), "ac": str(actual_d), "gb": u, "t": now}))
-
                 try:
-                    run_transaction(actions)
-                    set_setting("cash_limit", str(next_open))
-                    set_setting("last_z_report_time", now.isoformat())
+                    result = process_z_report(actual_z, cash_drop, wage, st.session_state.user, close_current_shift=True)
+                    set_setting("last_z_report_time", get_baku_now().isoformat())
 
                     try:
                         report_date = str(log_date_z)
@@ -583,19 +588,18 @@ def render_z_report_page():
                             "gross_profit": float((s_cash + s_card) - s_cogs),
                             "expected_cash": float(expected_cash),
                             "refunds_count": int(refund_count),
-                            "generated_by": u
+                            "generated_by": st.session_state.user
                         }
                         ok, msg = send_z_report_email(report_date, summary)
                         if ok:
-                            log_system(u, "Z_REPORT_EMAIL_SENT", {"report_date": report_date, "result": "success"})
+                            log_system(st.session_state.user, "Z_REPORT_EMAIL_SENT", {"report_date": report_date, "result": "success"})
                         else:
-                            log_system(u, "Z_REPORT_EMAIL_FAILED", {"report_date": report_date, "error": msg})
+                            log_system(st.session_state.user, "Z_REPORT_EMAIL_FAILED", {"report_date": report_date, "error": msg})
                             st.warning(f"PDF yaradıldı, amma e-mail göndərilmədi: {msg}")
                     except Exception as mail_e:
                         st.warning(f"E-mail xətası: {mail_e}")
-                        log_system(u, "Z_REPORT_EMAIL_EXCEPTION", {"error": str(mail_e)})
+                        log_system(st.session_state.user, "Z_REPORT_EMAIL_EXCEPTION", {"error": str(mail_e)})
 
-                    log_system(u, "Z_REPORT_CREATED", {"wage": str(wage_d), "drop": str(drop_d), "next_open": str(next_open)})
                     st.success("GÜN BAĞLANDI!")
                     time.sleep(1)
                     st.rerun()
