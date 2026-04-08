@@ -358,29 +358,52 @@ def render_settings_page():
 
 def render_database_page():
     st.subheader("💾 Baza İdarəetməsi (Backup & Restore)")
+    st.info("Bütün sistemi və tranzaksiyaları JSON formatında yükləyin. Bu faylı istədiyiniz vaxt başqa sistemə köçürə bilərsiniz.")
 
-    if st.button("📦 Bütün Bazanı JSON kimi Yüklə"):
-        try:
-            # Ensure ingredients and recipes are in the export list
-            tables = ['users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes', 'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds', 'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes', 'customer_coupons', 'campaigns']
-            backup_data = {}
-            for t in tables:
-                try:
-                    df = run_query(f"SELECT * FROM {t}")
-                    if not df.empty:
-                        # Convert datetime objects to strings for JSON serialization
-                        df = df.applymap(lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x)
-                        backup_data[t] = df.to_dict(orient='records')
-                except Exception as table_error:
-                    logger.warning(f"Skipping table {t} during backup: {table_error}")
-                    pass
+    # YENİLƏNMİŞ, PANDAS İLƏ XƏTASIZ BACKUP MƏNTİQİ
+    if st.button("📦 JSON Backup Hazırla", type="primary", use_container_width=True):
+        with st.spinner("Məlumatlar toplanır... Zəhmət olmasa gözləyin."):
+            try:
+                tables_to_backup = [
+                    "tables", "menu", "sales", "users", "active_sessions", "ingredients", 
+                    "finance", "expenses", "recipes", "customers", "promo_codes", 
+                    "customer_coupons", "notifications", "settings", "system_logs", 
+                    "feedbacks", "admin_notes", "bonuses", "orders", "order_items", 
+                    "z_reports", "logs", "coffee_fortunes", "happy_hours"
+                ]
+                backup_data = {}
+                for t in tables_to_backup:
+                    try:
+                        df = run_query(f"SELECT * FROM {t}")
+                        if not df.empty:
+                            # Pandas to_json tarixi, onluq kəsrləri və mürəkkəb simvolları xətasız oxuyur!
+                            json_str = df.to_json(orient="records", date_format="iso", force_ascii=False)
+                            backup_data[t] = json.loads(json_str)
+                        else:
+                            backup_data[t] = []
+                    except Exception as table_error:
+                        logger.warning(f"Skipping table {t} during backup: {table_error}")
+                        backup_data[t] = []
 
-            json_str = json.dumps(backup_data, indent=4, default=str)
-            log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": list(backup_data.keys())})
-            st.download_button("JSON Faylını Yüklə", data=json_str, file_name=f"backup_{get_baku_now().strftime('%Y%m%d_%H%M')}.json", mime="application/json")
-            st.success("Baza uğurla hazırlandı, yükləyə bilərsiniz!")
-        except Exception as e:
-            st.error(f"Backup xətası: {e}")
+                final_json = json.dumps(backup_data, indent=4, ensure_ascii=False)
+                st.session_state.backup_json = final_json
+                st.session_state.backup_ready = True
+                log_system(st.session_state.user, "DATABASE_BACKUP_CREATED", {"tables": list(backup_data.keys())})
+            except Exception as e:
+                st.error(f"Backup xətası: {e}")
+
+    # EKRANDA YARANAN YÜKLƏMƏ DÜYMƏSİ (State-də qorunur)
+    if st.session_state.get('backup_ready', False):
+        st.download_button(
+            label="📥 Hazır JSON Faylı Yüklə",
+            data=st.session_state.backup_json,
+            file_name=f"Emalatkhana_Backup_{get_baku_now().strftime('%d_%m_%Y_%H_%M')}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+        st.success("✅ Backup faylı uğurla hazırlandı! Yuxarıdakı düyməyə basaraq yükləyə bilərsiniz.")
+
+    st.markdown("---")
 
     with st.expander("⚠️ Bazanı Bərpa Et (Restore)"):
         st.warning("DİQQƏT: Bu proses mövcud məlumatları silib yenisi ilə əvəz edəcək!")
@@ -392,12 +415,12 @@ def render_database_page():
                     st.error("⚠️ JSON formatı səhvdir!")
                     st.stop()
 
-                # CRITICAL FIX: Ensure ingredients and recipes are in the allowed_tables set for restore
                 allowed_tables = {
                     'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes',
                     'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds',
                     'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes',
-                    'customer_coupons', 'campaigns', 'tables'
+                    'customer_coupons', 'campaigns', 'tables', 'z_reports', 'active_sessions',
+                    'expenses', 'system_logs', 'feedbacks', 'bonuses', 'orders', 'order_items', 'coffee_fortunes'
                 }
 
                 with conn.session as s:
@@ -422,7 +445,7 @@ def render_database_page():
                                 logger.info(f"Successfully restored table: {tbl}")
                             except Exception as table_restore_error:
                                 logger.error(f"Failed to restore table {tbl}: {table_restore_error}")
-                                raise table_restore_error # Re-raise to trigger rollback if a crucial table fails
+                                raise table_restore_error 
                     s.commit()
 
                 log_system(st.session_state.user, "DATABASE_RESTORE_COMPLETED")
