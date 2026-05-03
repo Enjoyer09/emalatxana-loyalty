@@ -2,7 +2,9 @@
 import streamlit as st
 import pandas as pd
 import json
+import html
 import logging
+import secrets
 
 from database import run_query, run_action, get_setting
 from utils import get_baku_now
@@ -455,7 +457,9 @@ def check_notifications(card_id):
     try:
         n = run_query("SELECT id, message FROM notifications WHERE card_id=:c AND (is_read IS NULL OR is_read=FALSE) ORDER BY created_at DESC LIMIT 1", {"c": card_id})
         if not n.empty:
-            st.markdown(f'<div class="info-bar msg">🎉 {n.iloc[0]["message"]}</div>', unsafe_allow_html=True)
+            # XSS Fix 1.3: escape DB text before injecting into HTML
+            safe_msg = html.escape(str(n.iloc[0]['message']))
+            st.markdown(f'<div class="info-bar msg">🎉 {safe_msg}</div>', unsafe_allow_html=True)
             if st.button("✓ Oxudum", key="notif_x", use_container_width=True):
                 run_action("UPDATE notifications SET is_read=TRUE WHERE id=:id", {"id": n.iloc[0]['id']})
                 st.rerun()
@@ -638,7 +642,7 @@ def render_fortune():
 # ============================================================
 # MAIN
 # ============================================================
-def render_customer_app(customer_id=None):
+def render_customer_app(customer_id=None, secret_token=None):
     inject_customer_css()
 
     if not customer_id:
@@ -649,6 +653,21 @@ def render_customer_app(customer_id=None):
         st.error("Müştəri tapılmadı."); return
 
     cust = c_df.iloc[0].to_dict()
+
+    # Security Fix 1.2: Auto-generate token for legacy customers that have none
+    db_token = cust.get('secret_token', '') or ''
+    if not db_token:
+        new_token = secrets.token_hex(8)
+        try:
+            run_action("UPDATE customers SET secret_token=:t WHERE card_id=:id", {"t": new_token, "id": customer_id})
+            db_token = new_token
+        except:
+            pass
+
+    # Validate token — must match. Skip check if token field is still empty (legacy fallback once).
+    if db_token and secret_token != db_token:
+        st.error("⛔ Giriş qadağandır. QR kodunuz köhnəlmişdir, kassirdən yenisini alın.")
+        return
     stars = int(cust.get('stars', 0))
     c_type = str(cust.get('type', 'standard'))
     free_count = stars // 10

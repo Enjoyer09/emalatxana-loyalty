@@ -365,10 +365,12 @@ def render_database_page():
         with st.spinner("Məlumatlar toplanır... Zəhmət olmasa gözləyin."):
             try:
                 tables_to_backup = [
-                    "tables", "menu", "sales", "users", "active_sessions", "ingredients", 
-                    "finance", "expenses", "recipes", "customers", "promo_codes", 
-                    "customer_coupons", "notifications", "settings", "system_logs", 
-                    "feedbacks", "admin_notes", "bonuses", "orders", "order_items", 
+                    "tables", "menu", "sales", "users",
+                    # Security Fix 1.4: active_sessions EXCLUDED — tokens must not be exported
+                    "ingredients",
+                    "finance", "expenses", "recipes", "customers", "promo_codes",
+                    "customer_coupons", "notifications", "settings", "system_logs",
+                    "feedbacks", "admin_notes", "bonuses", "orders", "order_items",
                     "z_reports", "logs", "coffee_fortunes", "happy_hours"
                 ]
                 backup_data = {}
@@ -463,7 +465,8 @@ def render_database_page():
                     'users', 'menu', 'sales', 'finance', 'customers', 'ingredients', 'recipes',
                     'settings', 'logs', 'shift_handovers', 'admin_notes', 'refunds',
                     'kitchen_orders', 'happy_hours', 'notifications', 'promo_codes',
-                    'customer_coupons', 'campaigns', 'tables', 'z_reports', 'active_sessions',
+                    'customer_coupons', 'campaigns', 'tables', 'z_reports',
+                    # Security Fix 1.4: active_sessions intentionally excluded from restore
                     'expenses', 'system_logs', 'feedbacks', 'bonuses', 'orders', 'order_items', 'coffee_fortunes'
                 }
 

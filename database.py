@@ -443,6 +443,10 @@ def ensure_schema():
             ("z_reports", "card_sales", "DECIMAL(10,2) DEFAULT 0"),
             ("z_reports", "actual_cash", "DECIMAL(10,2) DEFAULT 0"),
             ("z_reports", "generated_by", "TEXT"),
+            # Security Fix 1.2: QR token per customer
+            ("customers", "secret_token", "TEXT"),
+            # DB Fix 4.1: customers.created_at was missing, causing CRM query crash
+            ("customers", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ]
 
         for tbl, col, dtype in columns_to_add:
@@ -466,11 +470,22 @@ def ensure_schema():
             ON CONFLICT DO NOTHING
         """))
 
-        # DEFAULT ADMIN
+        # SECURITY: Default admin creation requires explicit ADMIN_PASS env var
+        # NEVER fall back to a hardcoded password in production
         existing_admin = s.execute(text("SELECT 1 FROM users WHERE username='admin'")).fetchone()
         if not existing_admin:
             import bcrypt
-            admin_pass = os.environ.get("ADMIN_PASS", "admin123")
+            admin_pass = os.environ.get("ADMIN_PASS")
+            if not admin_pass:
+                s.rollback()
+                raise RuntimeError(
+                    "ADMIN_PASS environment variable is not set. "
+                    "Set it in your secrets/environment before starting the app. "
+                    "Example: ADMIN_PASS=your_secure_password"
+                )
+            if len(admin_pass) < 6:
+                s.rollback()
+                raise RuntimeError("ADMIN_PASS must be at least 6 characters.")
             p_hash = bcrypt.hashpw(admin_pass.encode(), bcrypt.gensalt()).decode()
             s.execute(text("""
                 INSERT INTO users (username, password, role)

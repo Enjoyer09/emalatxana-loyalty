@@ -351,8 +351,9 @@ def render_pos_page():
             if st.form_submit_button("✅ Smeni Aç", type="primary", use_container_width=True):
                 open_shift(st.session_state.user)
                 set_setting(SK_CASH_LIMIT, str(opening_cash))
+                # Finance Fix 2.4: opening cash is always a real (non-test) event
                 run_action(
-                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılış balansı', :u, :t, FALSE)", 
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('in', 'Kassa Açılışı', :a, 'Kassa', 'Səhər açılış balansı', :u, :t, FALSE)",
                     {"a": str(opening_cash), "u": st.session_state.user, "t": get_baku_now()}
                 )
                 st.success("Smen açıldı! Uğurlu iş günləri!")

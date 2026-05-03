@@ -11,6 +11,7 @@ env/
 
 # === Streamlit ===
 .streamlit/
+.streamlit/secrets.toml
 
 # === Environment / Secrets ===
 .env
@@ -19,6 +20,7 @@ env/
 
 # === OS / Editor ===
 .DS_Store
+__MACOSX/
 Thumbs.db
 .idea/
 .vscode/
@@ -30,5 +32,9 @@ Thumbs.db
 # === Build / Temp ===
 dist/
 build/
+*.zip
 
-#saved
+# === Archive / Backup app files (not production entrypoint) ===
+app-bkp.py
+app4.9.py
+v2_lab.py

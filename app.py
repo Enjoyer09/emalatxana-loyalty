@@ -87,7 +87,9 @@ def shift_modal(mode):
 
 params = st.query_params
 if "id" in params:
-    render_customer_app(params.get("id"))
+    # Security Fix 1.2: Require both id AND token for customer access
+    cust_token = params.get("t", "")
+    render_customer_app(params.get("id"), cust_token)
     st.stop()
 
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False

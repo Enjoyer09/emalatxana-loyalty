@@ -212,7 +212,9 @@ def render_inventory_page():
                 with st.form("rs"):
                     p = st.number_input("Say", min_value=1.0, value=1.0, step=1.0)
                     w = st.number_input(f"Çəki/Həcm ({r['unit']})", min_value=0.001, value=1.0, step=0.1)
-                    pr = st.number_input("Yekun Qiymət", min_value=0.0, value=0.0, step=0.5)
+                    pr = st.number_input("Yəkun Qıymət (₼)", min_value=0.0, value=0.0, step=0.5)
+                    # Finance Fix 2.7: Ask payment source for financial traceability
+                    pay_src = st.selectbox("Ödəniş Mənbəyi", ["Nağd (Kassa)", "Bank Kartı", "Təchizatçı Krediti (Borc)", "Sərməyə Fondu"])
                     if st.form_submit_button("Təsdiq"):
                         total_qty = Decimal(str(p)) * Decimal(str(w))
                         if total_qty > 0 and pr > 0:
@@ -220,19 +222,39 @@ def render_inventory_page():
                         else:
                             new_unit_cost = safe_decimal(r['unit_cost'])
 
-                        run_action(
-                            "UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id",
-                            {"q": str(total_qty), "uc": str(new_unit_cost), "id": int(r['id'])}
-                        )
+                        actions = [
+                            ("UPDATE ingredients SET stock_qty=stock_qty+:q, unit_cost=:uc WHERE id=:id",
+                             {"q": str(total_qty), "uc": str(new_unit_cost), "id": int(r['id'])})
+                        ]
 
-                        log_system(
-                            st.session_state.user,
-                            "INVENTORY_RESTOCK",
-                            {"item_id": int(r['id']), "item_name": r['name'], "qty_added": str(total_qty), "unit_cost": str(new_unit_cost)}
-                        )
+                        # Finance Fix 2.7: Record inventory purchase in finance
+                        if pr > 0:
+                            src_map = {
+                                "Nağd (Kassa)": "Kassa",
+                                "Bank Kartı": "Bank Kartı",
+                                "Təchizatçı Krediti (Borc)": "Təchizatçı",
+                                "Sərməyə Fondu": "Sərməyə"
+                            }
+                            actions.append((
+                                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) "
+                                "VALUES ('out', 'Anbar Alışı', :a, :src, :d, :u, :t, FALSE)",
+                                {"a": str(Decimal(str(pr))), "src": src_map.get(pay_src, "Kassa"),
+                                 "d": f"{r['name']} — {total_qty} {r['unit']} ({pay_src})",
+                                 "u": st.session_state.user, "t": get_baku_now()}
+                            ))
 
-                        st.session_state.restock_item_id = None
-                        st.rerun()
+                        try:
+                            run_transaction(actions)
+                            log_system(
+                                st.session_state.user,
+                                "INVENTORY_RESTOCK",
+                                {"item_id": int(r['id']), "item_name": r['name'], "qty_added": str(total_qty), "unit_cost": str(new_unit_cost), "paid": str(pr), "source": pay_src}
+                            )
+                            st.success(f"✅ Mədaxil edildi. Maliyyə qəyd: {pr:.2f} ₼ ({pay_src})")
+                            st.session_state.restock_item_id = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Xəta: {e}")
 
             show_restock(r_item)
 

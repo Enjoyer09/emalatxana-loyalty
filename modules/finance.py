@@ -95,33 +95,43 @@ def get_balance_snapshot(include_test=False):
     }
 
 def process_shift_handover(actual_cash, user, diff_note="X-Hesabat zamanı fərq", log_action="X_REPORT_CREATED"):
+    """
+    Finance Fix 2.1: X-Report is READ-ONLY.
+    It ONLY records the handover snapshot in shift_handovers.
+    It must NOT write any finance rows (cash over/short goes to Z-Report only).
+    Writing here would cause duplicate entries when Z-Report is later closed.
+    """
     snapshot = get_shift_finance_snapshot()
     expected_cash = snapshot["expected_cash"]
     actual_d = Decimal(str(actual_cash))
     diff = actual_d - expected_cash
     now = get_baku_now()
-    actions = []
 
-    if abs(diff) > Decimal("0.01"):
-        c_type = 'in' if diff > 0 else 'out'
-        cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-        actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', :d, :u, :time, FALSE)",
-            {"t": c_type, "c": cat, "a": str(abs(diff)), "d": diff_note, "u": user, "time": now}
-        ))
-
-    actions.append((
+    # Only record the handover snapshot — no finance insert
+    run_transaction([(
         "INSERT INTO shift_handovers (handed_by, expected_cash, actual_cash, created_at) VALUES (:u, :e, :a, :t)",
         {"u": user, "e": str(expected_cash), "a": str(actual_d), "t": now}
-    ))
+    )])
 
-    run_transaction(actions)
-    # BUG FIX: X-Report should NOT update the opening balance (SK_CASH_LIMIT)
-    # This prevents double-counting the shift's transactions.
     log_system(user, log_action, {"expected_cash": str(expected_cash), "actual_cash": str(actual_d), "difference": str(diff)})
     return {"expected_cash": expected_cash, "actual_cash": actual_d, "difference": diff}
 
 def process_z_report(actual_cash, cash_drop, wage_amount, user, is_test=False, close_current_shift=True):
+    """
+    Finance Fix 2.2: Z-Report is idempotent.
+    Finance Fix 2.4: All finance inserts respect is_test flag.
+    """
+    from utils import get_logical_date
+    logical_date = get_logical_date()
+
+    # Idempotency: prevent closing the same shift/date twice
+    existing = run_query(
+        "SELECT id FROM z_reports WHERE DATE(created_at) = :d",
+        {"d": str(logical_date)}
+    )
+    if not existing.empty:
+        raise ValueError(f"Bu tarix ({logical_date}) üçün Z-Hesabat artıq bağlanmışdır! (ID: {existing.iloc[0]['id']})")
+
     snapshot = get_shift_finance_snapshot(include_test=is_test)
     expected_cash = snapshot["expected_cash"]
     actual_d = Decimal(str(actual_cash))
@@ -136,15 +146,16 @@ def process_z_report(actual_cash, cash_drop, wage_amount, user, is_test=False, c
     if abs(diff) > Decimal("0.01"):
         c_type = 'in' if diff > 0 else 'out'
         cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
+        # Finance Fix 2.4: respect is_test flag
         actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, FALSE)",
-            {"t": c_type, "c": cat, "a": str(abs(diff)), "u": user, "time": now}
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', 'Z-Hesabat zamanı fərq', :u, :time, :tst)",
+            {"t": c_type, "c": cat, "a": str(abs(diff)), "u": user, "time": now, "tst": is_test}
         ))
 
     if drop_d > 0:
         actions.append((
-            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'İnkassasiya (Rəhbərə verilən)', :a, 'Kassa', 'Z-Hesabat Çıxarışı', :u, :time, FALSE)",
-            {"a": str(drop_d), "u": user, "time": now}
+            "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES ('out', 'İnkassasiya (Rəhbərə verilən)', :a, 'Kassa', 'Z-Hesabat Çıxarışı', :u, :time, :tst)",
+            {"a": str(drop_d), "u": user, "time": now, "tst": is_test}
         ))
 
     if wage_d > 0:
@@ -163,6 +174,7 @@ def process_z_report(actual_cash, cash_drop, wage_amount, user, is_test=False, c
     if close_current_shift: close_shift(user)
     log_system(user, "Z_REPORT_CREATED", {"expected_cash": str(expected_cash), "actual_cash": str(actual_d), "cash_drop": str(drop_d), "wage_amount": str(wage_d), "next_open_cash": str(next_open), "difference": str(diff)})
     return {"expected_cash": expected_cash, "actual_cash": actual_d, "cash_drop": drop_d, "wage_amount": wage_d, "next_open": next_open, "difference": diff, "snapshot": snapshot}
+
 
 def render_finance_page():
     if st.session_state.role not in ['admin', 'manager']:
