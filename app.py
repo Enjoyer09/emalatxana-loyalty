@@ -22,7 +22,7 @@ from modules.inventory import render_inventory_page
 from modules.finance import render_finance_page
 from modules.analytics import render_analytics_page, render_z_report_page
 from modules.management import render_menu_page, render_recipe_page, render_crm_page, render_qr_page
-from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page
+from modules.admin import render_settings_page, render_database_page, render_logs_page, render_notes_page, render_inventory_reconciliation
 from modules.ai_manager import render_ai_page
 from modules.customer_menu import render_customer_app
 from modules.combos import render_combos_page
@@ -361,7 +361,7 @@ else:
             tabs_list.append("📜 Resept")
 
     if role == 'admin':
-        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "QR"])
+        tabs_list.extend(["📋 Menyu", "📜 Resept", "📝 Qeydlər", "⚙️ Ayarlar", "💾 Baza", "🔬 Anbar Analiz", "QR"])
 
     tabs_list = sorted(list(set(tabs_list)), key=tabs_list.index)
 
@@ -415,5 +415,7 @@ else:
         render_qr_page()
     elif selected_tab == "📜 Loglar":
         render_logs_page()
+    elif selected_tab == "🔬 Anbar Analiz":
+        render_inventory_reconciliation()
 
     st.markdown(f"<div style='text-align:center;color:#545b66;margin-top:50px;font-family:Jura;'>{BRAND_NAME} {VERSION}</div>", unsafe_allow_html=True)

@@ -611,3 +611,140 @@ def render_notes_page():
                         st.rerun()
     except Exception:
         pass
+
+
+# ============================================================
+# INVENTORY RECONCILIATION
+# ============================================================
+def render_inventory_reconciliation():
+    """
+    Anbar Rekonsilyasiyası — mənfi stokların səbəbini analiz edir.
+    Satışlara əsasən "olması lazım olan" miqdarı hesablayır.
+    """
+    st.subheader("🔬 Anbar Rekonsilyasiyası (Mənfi Stok Analizi)")
+
+    if st.session_state.get('role') not in ['admin', 'manager']:
+        st.error("Bu səhifəyə icazəniz yoxdur!")
+        return
+
+    st.info("""
+    **Bu alət nə edir?**
+    - Bütün tamamlanmış satışları analiz edir
+    - Hər ingredientin neçə dəfə istifadə edildiyi hesablanır
+    - Mövcud qalıqla müqayisə edilir
+    - Uyğunsuzluqlar (mənfi stoklar) göstərilir
+    """)
+
+    st.warning("""
+    ⚠️ **Mənfi stokların əsas səbəbi:**
+    Köhnə versiyanın Streamlit "double-rerun" xətası — istifadəçi ödəniş düyməsinə basanda
+    bəzən eyni satış 2-3 dəfə işlənirdi, stok hər dəfə çıxılırdı.
+    Bu problem artıq **client_txn_id** sistemi ilə həll edilib.
+    """)
+
+    col1, col2 = st.columns(2)
+
+    # ── Mənfi stokları göstər
+    with col1:
+        st.markdown("### 🔴 Mənfi Qalıqlı İngrediyentlər")
+        negative_stock = run_query(
+            "SELECT name, category, stock_qty, unit, min_limit "
+            "FROM ingredients WHERE stock_qty < 0 ORDER BY stock_qty ASC"
+        )
+        if negative_stock.empty:
+            st.success("✅ Bütün ingrediyentlər müsbətdir!")
+        else:
+            st.error(f"{len(negative_stock)} ingrediyent mənfi qalıqla var")
+            negative_stock['stock_qty'] = negative_stock['stock_qty'].apply(lambda x: f"{float(x):.3f}")
+            st.dataframe(negative_stock, use_container_width=True, hide_index=True)
+
+    # ── Son 30 gün satış analizi
+    with col2:
+        st.markdown("### 📊 Son 30 Gün — Ən Çox İstifadə Edilən İngrediyentlər")
+        usage_df = run_query("""
+            SELECT
+                r.ingredient_name,
+                ROUND(SUM(r.quantity_required::numeric * si.qty::numeric)::numeric, 3) AS total_consumed,
+                COUNT(DISTINCT s.id) AS sale_count,
+                i.unit
+            FROM sales s
+            CROSS JOIN LATERAL (
+                SELECT (elem->>'item_name') AS item_name,
+                       (elem->>'qty')::int AS qty
+                FROM jsonb_array_elements(s.items::jsonb) AS elem
+            ) si
+            JOIN recipes r ON r.menu_item_name = si.item_name
+            JOIN ingredients i ON i.name = r.ingredient_name
+            WHERE s.created_at >= NOW() - INTERVAL '30 days'
+              AND (s.is_test IS NULL OR s.is_test = FALSE)
+              AND (s.status IS NULL OR s.status = 'COMPLETED')
+            GROUP BY r.ingredient_name, i.unit
+            ORDER BY total_consumed DESC
+            LIMIT 20
+        """)
+        if usage_df.empty:
+            st.info("Son 30 gündə satış tapılmadı.")
+        else:
+            st.dataframe(usage_df, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ── Mənfi stokları sıfıra gətir
+    st.markdown("### 🔧 Sürətli Düzəliş Alətləri")
+
+    negative_df = run_query("SELECT name, stock_qty FROM ingredients WHERE stock_qty < 0")
+    if not negative_df.empty:
+        st.markdown(f"**{len(negative_df)}** ingrediyent mənfi qalıqdadır.")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            if st.button("⚠️ Bütün Mənfi Stokları SIFIRA Gətir", type="secondary", use_container_width=True):
+                st.session_state['confirm_reset_negative'] = True
+                st.rerun()
+
+            if st.session_state.get('confirm_reset_negative'):
+                st.error("Bu əməliyyat geri qaytarıla bilməz! Mənfi olan bütün stoklar 0.000 olacaq.")
+                if st.button("✅ Bəli, SIFIRLA", type="primary", use_container_width=True, key="confirm_reset_btn"):
+                    try:
+                        run_action(
+                            "UPDATE ingredients SET stock_qty = 0 WHERE stock_qty < 0"
+                        )
+                        log_system(
+                            st.session_state.user,
+                            "INVENTORY_NEGATIVE_RESET",
+                            {"count": len(negative_df), "items": negative_df['name'].tolist()}
+                        )
+                        st.session_state['confirm_reset_negative'] = False
+                        st.success(f"✅ {len(negative_df)} ingrediyent sıfırlandı!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Xəta: {e}")
+                if st.button("Ləğv Et", use_container_width=True, key="cancel_reset_btn"):
+                    st.session_state['confirm_reset_negative'] = False
+                    st.rerun()
+
+        with c2:
+            st.markdown("**Fərdi Düzəliş:**")
+            sel_ing = st.selectbox(
+                "İngrediyent seç",
+                negative_df['name'].tolist(),
+                key="recon_sel_ing"
+            )
+            new_qty = st.number_input("Yeni Miqdar", min_value=0.0, value=0.0, step=0.5, key="recon_new_qty")
+            if st.button("Yenilə", use_container_width=True, key="recon_update_btn"):
+                old_qty = float(negative_df[negative_df['name'] == sel_ing]['stock_qty'].iloc[0])
+                run_action(
+                    "UPDATE ingredients SET stock_qty = :q WHERE name = :n",
+                    {"q": str(new_qty), "n": sel_ing}
+                )
+                log_system(
+                    st.session_state.user,
+                    "INVENTORY_MANUAL_CORRECTION",
+                    {"item": sel_ing, "old_qty": old_qty, "new_qty": new_qty, "reason": "Admin rekonsilyasiyası"}
+                )
+                st.success(f"✅ '{sel_ing}': {old_qty:.3f} → {new_qty:.3f}")
+                st.rerun()
+    else:
+        st.success("✅ Mənfi stok yoxdur — anbar sağlamdır!")
+
