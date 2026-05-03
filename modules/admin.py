@@ -427,7 +427,7 @@ def render_database_page():
                     refunds_df.to_excel(writer, index=False, sheet_name='Ləğvlər_və_Refundlar')
                     
                     # 4. Z Reports (Gündəlik qapanmalar)
-                    z_reports_df = run_query("SELECT id, total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at FROM z_reports WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
+                    z_reports_df = run_query("SELECT id, total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at FROM z_reports ORDER BY id DESC LIMIT 200")
                     z_reports_df.to_excel(writer, index=False, sheet_name='Z_Hesabatlar')
 
                 st.session_state.finance_excel = out.getvalue()

@@ -438,6 +438,11 @@ def ensure_schema():
             ("promo_codes", "is_used", "BOOLEAN DEFAULT FALSE"),
             ("customer_coupons", "is_used", "BOOLEAN DEFAULT FALSE"),
             ("z_reports", "total_cogs", "DECIMAL(10,2) DEFAULT 0"),
+            ("z_reports", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("z_reports", "cash_sales", "DECIMAL(10,2) DEFAULT 0"),
+            ("z_reports", "card_sales", "DECIMAL(10,2) DEFAULT 0"),
+            ("z_reports", "actual_cash", "DECIMAL(10,2) DEFAULT 0"),
+            ("z_reports", "generated_by", "TEXT"),
         ]
 
         for tbl, col, dtype in columns_to_add:
