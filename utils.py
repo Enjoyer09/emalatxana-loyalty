@@ -232,18 +232,50 @@ def get_shift_status():
         return {'current_shift_status': 'Closed'}
 
 def open_shift(user):
-    now_str = get_baku_now().strftime("%Y-%m-%d %H:%M:%S")
+    """TODO 2.3: Creates a shifts row + updates settings for backward compatibility."""
+    now = get_baku_now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     current = get_shift_status()
     if current.get('current_shift_status') == 'Open':
         return False
     run_action("UPDATE settings SET value = 'Open' WHERE key = 'current_shift_status'")
     run_action("UPDATE settings SET value = :t WHERE key = 'shift_open_time'", {"t": now_str})
+    # TODO 2.3: Create a row in the shifts table and store its id
+    try:
+        from database import conn
+        from sqlalchemy import text
+        with conn.session as s:
+            result = s.execute(text(
+                "INSERT INTO shifts (opened_at, opened_by, status, created_at) "
+                "VALUES (:t, :u, 'OPEN', :t) RETURNING id"
+            ), {"t": now, "u": user})
+            shift_id = result.fetchone()[0]
+            s.commit()
+        run_action(
+            "INSERT INTO settings (key, value) VALUES ('current_shift_id', :v) "
+            "ON CONFLICT (key) DO UPDATE SET value=:v",
+            {"v": str(shift_id)}
+        )
+    except Exception as e:
+        logger.warning(f"shifts table write failed (non-fatal): {e}")
     log_system(user, "SHIFT_OPENED", {"opened_at": now_str})
     return True
 
 def close_shift(user):
+    """TODO 2.3: Updates the shifts row when shift closes."""
+    now = get_baku_now()
     run_action("UPDATE settings SET value = 'Closed' WHERE key = 'current_shift_status'")
-    log_system(user, "SHIFT_CLOSED", {"closed_at": str(get_baku_now())})
+    # TODO 2.3: Mark the active shift as CLOSED
+    try:
+        shift_id_str = get_setting("current_shift_id", "")
+        if shift_id_str:
+            run_action(
+                "UPDATE shifts SET status='CLOSED', closed_at=:t, closed_by=:u WHERE id=:id",
+                {"t": now, "u": user, "id": int(shift_id_str)}
+            )
+    except Exception as e:
+        logger.warning(f"shifts table close failed (non-fatal): {e}")
+    log_system(user, "SHIFT_CLOSED", {"closed_at": str(now)})
     return True
 
 # ============================================================

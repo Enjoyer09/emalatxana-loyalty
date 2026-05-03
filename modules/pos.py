@@ -236,7 +236,7 @@ def render_menu(cart, key):
                         add_to_cart(cart, {'item_name': r['item_name'], 'price': float(r['price']), 'qty': 1, 'is_coffee': r['is_coffee'], 'category': r['category'], 'status': 'new'})
                         st.rerun()
 # modules/pos.py (Hissə 2/3)
-def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_tips, is_test, split_cash=None, split_card=None, order_type="Paket"):
+def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_tips, is_test, split_cash=None, split_card=None, order_type="Paket", client_txn_id=None):
     now = get_baku_now()
     final_d = Decimal(str(final_total))
     original_d = Decimal(str(original_total))
@@ -248,19 +248,47 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
     if not is_test:
         with conn.session as s:
             try:
+                # TODO 3.2: Duplicate sale prevention — check client_txn_id first
+                if client_txn_id:
+                    existing_sale = s.execute(
+                        text("SELECT id FROM sales WHERE client_txn_id=:txn"),
+                        {"txn": client_txn_id}
+                    ).fetchone()
+                    if existing_sale:
+                        logger.warning(f"Duplicate sale blocked: client_txn_id={client_txn_id}, existing_id={existing_sale[0]}")
+                        return existing_sale[0]
+
                 # Task 1.3: Batch fetch all recipes in one query (eliminates N+1)
                 item_names = list(set([it['item_name'] for it in cart_items]))
                 recipes_map = {}
                 if item_names:
                     recipes_result = s.execute(
-                        text("SELECT r.menu_item_name, r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = ANY(:names)"),
+                        text("SELECT r.menu_item_name, r.ingredient_name, r.quantity_required, i.unit_cost, i.stock_qty FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = ANY(:names)"),
                         {"names": item_names}
                     ).fetchall()
                     for row in recipes_result:
                         m_name = row[0]
                         if m_name not in recipes_map:
                             recipes_map[m_name] = []
-                        recipes_map[m_name].append({'ingredient_name': row[1], 'quantity_required': row[2], 'unit_cost': row[3]})
+                        recipes_map[m_name].append({'ingredient_name': row[1], 'quantity_required': row[2], 'unit_cost': row[3], 'stock_qty': row[4]})
+
+                # TODO 3.1: Pre-check stock — block sale if insufficient (before any writes)
+                stock_errors = []
+                required_totals = {}
+                for it in cart_items:
+                    for r in recipes_map.get(it['item_name'], []):
+                        if r['ingredient_name']:
+                            key = r['ingredient_name']
+                            qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
+                            required_totals[key] = required_totals.get(key, Decimal("0")) + qty_req
+                for ing_name, qty_needed in required_totals.items():
+                    stock_row = next((r for recs in recipes_map.values() for r in recs if r['ingredient_name'] == ing_name), None)
+                    if stock_row:
+                        available = Decimal(str(stock_row.get('stock_qty') or 0))
+                        if available < qty_needed:
+                            stock_errors.append(f"'{ing_name}': lazım={qty_needed:.3f}, mövcud={available:.3f}")
+                if stock_errors:
+                    raise ValueError("⚠️ Anbar çatışmazlığı:\n" + "\n".join(stock_errors))
 
                 for it in cart_items:
                     recs = recipes_map.get(it['item_name'], [])
@@ -272,7 +300,17 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                         total_cogs += qty_req * safe_decimal(r['unit_cost'])
                         s.execute(text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"), {"q": str(qty_req), "n": r['ingredient_name']})
 
-                sale_result = s.execute(text("INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test, cogs, status) VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:tip,:tst,:cogs,'COMPLETED') RETURNING id"), {"i": items_json, "t": str(final_d), "p": pm, "c": user, "time": now, "cid": cust['card_id'] if cust else None, "ot": str(original_d), "da": str(discount_d), "tip": str(tips_d), "tst": is_test, "cogs": str(total_cogs)})
+                # TODO 2.3: Get current shift_id if available
+                shift_id = None
+                try:
+                    shift_id_str = get_setting("current_shift_id", "")
+                    shift_id = int(shift_id_str) if shift_id_str else None
+                except: pass
+
+                sale_result = s.execute(text(
+                    "INSERT INTO sales (items, total, payment_method, cashier, created_at, customer_card_id, original_total, discount_amount, tip_amount, is_test, cogs, status, client_txn_id, shift_id) "
+                    "VALUES (:i,:t,:p,:c,:time,:cid,:ot,:da,:tip,:tst,:cogs,'COMPLETED',:txn,:sid) RETURNING id"
+                ), {"i": items_json, "t": str(final_d), "p": pm, "c": user, "time": now, "cid": cust['card_id'] if cust else None, "ot": str(original_d), "da": str(discount_d), "tip": str(tips_d), "tst": is_test, "cogs": str(total_cogs), "txn": client_txn_id, "sid": shift_id})
                 sale_id = sale_result.fetchone()[0]
 
                 kitchen_items = [it for it in cart_items if not it.get('is_coffee') and it.get('category') not in ['Bar Məhsulları (Su/Buz)', 'İçkilər (Hazır)', 'Qablaşdırma (Stəkan/Qapaq)', 'Siroplar', 'Təsərrüfat/Təmizlik', 'Mətbəə / Kartlar', 'Kofe (Dənələr)']]
@@ -281,9 +319,14 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
 
                 if final_d > 0:
                     if split_cash is not None and split_card is not None:
-                        if split_cash > 0: s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id) VALUES ('in', 'Satış (Nağd)', :a, 'Kassa', :u, :t, FALSE, :sid)"), {"a": str(split_cash), "u": user, "t": now, "sid": sale_id})
+                        if split_cash > 0:
+                            s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id, shift_id) VALUES ('in', 'Satış (Nağd)', :a, 'Kassa', :u, :t, FALSE, :sid, :shid)"), {"a": str(split_cash), "u": user, "t": now, "sid": sale_id, "shid": shift_id})
+                            # TODO 2.5: Write to sale_payments
+                            s.execute(text("INSERT INTO sale_payments (sale_id, method, amount, is_test, created_at) VALUES (:sid, 'Nağd', :a, FALSE, :t)"), {"sid": sale_id, "a": str(split_cash), "t": now})
                         if split_card > 0:
-                            s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id) VALUES ('in', 'Satış (Kart)', :a, 'Bank Kartı', :u, :t, FALSE, :sid)"), {"a": str(split_card), "u": user, "t": now, "sid": sale_id})
+                            s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id, shift_id) VALUES ('in', 'Satış (Kart)', :a, 'Bank Kartı', :u, :t, FALSE, :sid, :shid)"), {"a": str(split_card), "u": user, "t": now, "sid": sale_id, "shid": shift_id})
+                            # TODO 2.5: Write to sale_payments
+                            s.execute(text("INSERT INTO sale_payments (sale_id, method, amount, is_test, created_at) VALUES (:sid, 'Kart', :a, FALSE, :t)"), {"sid": sale_id, "a": str(split_card), "t": now})
                             min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                             pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
                             comm = max(min_comm, (split_card * pct_comm).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
@@ -293,7 +336,10 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                         if payment_map["tracks_finance"]:
                             db_pm = payment_map["source"]
                             pm_cat = payment_map["category"]
-                            s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id) VALUES ('in', :cat, :a, :src, :u, :t, FALSE, :sid)"), {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now, "sid": sale_id})
+                            s.execute(text("INSERT INTO finance (type, category, amount, source, created_by, created_at, is_test, sale_id, shift_id) VALUES ('in', :cat, :a, :src, :u, :t, FALSE, :sid, :shid)"), {"cat": pm_cat, "a": str(final_d), "src": db_pm, "u": user, "t": now, "sid": sale_id, "shid": shift_id})
+                            # TODO 2.5: Write to sale_payments for all single-method sales
+                            method_label = "Nağd" if pm in ["Nəğd", "Cash"] else ("Kart" if pm in ["Kart", "Card"] else pm)
+                            s.execute(text("INSERT INTO sale_payments (sale_id, method, amount, is_test, created_at) VALUES (:sid, :m, :a, FALSE, :t)"), {"sid": sale_id, "m": method_label, "a": str(final_d), "t": now})
                             if pm in ["Kart", "Card"]:
                                 min_comm = Decimal(str(get_setting("bank_comm_min", "0.60")))
                                 pct_comm = Decimal(str(get_setting("bank_comm_pct", "0.02")))
@@ -316,7 +362,7 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                     s.execute(text("UPDATE customers SET stars = :ns WHERE card_id = :cid"), {"ns": new_stars, "cid": cust['card_id']})
 
                 s.commit()
-                log_system(user, "SALE_CREATED", {"sale_id": sale_id, "total": str(final_d), "payment_method": pm, "is_test": is_test, "items_count": len(cart_items), "split_cash": str(split_cash) if split_cash is not None else None, "split_card": str(split_card) if split_card is not None else None, "customer_card_id": cust['card_id'] if cust else None, "discount_amount": str(discount_d), "tip_amount": str(tips_d), "cogs": str(total_cogs), "order_type": order_type})
+                log_system(user, "SALE_CREATED", {"sale_id": sale_id, "total": str(final_d), "payment_method": pm, "is_test": is_test, "items_count": len(cart_items), "split_cash": str(split_cash) if split_cash is not None else None, "split_card": str(split_card) if split_card is not None else None, "customer_card_id": cust['card_id'] if cust else None, "discount_amount": str(discount_d), "tip_amount": str(tips_d), "cogs": str(total_cogs), "order_type": order_type, "client_txn_id": client_txn_id})
                 return sale_id
             except Exception as e:
                 s.rollback()
@@ -552,6 +598,12 @@ def render_pos_page():
 
                 is_test_mode = st.session_state.get('test_mode', False)
 
+                # TODO 3.2: Generate client_txn_id once per checkout to prevent double-submit
+                import uuid
+                if 'pending_txn_id' not in st.session_state or not st.session_state.pending_txn_id:
+                    st.session_state.pending_txn_id = str(uuid.uuid4())
+                client_txn_id = st.session_state.pending_txn_id
+
                 try:
                     db_pm = pm
                     if pm == "Bölünmüş ✂️":
@@ -568,15 +620,18 @@ def render_pos_page():
                         is_test=is_test_mode,
                         split_cash=split_cash if pm == "Bölünmüş ✂️" else None,
                         split_card=split_card if pm == "Bölünmüş ✂️" else None,
-                        order_type=order_type_final
+                        order_type=order_type_final,
+                        client_txn_id=client_txn_id
                     )
 
                     receipt_data = {"cart": st.session_state.cart_takeaway.copy(), "total": float(final), "order_type": order_type_final}
                     st.session_state.cart_takeaway = []
                     st.session_state.current_customer_ta = None
                     st.session_state.search_key_counter += 1
+                    st.session_state.pending_txn_id = None  # Clear after successful sale
                     st.session_state.active_dialog = ("receipt", receipt_data)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Satış xətası: {e}")
                     logger.error(f"Sale failed: {e}", exc_info=True)
+

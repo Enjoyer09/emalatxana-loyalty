@@ -294,6 +294,36 @@ def ensure_schema():
             );
         """))
 
+        # TODO 2.3: SHIFTS table — minimal shift tracking
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS shifts (
+                id SERIAL PRIMARY KEY,
+                opened_at TIMESTAMP NOT NULL,
+                closed_at TIMESTAMP,
+                opened_by TEXT,
+                closed_by TEXT,
+                opening_cash DECIMAL(10,2) DEFAULT 0,
+                actual_cash DECIMAL(10,2),
+                expected_cash DECIMAL(10,2),
+                cash_drop DECIMAL(10,2) DEFAULT 0,
+                next_opening_cash DECIMAL(10,2) DEFAULT 0,
+                status TEXT DEFAULT 'OPEN',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
+        # TODO 2.5: SALE_PAYMENTS table — split payment model
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS sale_payments (
+                id SERIAL PRIMARY KEY,
+                sale_id INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                amount DECIMAL(10,2) NOT NULL,
+                is_test BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+
         # SHIFT HANDOVERS
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS shift_handovers (
@@ -447,6 +477,12 @@ def ensure_schema():
             ("customers", "secret_token", "TEXT"),
             # DB Fix 4.1: customers.created_at was missing, causing CRM query crash
             ("customers", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            # TODO 2.3: shift_id for linking records to a specific shift
+            ("sales", "shift_id", "INTEGER"),
+            ("finance", "shift_id", "INTEGER"),
+            ("z_reports", "shift_id", "INTEGER"),
+            # TODO 3.2: client_txn_id for duplicate sale prevention
+            ("sales", "client_txn_id", "TEXT"),
         ]
 
         for tbl, col, dtype in columns_to_add:

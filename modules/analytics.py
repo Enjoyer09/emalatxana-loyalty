@@ -144,20 +144,50 @@ def show_refund_dialog(sale_id):
         ))
 
         if not is_test and refund_amount > 0:
-            pm = row['payment_method']
-            source = "Kassa" if pm in ['Nəğd', 'Cash'] else "Bank Kartı"
-            actions.append((
-                "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) "
-                "VALUES ('out', 'Refund / Ləğv', :a, :src, :desc, :u, :t, FALSE, :sid)",
-                {
-                    "a": str(refund_amount),
-                    "src": source,
-                    "desc": f"Satış #{sale_id} ləğvi: {full_reason}",
-                    "u": u,
-                    "t": now,
-                    "sid": sale_id
-                }
-            ))
+            # TODO 2.6: Use sale_payments to proportionally split the refund
+            # This prevents full refunds being wrongly attributed to one payment method
+            payments_df = run_query(
+                "SELECT method, SUM(amount) as total FROM sale_payments WHERE sale_id=:sid GROUP BY method",
+                {"sid": sale_id}
+            )
+
+            if not payments_df.empty:
+                # Proportional refund across methods
+                payments_total = sum([safe_decimal(r['total']) for _, r in payments_df.iterrows()])
+                for _, pay_row in payments_df.iterrows():
+                    if payments_total <= Decimal("0"):
+                        break
+                    method = str(pay_row['method'])
+                    paid = safe_decimal(pay_row['total'])
+                    proportion = paid / payments_total
+                    method_refund = (refund_amount * proportion).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    if method_refund <= Decimal("0"):
+                        continue
+                    source = "Bank Kartı" if method in ["Kart", "Card"] else "Kassa"
+                    actions.append((
+                        "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) "
+                        "VALUES ('out', 'Refund / Ləğv', :a, :src, :desc, :u, :t, :tst, :sid)",
+                        {
+                            "a": str(method_refund),
+                            "src": source,
+                            "desc": f"Satış #{sale_id} ləğvi ({method}): {full_reason}",
+                            "u": u, "t": now, "tst": is_test, "sid": sale_id
+                        }
+                    ))
+            else:
+                # Legacy fallback: use payment_method text column
+                pm = row['payment_method']
+                source = "Kassa" if pm in ['Nəğd', 'Cash'] else "Bank Kartı"
+                actions.append((
+                    "INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id) "
+                    "VALUES ('out', 'Refund / Ləğv', :a, :src, :desc, :u, :t, :tst, :sid)",
+                    {
+                        "a": str(refund_amount),
+                        "src": source,
+                        "desc": f"Satış #{sale_id} ləğvi (köhnə qeyd): {full_reason}",
+                        "u": u, "t": now, "tst": is_test, "sid": sale_id
+                    }
+                ))
 
         if return_to_stock and not is_test and is_full_void:
             try:
