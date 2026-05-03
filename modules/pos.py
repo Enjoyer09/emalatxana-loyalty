@@ -272,8 +272,11 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                             recipes_map[m_name] = []
                         recipes_map[m_name].append({'ingredient_name': row[1], 'quantity_required': row[2], 'unit_cost': row[3], 'stock_qty': row[4]})
 
-                # TODO 3.1: Pre-check stock — block sale if insufficient (before any writes)
-                stock_errors = []
+                # TODO 3.1: Stock check — two-tier: hard block vs soft warning
+                # Hard block: stock is currently positive (>=0) but THIS sale would make it negative
+                # Soft warn: stock was ALREADY negative before this sale (historical, allow with log)
+                hard_errors = []
+                soft_warnings = []
                 required_totals = {}
                 for it in cart_items:
                     for r in recipes_map.get(it['item_name'], []):
@@ -285,10 +288,17 @@ def finalize_sale(cart_items, final_total, original_total, pm, user, cust, card_
                     stock_row = next((r for recs in recipes_map.values() for r in recs if r['ingredient_name'] == ing_name), None)
                     if stock_row:
                         available = Decimal(str(stock_row.get('stock_qty') or 0))
-                        if available < qty_needed:
-                            stock_errors.append(f"'{ing_name}': lazım={qty_needed:.3f}, mövcud={available:.3f}")
-                if stock_errors:
-                    raise ValueError("⚠️ Anbar çatışmazlığı:\n" + "\n".join(stock_errors))
+                        if available >= Decimal("0") and available < qty_needed:
+                            # Stock is positive but not enough for this sale → hard block
+                            hard_errors.append(f"'{ing_name}': lazım={qty_needed:.3f}, mövcud={available:.3f}")
+                        elif available < Decimal("0"):
+                            # Stock already negative (historical) → log warning, allow sale
+                            soft_warnings.append(f"'{ing_name}': artıq mənfi stok={available:.3f}")
+                if hard_errors:
+                    raise ValueError("⚠️ Anbar çatışmazlığı (satış bloklandı):\n" + "\n".join(hard_errors))
+                if soft_warnings:
+                    logger.warning(f"Sale allowed with pre-existing negative stock: {'; '.join(soft_warnings)}")
+
 
                 for it in cart_items:
                     recs = recipes_map.get(it['item_name'], [])
