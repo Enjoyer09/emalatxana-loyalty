@@ -78,10 +78,23 @@ def run_transaction(actions: list):
 # ============================================================
 # SETTINGS HELPERS
 # ============================================================
+# Task 1.2: Cache all settings in a single query with 120s TTL
+@st.cache_data(ttl=120)
+def get_all_settings_cached():
+    try:
+        res = run_query("SELECT key, value FROM settings")
+        if res.empty:
+            return {}
+        return {row['key']: row['value'] for _, row in res.iterrows()}
+    except Exception as e:
+        logger.error(f"get_all_settings_cached failed: {e}")
+        return {}
+
+
 def get_setting(key, default=""):
     try:
-        res = run_query("SELECT value FROM settings WHERE key=:k", {"k": key})
-        return res.iloc[0]['value'] if not res.empty else default
+        settings = get_all_settings_cached()
+        return settings.get(key, default)
     except Exception as e:
         logger.error(f"get_setting('{key}') failed: {e}")
         return default
@@ -93,6 +106,8 @@ def set_setting(key, value):
         "ON CONFLICT (key) DO UPDATE SET value=:v",
         {"k": key, "v": value}
     )
+    # Invalidate the settings cache immediately after a write
+    get_all_settings_cached.clear()
 
 
 # ============================================================
@@ -457,6 +472,20 @@ def ensure_schema():
                 VALUES ('admin', :p, 'admin')
             """), {"p": p_hash})
 
+        s.commit()
+
+        # Task 3.1: Add performance indexes (idempotent — safe to re-run)
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales (created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_finance_created_cat_type ON finance (created_at, category, type)",
+            "CREATE INDEX IF NOT EXISTS idx_recipes_menu_item ON recipes (menu_item_name)",
+            "CREATE INDEX IF NOT EXISTS idx_kitchen_orders_status ON kitchen_orders (status, created_at)",
+        ]
+        for idx_sql in indexes:
+            try:
+                s.execute(text(idx_sql))
+            except Exception as e:
+                logger.warning(f"Index creation skipped: {e}")
         s.commit()
 
     return True

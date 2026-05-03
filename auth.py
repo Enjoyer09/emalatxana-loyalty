@@ -95,10 +95,15 @@ def validate_session():
     except Exception as e:
         logger.warning(f"Session validation warning: {e}")
 
-    run_action(
-        "UPDATE active_sessions SET last_activity=:n WHERE token=:t",
-        {"n": now, "t": tok}
-    )
+    # Task 1.1: Throttle DB write to once per 60s to avoid write-on-every-rerun
+    last_update = st.session_state.get('last_session_update', 0)
+    if time.time() - last_update > 60:
+        run_action(
+            "UPDATE active_sessions SET last_activity=:n WHERE token=:t",
+            {"n": now, "t": tok}
+        )
+        st.session_state['last_session_update'] = time.time()
+
     return True
 
 

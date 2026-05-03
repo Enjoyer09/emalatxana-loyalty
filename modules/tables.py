@@ -39,22 +39,32 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
     with conn.session as s:
         try:
             if not is_test:
+                # Task 1.3: Batch fetch all recipes in one query (eliminates N+1)
+                item_names = list(set([it['item_name'] for it in cart_items]))
+                recipes_map = {}
+                if item_names:
+                    recipes_result = s.execute(
+                        text("SELECT r.menu_item_name, r.ingredient_name, r.quantity_required, i.unit_cost FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name WHERE r.menu_item_name = ANY(:names)"),
+                        {"names": item_names}
+                    ).fetchall()
+                    for row in recipes_result:
+                        m_name = row[0]
+                        if m_name not in recipes_map:
+                            recipes_map[m_name] = []
+                        recipes_map[m_name].append({'ingredient_name': row[1], 'quantity_required': row[2], 'unit_cost': row[3]})
+
                 for it in cart_items:
-                    recs = run_query(
-                        "SELECT r.ingredient_name, r.quantity_required, i.unit_cost "
-                        "FROM recipes r LEFT JOIN ingredients i ON r.ingredient_name = i.name "
-                        "WHERE r.menu_item_name=:m",
-                        {"m": it['item_name']}
-                    )
-                    if not recs.empty:
-                        for _, r in recs.iterrows():
-                            qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
-                            u_cost = safe_decimal(r['unit_cost'])
-                            total_cogs += qty_req * u_cost
-                            s.execute(
-                                text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"),
-                                {"q": str(qty_req), "n": r['ingredient_name']}
-                            )
+                    recs = recipes_map.get(it['item_name'], [])
+                    if not recs:
+                        logger.warning(f"No recipe found for '{it['item_name']}' — COGS will be 0 for this item.")
+                    for r in recs:
+                        qty_req = Decimal(str(r['quantity_required'])) * Decimal(str(it['qty']))
+                        u_cost = safe_decimal(r['unit_cost'])
+                        total_cogs += qty_req * u_cost
+                        s.execute(
+                            text("UPDATE ingredients SET stock_qty = stock_qty - :q WHERE name=:n"),
+                            {"q": str(qty_req), "n": r['ingredient_name']}
+                        )
 
             sale_result = s.execute(
                 text("""
@@ -135,6 +145,16 @@ def finalize_table_sale(table_id, table_label, cart_items, final_total, original
                                 VALUES ('out', 'Bank Komissiyası', :a, 'Bank Kartı', 'Masa Satış Komissiyası', :u, :t, FALSE, :sid)
                             """),
                             {"a": str(comm), "u": user, "t": now, "sid": sale_id}
+                        )
+
+                    # Task 2.1: Staff Meal — record as operating expense for accurate P&L
+                    if pm in ["Staff", "staff"] and total_cogs > Decimal("0"):
+                        s.execute(
+                            text("""
+                                INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test, sale_id)
+                                VALUES ('out', 'Staff Yeməyi (Əməliyyat)', :a, 'Kassa', 'İşçi Yeməyi — COGS-a əsasən', :u, :t, FALSE, :sid)
+                            """),
+                            {"a": str(total_cogs), "u": user, "t": now, "sid": sale_id}
                         )
 
             # Masa sıfırlanır
