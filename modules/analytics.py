@@ -119,7 +119,7 @@ def show_refund_dialog(sale_id):
     if st.button("✅ LƏĞVİ TƏSDİQLƏ", type="primary", use_container_width=True, key="confirm_refund_btn"):
         now = get_baku_now()
         u = st.session_state.user
-        is_test = row.get('is_test', False)
+        is_test = bool(row.get('is_test', False))  # Fix: numpy.bool_ → native bool for psycopg2
         actions = []
         refunded_total_after = refunded_so_far + refund_amount
 
