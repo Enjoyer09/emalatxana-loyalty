@@ -422,16 +422,12 @@ def render_database_page():
                     sales_df = run_query("SELECT id, original_total, discount_amount, total, cogs, payment_method, cashier, status, created_at, is_test FROM sales WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
                     sales_df.to_excel(writer, index=False, sheet_name='Satışlar')
                     
-                    # 3. Expenses (Xərclər)
-                    expenses_df = run_query("SELECT id, title, amount, category, created_at FROM expenses WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
-                    expenses_df.to_excel(writer, index=False, sheet_name='Xərclər_İnvestor')
-                    
-                    # 4. Refunds (Qaytarılmalar)
+                    # 3. Refunds (Qaytarılmalar)
                     refunds_df = run_query("SELECT id, original_sale_id, refund_amount, reason, refund_type, created_by, created_at FROM refunds WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
                     refunds_df.to_excel(writer, index=False, sheet_name='Ləğvlər_və_Refundlar')
                     
-                    # 5. Z Reports (Gündəlik qapanmalar)
-                    z_reports_df = run_query("SELECT id, report_date, cash_sales, card_sales, total_sales, total_cogs, gross_profit, expected_cash, generated_by, created_at FROM z_reports WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
+                    # 4. Z Reports (Gündəlik qapanmalar)
+                    z_reports_df = run_query("SELECT id, total_sales, cash_sales, card_sales, total_cogs, actual_cash, generated_by, created_at FROM z_reports WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' ORDER BY created_at DESC")
                     z_reports_df.to_excel(writer, index=False, sheet_name='Z_Hesabatlar')
 
                 st.session_state.finance_excel = out.getvalue()
