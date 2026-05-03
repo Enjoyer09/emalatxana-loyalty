@@ -517,8 +517,11 @@ def render_z_report_page():
         c6.metric("KASSADA OLMALIDIR", f"{expected_cash:.2f} ₼")
 
         if st.session_state.role in ['admin', 'manager']:
-            gross_profit = s_cash + s_card - s_cogs
-            st.markdown(f"**COGS:** {s_cogs:.2f} ₼ | **Mənfəət:** {gross_profit:.2f} ₼ | **Ləğvlər:** {refund_count}")
+            refund_total = snapshot.get("refund_total", Decimal("0.0"))
+            bank_fee_total = snapshot.get("bank_fee_total", Decimal("0.0"))
+            net_sales = s_cash + s_card - refund_total
+            gross_profit = net_sales - s_cogs - bank_fee_total
+            st.markdown(f"**Net Satış:** {net_sales:.2f} ₼ | **COGS:** {s_cogs:.2f} ₼ | **Mənfəət:** {gross_profit:.2f} ₼ | **Ləğvlər:** {refund_count}")
 
         with st.expander("💸 GÜNLÜK MAAŞ/AVANS ÖDƏ"):
             with st.form("salary_form_z_fix"):
@@ -580,12 +583,17 @@ def render_z_report_page():
 
                     try:
                         report_date = str(log_date_z)
+                        refund_total = snapshot.get("refund_total", Decimal("0.0"))
+                        bank_fee_total = snapshot.get("bank_fee_total", Decimal("0.0"))
+                        net_sales = float(s_cash + s_card - refund_total)
+                        gross_profit = float(s_cash + s_card - refund_total - s_cogs - bank_fee_total)
                         summary = {
                             "cash_sales": float(s_cash),
                             "card_sales": float(s_card),
                             "total_sales": float(s_cash + s_card),
+                            "net_sales": net_sales,
                             "total_cogs": float(s_cogs),
-                            "gross_profit": float((s_cash + s_card) - s_cogs),
+                            "gross_profit": gross_profit,
                             "expected_cash": float(expected_cash),
                             "refunds_count": int(refund_count),
                             "generated_by": st.session_state.user

@@ -334,6 +334,11 @@ def render_inventory_page():
                                     "id": int(r['id'])
                                 }
                             )
+                            if n.strip() != r['name']:
+                                run_action(
+                                    "UPDATE recipes SET ingredient_name=:n WHERE ingredient_name=:old_n",
+                                    {"n": n.strip(), "old_n": r['name']}
+                                )
                             log_system(
                                 st.session_state.user,
                                 "INVENTORY_EDIT",

@@ -313,7 +313,8 @@ def generate_z_report_pdf(report_date, summary: dict):
     rows = [
         ("Nağd Satış", f"{summary.get('cash_sales', 0):.2f} ₼"),
         ("Kart Satış", f"{summary.get('card_sales', 0):.2f} ₼"),
-        ("Ümumi Satış", f"{summary.get('total_sales', 0):.2f} ₼"),
+        ("Ümumi Satış (Brutto)", f"{summary.get('total_sales', 0):.2f} ₼"),
+        ("Net Satış (Refund çıxıldıqdan sonra)", f"{summary.get('net_sales', 0):.2f} ₼"),
         ("COGS (Maya)", f"{summary.get('total_cogs', 0):.2f} ₼"),
         ("Brutto Mənfəət", f"{summary.get('gross_profit', 0):.2f} ₼"),
         ("Kassada Olmalı", f"{summary.get('expected_cash', 0):.2f} ₼"),
@@ -387,7 +388,8 @@ def send_z_report_email(report_date, summary: dict):
     <ul>
         <li><b>Nağd Satış:</b> {summary.get('cash_sales', 0):.2f} ₼</li>
         <li><b>Kart Satış:</b> {summary.get('card_sales', 0):.2f} ₼</li>
-        <li><b>Ümumi Satış:</b> {summary.get('total_sales', 0):.2f} ₼</li>
+        <li><b>Ümumi Satış (Brutto):</b> {summary.get('total_sales', 0):.2f} ₼</li>
+        <li><b>Net Satış:</b> {summary.get('net_sales', 0):.2f} ₼</li>
         <li><b>COGS:</b> {summary.get('total_cogs', 0):.2f} ₼</li>
         <li><b>Brutto Mənfəət:</b> {summary.get('gross_profit', 0):.2f} ₼</li>
         <li><b>Kassada Olmalı:</b> {summary.get('expected_cash', 0):.2f} ₼</li>

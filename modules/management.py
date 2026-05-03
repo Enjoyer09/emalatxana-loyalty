@@ -183,6 +183,11 @@ def render_menu_page():
                                     "id": int(r['id'])
                                 }
                             )
+                            if nn.strip() != r['item_name']:
+                                run_action(
+                                    "UPDATE recipes SET menu_item_name=:n WHERE menu_item_name=:old_n",
+                                    {"n": nn.strip(), "old_n": r['item_name']}
+                                )
                             log_system(
                                 st.session_state.user,
                                 "MENU_EDIT",

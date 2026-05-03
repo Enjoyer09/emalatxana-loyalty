@@ -144,6 +144,45 @@ def ensure_schema():
             );
         """))
 
+        # INGREDIENTS
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS ingredients (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE,
+                stock_qty DECIMAL(10,3) DEFAULT 0,
+                unit TEXT,
+                category TEXT,
+                type TEXT,
+                unit_cost DECIMAL(10,4) DEFAULT 0,
+                min_limit DECIMAL(10,2) DEFAULT 10
+            );
+        """))
+
+        # RECIPES
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS recipes (
+                id SERIAL PRIMARY KEY,
+                menu_item_name TEXT,
+                ingredient_name TEXT,
+                quantity_required DECIMAL(10,3)
+            );
+        """))
+
+        # CUSTOMERS
+        s.execute(text("""
+            CREATE TABLE IF NOT EXISTS customers (
+                card_id TEXT PRIMARY KEY,
+                stars INTEGER DEFAULT 0,
+                type TEXT DEFAULT 'standard',
+                email TEXT,
+                birth_date TEXT,
+                is_active BOOLEAN DEFAULT FALSE,
+                last_visit TIMESTAMP,
+                secret_token TEXT,
+                gender TEXT
+            );
+        """))
+
         # MENU
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS menu (

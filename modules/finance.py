@@ -68,11 +68,14 @@ def get_shift_finance_snapshot(include_test=False):
     
     cogs = safe_decimal(run_query("SELECT SUM(cogs) as s FROM sales WHERE created_at >= :d AND created_at < :e AND (is_test IS NULL OR is_test = FALSE) AND (status IS NULL OR status!='VOIDED')", params).iloc[0]['s'])
     refund_count = int(run_query("SELECT COUNT(*) as c FROM refunds WHERE created_at >= :d AND created_at < :e", params).iloc[0]['c'] or 0)
+    refund_total = safe_decimal(run_query(f"SELECT SUM(amount) as r FROM finance WHERE category='Refund / Ləğv' AND type='out' AND created_at >= :d AND created_at < :e {f_filt}", params).iloc[0]['r'])
+    bank_fee_total = safe_decimal(run_query(f"SELECT SUM(amount) as b FROM finance WHERE category='Bank Komissiyası' AND type='out' AND created_at >= :d AND created_at < :e {f_filt}", params).iloc[0]['b'])
 
     return {
         "log_date": log_date, "shift_start": shift_start, "shift_end": shift_end, "opening_balance": opening_balance,
         "cash_sales": cash_sales, "card_sales": card_sales, "cash_in": cash_in, "cash_out": cash_out,
         "bank_in": bank_in, "bank_out": bank_out, "expected_cash": expected_cash, "cogs": cogs, "refund_count": refund_count,
+        "refund_total": refund_total, "bank_fee_total": bank_fee_total
     }
 
 def get_balance_snapshot(include_test=False):
@@ -113,7 +116,8 @@ def process_shift_handover(actual_cash, user, diff_note="X-Hesabat zamanı fərq
     ))
 
     run_transaction(actions)
-    set_setting(SK_CASH_LIMIT, str(actual_d))
+    # BUG FIX: X-Report should NOT update the opening balance (SK_CASH_LIMIT)
+    # This prevents double-counting the shift's transactions.
     log_system(user, log_action, {"expected_cash": str(expected_cash), "actual_cash": str(actual_d), "difference": str(diff)})
     return {"expected_cash": expected_cash, "actual_cash": actual_d, "difference": diff}
 
@@ -271,7 +275,7 @@ def finance_adjust_dialog(current_calc_cash):
         if abs(diff) > Decimal("0.001"):
             t_type = 'in' if diff > 0 else 'out'
             cat = 'Kassa Artığı' if diff > 0 else 'Kassa Kəsiri'
-            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at) VALUES (:t, :c, :a, 'Kassa', :d, :u, :time)", {"t": t_type, "c": cat, "a": str(abs(diff)), "d": f"Kassa Düzəlişi: {reason}", "u": st.session_state.user, "time": get_baku_now()})
+            run_action("INSERT INTO finance (type, category, amount, source, description, created_by, created_at, is_test) VALUES (:t, :c, :a, 'Kassa', :d, :u, :time, FALSE)", {"t": t_type, "c": cat, "a": str(abs(diff)), "d": f"Kassa Düzəlişi: {reason}", "u": st.session_state.user, "time": get_baku_now()})
             st.session_state.active_dialog = None
             st.rerun()
 
