@@ -404,6 +404,41 @@ def render_database_page():
         st.success("✅ Backup faylı uğurla hazırlandı! Yuxarıdakı düyməyə basaraq yükləyə bilərsiniz.")
 
     st.markdown("---")
+    
+    st.markdown("### 📊 Maliyyə Hesabatı Export (Son 6 Ay)")
+    if st.button("📈 Son 6 Ayın Maliyyə Axınını Excel-ə Çıxar", type="secondary", use_container_width=True):
+        with st.spinner("Hesabat hazırlanır..."):
+            try:
+                finance_df = run_query(
+                    "SELECT id, type, category, amount, source, description, created_by, created_at, is_test, is_deleted "
+                    "FROM finance "
+                    "WHERE created_at >= CURRENT_DATE - INTERVAL '6 months' "
+                    "ORDER BY created_at DESC"
+                )
+                if not finance_df.empty:
+                    from io import BytesIO
+                    out = BytesIO()
+                    finance_df.to_excel(out, index=False, sheet_name='Finance')
+                    st.session_state.finance_excel = out.getvalue()
+                    st.session_state.finance_excel_ready = True
+                    log_system(st.session_state.user, "FINANCE_6M_EXPORTED", {"count": len(finance_df)})
+                else:
+                    st.warning("Son 6 ay üçün məlumat yoxdur.")
+            except Exception as e:
+                st.error(f"Excel yaradılarkən xəta: {e}")
+
+    if st.session_state.get('finance_excel_ready', False):
+        st.download_button(
+            label="📥 Hazır Excel Faylını Yüklə",
+            data=st.session_state.finance_excel,
+            file_name=f"Maliyye_Hesabati_6_Ay_{get_baku_now().strftime('%d_%m_%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="finance_export_dl"
+        )
+        st.success("✅ Hesabat uğurla hazırlandı! Yuxarıdakı düymə ilə yükləyin.")
+
+    st.markdown("---")
 
     with st.expander("⚠️ Bazanı Bərpa Et (Restore)"):
         st.warning("DİQQƏT: Bu proses mövcud məlumatları silib yenisi ilə əvəz edəcək!")
