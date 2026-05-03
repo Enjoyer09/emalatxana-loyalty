@@ -5,7 +5,7 @@ import datetime
 import time
 import json
 import logging
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from database import run_query, run_action, run_transaction, get_setting, set_setting
 from modules.finance import get_shift_finance_snapshot, process_shift_handover, process_z_report
