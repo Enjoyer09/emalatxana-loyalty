@@ -196,8 +196,67 @@ st.markdown("""
     .stMetric label { color: #aaa !important; font-weight: 700; } .stMetric div { color: #ffd700 !important; font-family: 'Jura'; font-weight: 900; }
     
     .pin-box { background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important; height: 50px; display: flex; align-items: center; justify-content: center; color: #ffd700 !important; font-size: 32px !important; letter-spacing: 15px; margin-bottom: 15px; margin-top: 10px; }
+
+    /* ── Fullscreen Button ── */
+    #fs-btn {
+        position: fixed;
+        top: 12px;
+        right: 16px;
+        z-index: 999999;
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        border: 2px solid #ffd700;
+        background: linear-gradient(145deg, #323841, #1e2226);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 1px 1px 2px rgba(255,255,255,0.1);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        color: #ffd700;
+        transition: all 0.2s ease;
+        user-select: none;
+    }
+    #fs-btn:hover {
+        background: linear-gradient(145deg, #4a5159, #2a2f35);
+        box-shadow: 0 0 16px rgba(255,215,0,0.5);
+        transform: scale(1.08);
+    }
+    #fs-btn:active { transform: scale(0.95); }
     </style>
 """, unsafe_allow_html=True)
+
+# ── Fullscreen toggle button (Browser Fullscreen API)
+st.markdown("""
+<div id="fs-btn" onclick="toggleFS()" title="Tam ekran">⛶</div>
+<script>
+function toggleFS() {
+    var btn = document.getElementById('fs-btn');
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().then(function() {
+            btn.textContent = '✕';
+            btn.title = 'Tam ekrandan çıx';
+        }).catch(function(err) {
+            console.warn('Fullscreen error:', err);
+        });
+    } else {
+        document.exitFullscreen().then(function() {
+            btn.textContent = '⛶';
+            btn.title = 'Tam ekran';
+        });
+    }
+}
+document.addEventListener('fullscreenchange', function() {
+    var btn = document.getElementById('fs-btn');
+    if (btn) {
+        btn.textContent = document.fullscreenElement ? '✕' : '⛶';
+        btn.title     = document.fullscreenElement ? 'Tam ekrandan çıx' : 'Tam ekran';
+    }
+});
+</script>
+""", unsafe_allow_html=True)
+
 
 def get_receipt_html_string(cart, total):
     return "<div>Çek HTML...</div>"
