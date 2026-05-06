@@ -227,35 +227,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ── Fullscreen toggle button (Browser Fullscreen API)
-st.markdown("""
-<div id="fs-btn" onclick="toggleFS()" title="Tam ekran">⛶</div>
-<script>
-function toggleFS() {
-    var btn = document.getElementById('fs-btn');
-    if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().then(function() {
-            btn.textContent = '✕';
-            btn.title = 'Tam ekrandan çıx';
-        }).catch(function(err) {
-            console.warn('Fullscreen error:', err);
-        });
-    } else {
-        document.exitFullscreen().then(function() {
-            btn.textContent = '⛶';
-            btn.title = 'Tam ekran';
-        });
-    }
-}
-document.addEventListener('fullscreenchange', function() {
-    var btn = document.getElementById('fs-btn');
-    if (btn) {
-        btn.textContent = document.fullscreenElement ? '✕' : '⛶';
-        btn.title     = document.fullscreenElement ? 'Tam ekrandan çıx' : 'Tam ekran';
-    }
-});
-</script>
-""", unsafe_allow_html=True)
 
 
 def get_receipt_html_string(cart, total):
@@ -359,12 +330,15 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    h1, h2, h3 = st.columns([4, 1, 1], vertical_alignment="center")
+    h1, h2, h3, h4 = st.columns([4, 1, 1, 1], vertical_alignment="center")
     with h1:
         st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
     with h2:
         st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
     with h3:
+        # Fullscreen toggle — visible Streamlit button styled via JS
+        st.button("⛶ EKRAN", key="fs_toggle_btn", use_container_width=True, type="secondary")
+    with h4:
         if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
             if st.session_state.role == 'staff':
                 shift_modal("close")
@@ -373,6 +347,52 @@ else:
                 st.session_state.logged_in = False
                 st.rerun()
     st.divider()
+
+    # Fullscreen JS — wires the Streamlit "⛶ EKRAN" button to the Fullscreen API
+    st.markdown("""
+    <script>
+    (function wireFSBtn() {
+        function findFSBtn() {
+            var btns = Array.from(document.querySelectorAll('button'));
+            return btns.find(function(b) {
+                return b.innerText && b.innerText.trim().startsWith('⛶');
+            });
+        }
+
+        function attachFS() {
+            var btn = findFSBtn();
+            if (!btn) return;
+            // Prevent default Streamlit rerun on click
+            btn.addEventListener('click', function(e) {
+                e.stopImmediatePropagation();
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(function(err) {
+                        console.warn('Fullscreen error:', err);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }, true);
+        }
+
+        // Update button label when fullscreen state changes
+        document.addEventListener('fullscreenchange', function() {
+            var btn = findFSBtn();
+            if (btn) {
+                var p = btn.querySelector('p');
+                if (p) p.textContent = document.fullscreenElement ? '✕ ÇIXIŞ' : '⛶ EKRAN';
+            }
+        });
+
+        // Wire on load and after every Streamlit rerender
+        attachFS();
+        var observer = new MutationObserver(function() { attachFS(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+
 
     if not st.session_state.low_stock_shown:
         try:
