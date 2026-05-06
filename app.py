@@ -197,33 +197,6 @@ st.markdown("""
     
     .pin-box { background-color: #16191d !important; border: 2px solid #3a4149 !important; border-radius: 8px !important; box-shadow: inset 2px 2px 5px rgba(0,0,0,0.5) !important; height: 50px; display: flex; align-items: center; justify-content: center; color: #ffd700 !important; font-size: 32px !important; letter-spacing: 15px; margin-bottom: 15px; margin-top: 10px; }
 
-    /* ── Fullscreen Button ── */
-    #fs-btn {
-        position: fixed;
-        top: 12px;
-        right: 16px;
-        z-index: 999999;
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        border: 2px solid #ffd700;
-        background: linear-gradient(145deg, #323841, #1e2226);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6), inset 1px 1px 2px rgba(255,255,255,0.1);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        color: #ffd700;
-        transition: all 0.2s ease;
-        user-select: none;
-    }
-    #fs-btn:hover {
-        background: linear-gradient(145deg, #4a5159, #2a2f35);
-        box-shadow: 0 0 16px rgba(255,215,0,0.5);
-        transform: scale(1.08);
-    }
-    #fs-btn:active { transform: scale(0.95); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -330,15 +303,18 @@ else:
         st.session_state.clear()
         st.rerun()
 
-    h1, h2, h3, h4 = st.columns([4, 1, 1, 1], vertical_alignment="center")
+    h1, h2, h3 = st.columns([5, 1, 1], vertical_alignment="center")
     with h1:
-        st.markdown(f"<h3 style='margin:0;'>👤 {st.session_state.user} | <span style='color:#ffffff !important; font-size:16px;'>{st.session_state.role.upper()}</span></h3>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:12px;'>"
+            f"<span style='font-size:22px;font-family:Jura,sans-serif;font-weight:800;color:#ffd700;'>👤 {st.session_state.user}</span>"
+            f"<span style='font-size:13px;background:#2a2f35;border:1px solid #545b66;border-radius:6px;padding:3px 10px;color:#aaa;font-family:Jura;letter-spacing:1px;'>{st.session_state.role.upper()}</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
     with h2:
         st.button("🔄 YENİLƏ", key="refresh_top", use_container_width=True, type="secondary")
     with h3:
-        # Fullscreen toggle — visible Streamlit button styled via JS
-        st.button("⛶ EKRAN", key="fs_toggle_btn", use_container_width=True, type="secondary")
-    with h4:
         if st.button("🚪 ÇIXIŞ", type="primary", key="logout_top", use_container_width=True):
             if st.session_state.role == 'staff':
                 shift_modal("close")
@@ -348,49 +324,79 @@ else:
                 st.rerun()
     st.divider()
 
-    # Fullscreen JS — wires the Streamlit "⛶ EKRAN" button to the Fullscreen API
-    st.markdown("""
+    # ── Fullscreen button injected directly into parent DOM via component iframe
+    # This is the ONLY reliable way — Streamlit buttons lose the user-gesture context
+    # required by the browser Fullscreen API before requestFullscreen() is called.
+    import streamlit.components.v1 as _components
+    _components.html("""
+    <!DOCTYPE html><html><head><style>
+      body { margin:0; padding:0; background:transparent; overflow:hidden; }
+      #fs {
+        position: fixed; bottom: 0; right: 0;
+        width: 1px; height: 1px; overflow: hidden;
+      }
+    </style></head>
+    <body><div id="fs"></div>
     <script>
-    (function wireFSBtn() {
-        function findFSBtn() {
-            var btns = Array.from(document.querySelectorAll('button'));
-            return btns.find(function(b) {
-                return b.innerText && b.innerText.trim().startsWith('⛶');
-            });
+    (function() {
+      var p = window.parent;
+      var pd = p.document;
+
+      if (pd.getElementById('__fs_btn__')) return;
+
+      var btn = pd.createElement('div');
+      btn.id = '__fs_btn__';
+      btn.title = 'Tam ekran (F11)';
+      btn.innerHTML = '&#x26F6;';
+      btn.style.cssText = [
+        'position:fixed',
+        'top:10px',
+        'right:14px',
+        'z-index:2147483647',
+        'width:38px',
+        'height:38px',
+        'border-radius:9px',
+        'border:2px solid #ffd700',
+        'background:linear-gradient(145deg,#323841,#1e2226)',
+        'box-shadow:0 4px 14px rgba(0,0,0,.7),inset 1px 1px 2px rgba(255,255,255,.08)',
+        'cursor:pointer',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'font-size:19px',
+        'color:#ffd700',
+        'transition:all .18s ease',
+        'user-select:none',
+        'font-family:sans-serif'
+      ].join(';');
+
+      btn.onmouseenter = function() {
+        btn.style.boxShadow = '0 0 18px rgba(255,215,0,.55)';
+        btn.style.transform = 'scale(1.10)';
+      };
+      btn.onmouseleave = function() {
+        btn.style.boxShadow = '0 4px 14px rgba(0,0,0,.7),inset 1px 1px 2px rgba(255,255,255,.08)';
+        btn.style.transform = 'scale(1)';
+      };
+      btn.onclick = function() {
+        if (!pd.fullscreenElement) {
+          pd.documentElement.requestFullscreen().catch(function(e){
+            console.warn('FS error', e);
+          });
+        } else {
+          pd.exitFullscreen();
         }
+      };
 
-        function attachFS() {
-            var btn = findFSBtn();
-            if (!btn) return;
-            // Prevent default Streamlit rerun on click
-            btn.addEventListener('click', function(e) {
-                e.stopImmediatePropagation();
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen().catch(function(err) {
-                        console.warn('Fullscreen error:', err);
-                    });
-                } else {
-                    document.exitFullscreen();
-                }
-            }, true);
-        }
+      pd.addEventListener('fullscreenchange', function() {
+        btn.innerHTML = pd.fullscreenElement ? '&#x2715;' : '&#x26F6;';
+        btn.title     = pd.fullscreenElement ? 'Tam ekrandan çıx' : 'Tam ekran (F11)';
+      });
 
-        // Update button label when fullscreen state changes
-        document.addEventListener('fullscreenchange', function() {
-            var btn = findFSBtn();
-            if (btn) {
-                var p = btn.querySelector('p');
-                if (p) p.textContent = document.fullscreenElement ? '✕ ÇIXIŞ' : '⛶ EKRAN';
-            }
-        });
-
-        // Wire on load and after every Streamlit rerender
-        attachFS();
-        var observer = new MutationObserver(function() { attachFS(); });
-        observer.observe(document.body, { childList: true, subtree: true });
+      pd.body.appendChild(btn);
     })();
-    </script>
-    """, unsafe_allow_html=True)
+    </script></body></html>
+    """, height=0, scrolling=False)
 
 
 
