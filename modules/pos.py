@@ -127,7 +127,10 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         for i in cart:
             line = Decimal(str(i['qty'])) * Decimal(str(i['price']))
             total += line
-            final_total += (line - (line * disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if i.get('is_coffee'):
+                final_total += (line - (line * disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            else:
+                final_total += line
         if is_table and service_fee_pct > 0:
             final_total += (final_total * service_fee_pct).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return total, final_total, disc_rate, 0, 0, 0, False
@@ -136,8 +139,14 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         current_stars = customer.get('stars', 0)
         ctype = customer.get('type', 'standard')
         if ctype == 'ikram':
-            total = sum([Decimal(str(i['qty'])) * Decimal(str(i['price'])) for i in cart], Decimal("0"))
-            return total, Decimal("0"), Decimal("1"), 0, 0, 0, True
+            for i in cart:
+                line = Decimal(str(i['qty'])) * Decimal(str(i['price']))
+                total += line
+                if not i.get('is_coffee'):
+                    final_total += line
+            if is_table and service_fee_pct > 0:
+                final_total += (final_total * service_fee_pct).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            return total, final_total, Decimal("1"), 0, 0, 0, True
         rates = {'golden': '0.05', 'platinum': '0.10', 'elite': '0.20', 'thermos': '0.20', 'telebe': '0.15'}
         disc_rate = Decimal(rates.get(ctype, '0'))
 
@@ -155,14 +164,16 @@ def calculate_smart_total(cart, customer=None, is_table=False, manual_discount_p
         line_original = Decimal(str(i['qty'])) * Decimal(str(i['price']))
         total += line_original
 
+        effective_disc_rate = disc_rate if i.get('is_coffee') else Decimal("0")
+
         if i.get('is_coffee') and free_coffees_to_give > 0:
             free_from_this = min(i['qty'], free_coffees_to_give)
             paid_qty = i['qty'] - free_from_this
-            line_paid = (Decimal(str(paid_qty)) * item_price * (Decimal("1") - disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_paid = (Decimal(str(paid_qty)) * item_price * (Decimal("1") - effective_disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             final_total += line_paid
             free_coffees_to_give -= free_from_this
         else:
-            line_disc = (Decimal(str(i['qty'])) * item_price * (Decimal("1") - disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_disc = (Decimal(str(i['qty'])) * item_price * (Decimal("1") - effective_disc_rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             final_total += line_disc
 
     if is_table and service_fee_pct > 0:
