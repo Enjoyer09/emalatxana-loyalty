@@ -568,6 +568,47 @@ def render_z_report_page():
                     time.sleep(1)
                     st.rerun()
 
+    # 💸 MƏDAXİL / XƏRC ƏLAVƏ ET (Z-Hesabat səhifəsində hamı üçün)
+    st.markdown("---")
+    with st.expander("💸 Mədaxil / Xərc Əlavə Et"):
+        with st.form("z_page_finance_form", clear_on_submit=True):
+            transaction_type = st.radio("Əməliyyat Növünü Seçin:", ["Məxaric (Çıxış) 🔴", "Mədaxil (Giriş) 🟢"], horizontal=True)
+            f_cat = st.selectbox("Kateqoriya", [
+                "Xammal Alışı", "Kommunal", "Maaş/Avans", "İcarə", "Cərimə/Polis",
+                "Əlavə Gəlir", "İnvestisiya (Kapital)", "Kredit", "Digər"
+            ])
+            f_src = "Kassa"
+            from utils import SUBJECTS
+            subs = sorted(list(set(SUBJECTS + ["Azərişıq", "Azərsu", "Market", "Kofe Təchizat", "İnvestor", "Dövlət/Vergi", "Mühafizə"])))
+            f_sbj = st.selectbox("Kimə / Kimdən (Subyekt)?", subs)
+            c_amt, c_date = st.columns(2)
+            f_amt = c_amt.number_input("Məbləğ (AZN)", min_value=0.0, step=1.0)
+            f_date = c_date.date_input("Tarix", datetime.date.today())
+            f_desc = st.text_input("Açıqlama / Qeyd")
+            
+            if st.form_submit_button("✅ Təsdiqlə və Qeydə Al", use_container_width=True):
+                if f_amt > 0:
+                    db_type = 'out' if "Məxaric" in transaction_type else 'in'
+                    is_t_active = st.session_state.get('test_mode', False)
+                    run_action(
+                        "INSERT INTO finance (type, category, amount, source, description, created_by, subject, created_at, is_test) "
+                        "VALUES (:t, :c, :a, :s, :d, :u, :sb, :time, :tst)",
+                        {
+                            "t": db_type,
+                            "c": f_cat,
+                            "a": str(Decimal(str(f_amt))),
+                            "s": f_src,
+                            "d": f_desc,
+                            "u": st.session_state.user,
+                            "sb": f_sbj,
+                            "time": datetime.datetime.combine(f_date, get_baku_now().time()),
+                            "tst": is_t_active
+                        }
+                    )
+                    st.success("Mədaxil/Xərc uğurla qeydə alındı!")
+                    time.sleep(1)
+                    st.rerun()
+
     if st.session_state.get('active_dialog'):
         d_type, d_data = st.session_state.active_dialog
         if d_type == "x_report": 
